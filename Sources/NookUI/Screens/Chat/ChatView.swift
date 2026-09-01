@@ -67,10 +67,9 @@ public struct ChatView: View {
                         }
                     }
                 }
-                .onChange(of: session.messages.last?.content) { _, _ in
-                    if let last = session.messages.last {
-                        proxy.scrollTo(last.id, anchor: .bottom)
-                    }
+                .onChange(of: session.isStreaming) { _, isStreaming in
+                    guard !isStreaming, let last = session.messages.last else { return }
+                    proxy.scrollTo(last.id, anchor: .bottom)
                 }
 
             }

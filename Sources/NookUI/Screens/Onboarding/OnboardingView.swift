@@ -11,11 +11,17 @@ public enum OnboardingStep {
 
 public struct OnboardingView: View {
     @State private var currentStep: OnboardingStep = .hero
-    @State private var selectedTier: ModelTier = ModelTier.standardTiers[1]
+    @State private var selectedTier: ModelTier = ModelTier.standardTiers[0]
     @State private var downloadProgress: Double = 0.0
+    @State private var downloadError: String? = nil
+    private let downloadModel: @Sendable (ModelTier, @escaping @Sendable (Double) -> Void) async throws -> Void
     private let onComplete: (ModelTier) -> Void
     
-    public init(onComplete: @escaping (ModelTier) -> Void) {
+    public init(
+        downloadModel: @escaping @Sendable (ModelTier, @escaping @Sendable (Double) -> Void) async throws -> Void,
+        onComplete: @escaping (ModelTier) -> Void
+    ) {
+        self.downloadModel = downloadModel
         self.onComplete = onComplete
     }
     
@@ -156,7 +162,7 @@ public struct OnboardingView: View {
             
             Spacer().frame(height: 12)
             
-            NookPrimaryButton(title: "Download \(selectedTier.size)") {
+            NookPrimaryButton(title: setupButtonTitle) {
                 withAnimation(.linear(duration: 0.2)) {
                     currentStep = .downloading
                 }
@@ -165,10 +171,14 @@ public struct OnboardingView: View {
         }
     }
     
+    private var setupButtonTitle: String {
+        selectedTier.shipsBundled ? "Continue" : "Download \(selectedTier.size)"
+    }
+
     // MARK: - Step 3: Downloading
     private var downloadingStepView: some View {
         VStack(alignment: .leading, spacing: 20) {
-            Text("Downloading")
+            Text(selectedTier.shipsBundled ? "Preparing" : "Downloading")
                 .font(NookTypography.tabRootTitle)
                 .foregroundColor(NookColors.ink)
             
@@ -191,28 +201,47 @@ public struct OnboardingView: View {
                 .font(NookTypography.badge)
                 .foregroundColor(NookColors.ink55)
             
-            Text("Once it lands, Nook answers without a network connection. You can close the app; the download resumes.")
+            Text(
+                selectedTier.shipsBundled
+                    ? "This model ships with Nook. No network connection needed."
+                    : "Once it lands, Nook answers without a network connection. You can close the app; the download resumes."
+            )
                 .font(NookTypography.body)
                 .foregroundColor(NookColors.ink55)
                 .lineSpacing(4)
                 .frame(maxWidth: 300, alignment: .leading)
+
+            if let downloadError {
+                Text(downloadError)
+                    .font(NookTypography.meta)
+                    .foregroundColor(NookColors.external)
+                    .lineSpacing(3)
+            }
             
             Spacer().frame(height: 40)
         }
     }
     
     private func startDownload() {
-        Task {
-            for p in stride(from: 0.05, through: 1.0, by: 0.12) {
-                try? await Task.sleep(nanoseconds: 140_000_000)
-                await MainActor.run {
-                    self.downloadProgress = min(1.0, p)
+        downloadError = nil
+        let tier = selectedTier
+        let download = downloadModel
+        Task.detached(priority: .userInitiated) {
+            do {
+                try await download(tier) { progress in
+                    Task { @MainActor in
+                        self.downloadProgress = min(1.0, progress)
+                    }
                 }
-            }
-            await MainActor.run {
-                self.downloadProgress = 1.0
-                withAnimation(.linear(duration: 0.2)) {
-                    self.currentStep = .ready
+                await MainActor.run {
+                    self.downloadProgress = 1.0
+                    withAnimation(.linear(duration: 0.2)) {
+                        self.currentStep = .ready
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    self.downloadError = "Download failed. Check your connection and try again."
                 }
             }
         }

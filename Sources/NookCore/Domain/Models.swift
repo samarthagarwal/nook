@@ -356,24 +356,29 @@ public struct ModelTier: Identifiable, Codable, Equatable, Sendable {
         self.tags = tags
         self.isDefault = isDefault
     }
+
+    /// True when model weights ship inside the app bundle (no network download).
+    public var shipsBundled: Bool {
+        id == "fast"
+    }
     
     public static let standardTiers: [ModelTier] = [
         ModelTier(
             id: "fast",
             name: "Fast",
-            size: "0.8 GB",
-            desc: "Quick answers, lighter reasoning.",
-            longDesc: "Gemma 3 1B. Instant on older iPhones, best for short questions and quick rewrites.",
-            tags: ["text"]
+            size: "280 MB",
+            desc: "Bundled with the app. Quick answers, lighter reasoning.",
+            longDesc: "Qwen2.5 0.5B (4-bit). Bundled with the app — no download required.",
+            tags: ["text", "bundled"],
+            isDefault: true
         ),
         ModelTier(
             id: "balanced",
             name: "Balanced",
             size: "2.9 GB",
-            desc: "Recommended. Reads images and documents.",
-            longDesc: "Qwen3-VL 4B. Reads screenshots and PDF pages, follows Skills reliably. The default.",
-            tags: ["text", "images", "recommended"],
-            isDefault: true
+            desc: "Reads images and documents.",
+            longDesc: "Qwen3-VL 4B. Reads screenshots and PDF pages, follows Skills reliably.",
+            tags: ["text", "images", "recommended"]
         ),
         ModelTier(
             id: "powerful",

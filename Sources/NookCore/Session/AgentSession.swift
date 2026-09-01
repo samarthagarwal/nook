@@ -202,15 +202,27 @@ public final class AgentSession: ObservableObject {
         )
         
         do {
-            let fullText = try await streamHandler(promptContext) { [weak self] token in
-                Task { @MainActor [weak self] in
-                    guard let self = self else { return }
-                    if let index = self.messages.firstIndex(where: { $0.id == assistantMsgId }) {
-                        self.messages[index].content += token
+            var fullText = ""
+            let stream = AsyncStream<String> { continuation in
+                Task.detached(priority: .userInitiated) {
+                    do {
+                        _ = try await streamHandler(promptContext) { token in
+                            continuation.yield(token)
+                        }
+                        continuation.finish()
+                    } catch {
+                        continuation.finish()
                     }
                 }
             }
-            
+
+            for await token in stream {
+                fullText += token
+                if let index = self.messages.firstIndex(where: { $0.id == assistantMsgId }) {
+                    self.messages[index].content = fullText
+                }
+            }
+
             if let index = self.messages.firstIndex(where: { $0.id == assistantMsgId }) {
                 self.messages[index].content = fullText
                 self.messages[index].citations = citationsToAttachOnCompletion

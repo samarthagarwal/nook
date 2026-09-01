@@ -4,9 +4,9 @@ import NookCore
 import NookRuntime
 
 public struct AppRootView: View {
-    @State private var isOnboardingComplete: Bool = true
+    @State private var isOnboardingComplete: Bool = false
     @State private var selectedTab: NookTab = .chat
-    @State private var activeTier: ModelTier = ModelTier.standardTiers[1]
+    @State private var activeTier: ModelTier = ModelTier.standardTiers[0]
     
     // Core Engine Instances
     @StateObject private var knowledgeState: ObservableKnowledgeEngine
@@ -43,7 +43,7 @@ public struct AppRootView: View {
         skillManager: SkillManager = SkillManager(),
         toolRegistry: ToolRegistry = ToolRegistry(),
         mcpClient: MCPClient = MCPClient(),
-        runtime: ModelRuntime = ScriptedModelRuntime()
+        runtime: ModelRuntime = ModelRuntimeFactory.make(activeTier: ModelTier.standardTiers[0])
     ) {
         self.knowledgeEngine = knowledgeEngine
         self.memoryEngine = memoryEngine
@@ -63,11 +63,16 @@ public struct AppRootView: View {
             NookColors.paper.ignoresSafeArea()
             
             if !isOnboardingComplete {
-                OnboardingView { chosenTier in
-                    self.activeTier = chosenTier
-                    self.isOnboardingComplete = true
-                    startNewChat()
-                }
+                OnboardingView(
+                    downloadModel: { tier, progress in
+                        try await self.runtime.downloadModel(tier: tier, progressHandler: progress)
+                    },
+                    onComplete: { chosenTier in
+                        self.activeTier = chosenTier
+                        self.isOnboardingComplete = true
+                        startNewChat()
+                    }
+                )
             } else {
                 mainContentView
             }
@@ -82,8 +87,27 @@ public struct AppRootView: View {
                 .animation(.linear(duration: 0.2), value: toast)
             }
         }
+        .onChange(of: activeTier) { _, newTier in
+            guard isOnboardingComplete else { return }
+            Task {
+                try? await runtime.downloadModel(tier: newTier) { _ in }
+            }
+        }
         .onAppear {
             setupInitialConversations()
+            print("[AppRootView] App launched. Runtime: \(type(of: runtime)) (\(MLXPlatformSupport.runtimeLabel)). DownloadState: \(runtime.downloadState)")
+            // If onboarding is already complete (e.g. dev mode), trigger model download
+            // immediately so it's ready before the user sends their first message.
+            if isOnboardingComplete && runtime.downloadState == .notDownloaded {
+                let tier = activeTier
+                Task.detached(priority: .userInitiated) {
+                    print("[AppRootView] Pre-loading model for tier: \(tier.name)")
+                    try? await runtime.downloadModel(tier: tier) { progress in
+                        print("[AppRootView] Pre-load progress: \(Int(progress * 100))%")
+                    }
+                    print("[AppRootView] Pre-load complete. Model ready.")
+                }
+            }
         }
     }
     

@@ -1,4 +1,4 @@
-// swift-tools-version: 5.10
+// swift-tools-version: 6.0
 import PackageDescription
 
 let package = Package(
@@ -15,7 +15,12 @@ let package = Package(
         .executable(name: "NookApp", targets: ["NookApp"]),
         .executable(name: "NookCLI", targets: ["NookCLI"])
     ],
-    dependencies: [],
+    dependencies: [
+        .package(url: "https://github.com/ml-explore/mlx-swift", from: "0.31.6"),
+        .package(url: "https://github.com/ml-explore/mlx-swift-lm", from: "3.31.3"),
+        .package(url: "https://github.com/huggingface/swift-huggingface", from: "0.9.0"),
+        .package(url: "https://github.com/huggingface/swift-transformers", from: "1.3.0")
+    ],
     targets: [
         .target(
             name: "NookDesign",
@@ -27,7 +32,18 @@ let package = Package(
         ),
         .target(
             name: "NookRuntime",
-            dependencies: ["NookCore"]
+            dependencies: [
+                "NookCore",
+                .product(name: "MLX", package: "mlx-swift"),
+                .product(name: "MLXLLM", package: "mlx-swift-lm"),
+                .product(name: "MLXLMCommon", package: "mlx-swift-lm"),
+                .product(name: "MLXHuggingFace", package: "mlx-swift-lm"),
+                .product(name: "HuggingFace", package: "swift-huggingface"),
+                .product(name: "Tokenizers", package: "swift-transformers")
+            ],
+            resources: [
+                .copy("Resources/BundledModels")
+            ]
         ),
         .target(
             name: "NookUI",
