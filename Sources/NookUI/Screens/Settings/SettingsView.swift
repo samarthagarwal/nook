@@ -8,11 +8,13 @@ public struct SettingsView: View {
     public let onOpenPaywall: () -> Void
     public let onRebuildIndexes: () -> Void
     public let onExportData: () -> Void
+    public let onEraseAllLocalData: () -> Void
     public let onClose: () -> Void
     
     @State private var keepOnDevice: Bool = true
     @State private var logOutgoing: Bool = true
     @State private var shareUsage: Bool = false
+    @State private var showEraseConfirmation: Bool = false
     
     public init(
         activeTier: Binding<ModelTier>,
@@ -20,6 +22,7 @@ public struct SettingsView: View {
         onOpenPaywall: @escaping () -> Void,
         onRebuildIndexes: @escaping () -> Void,
         onExportData: @escaping () -> Void,
+        onEraseAllLocalData: @escaping () -> Void,
         onClose: @escaping () -> Void
     ) {
         self._activeTier = activeTier
@@ -27,6 +30,7 @@ public struct SettingsView: View {
         self.onOpenPaywall = onOpenPaywall
         self.onRebuildIndexes = onRebuildIndexes
         self.onExportData = onExportData
+        self.onEraseAllLocalData = onEraseAllLocalData
         self.onClose = onClose
     }
     
@@ -127,6 +131,32 @@ public struct SettingsView: View {
                                 sub: "Chats, Knowledge and grants as files",
                                 action: onExportData
                             )
+                            Button(action: {
+                                showEraseConfirmation = true
+                            }) {
+                                HStack {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text("Erase chats and Knowledge")
+                                            .font(NookTypography.rowTitle)
+                                            .foregroundColor(NookColors.external)
+                                        Text("Deletes all conversations and indexed documents")
+                                            .font(NookTypography.meta)
+                                            .foregroundColor(NookColors.ink55)
+                                    }
+                                    Spacer()
+                                }
+                                .padding(14)
+                                .background(
+                                    RoundedRectangle(cornerRadius: NookRadius.card)
+                                        .fill(NookColors.surface)
+                                )
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: NookRadius.card)
+                                        .strokeBorder(NookColors.hairline, lineWidth: 1)
+                                )
+                                .nookCardShadow()
+                            }
+                            .buttonStyle(.plain)
                         }
                     }
                 }
@@ -135,6 +165,14 @@ public struct SettingsView: View {
             }
         }
         .background(NookColors.paper.ignoresSafeArea())
+        .alert("Erase all local data?", isPresented: $showEraseConfirmation) {
+            Button("Erase", role: .destructive) {
+                onEraseAllLocalData()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This removes every chat and indexed document from this iPhone. It cannot be undone.")
+        }
     }
     
     private func toggleRow(title: String, sub: String, isOn: Binding<Bool>) -> some View {

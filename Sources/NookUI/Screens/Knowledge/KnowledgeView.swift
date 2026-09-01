@@ -110,19 +110,25 @@ public struct KnowledgeView: View {
 public struct CollectionDetailView: View {
     public let collection: KnowledgeCollection
     public let documents: [KnowledgeDocument]
+    public let isImporting: Bool
     public let onBack: () -> Void
     public let onStartChat: () -> Void
-    
+    public let onAddMarkdown: () -> Void
+
     public init(
         collection: KnowledgeCollection,
         documents: [KnowledgeDocument],
+        isImporting: Bool = false,
         onBack: @escaping () -> Void,
-        onStartChat: @escaping () -> Void
+        onStartChat: @escaping () -> Void,
+        onAddMarkdown: @escaping () -> Void
     ) {
         self.collection = collection
         self.documents = documents
+        self.isImporting = isImporting
         self.onBack = onBack
         self.onStartChat = onStartChat
+        self.onAddMarkdown = onAddMarkdown
     }
     
     public var body: some View {
@@ -145,7 +151,7 @@ public struct CollectionDetailView: View {
                     .foregroundColor(NookColors.ink)
                     .padding(.top, 4)
                 
-                Text("9 documents · 1,402 passages · 2.1 GB")
+                Text("\(collection.count) · \(collection.status)")
                     .font(NookTypography.meta)
                     .foregroundColor(NookColors.ink45)
             }
@@ -153,6 +159,34 @@ public struct CollectionDetailView: View {
             .padding(.horizontal, 18)
             .padding(.top, 16)
             .padding(.bottom, 16)
+
+            Button(action: onAddMarkdown) {
+                HStack(spacing: 8) {
+                    Image(systemName: "doc.badge.plus")
+                        .font(.system(size: 14, weight: .medium))
+                    Text(isImporting ? "Indexing Markdown…" : "Add Markdown file")
+                        .font(NookTypography.rowTitle)
+                    Spacer()
+                    if isImporting {
+                        ProgressView()
+                            .controlSize(.small)
+                    }
+                }
+                .foregroundColor(NookColors.ink70)
+                .padding(14)
+                .background(
+                    RoundedRectangle(cornerRadius: NookRadius.card)
+                        .fill(NookColors.surfaceSunken)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: NookRadius.card)
+                        .strokeBorder(NookColors.hairline, lineWidth: 1)
+                )
+            }
+            .buttonStyle(.plain)
+            .disabled(isImporting)
+            .padding(.horizontal, 18)
+            .padding(.bottom, 12)
             
             // Documents List
             ScrollView {
@@ -235,13 +269,30 @@ public struct CollectionDetailView: View {
 @MainActor
 public final class ObservableKnowledgeEngine: ObservableObject {
     @Published public var collections: [KnowledgeCollection] = []
+    @Published public var documents: [KnowledgeDocument] = []
+    @Published public var isImporting: Bool = false
     private let engine: KnowledgeEngine
-    
+
     public init(engine: KnowledgeEngine) {
         self.engine = engine
         Task {
-            let cols = await engine.getCollections()
-            self.collections = cols
+            await refreshCollections()
         }
+    }
+
+    public func refreshCollections() async {
+        collections = await engine.getCollections()
+    }
+
+    public func loadDocuments(collectionId: String) async {
+        documents = await engine.getDocuments(forCollectionId: collectionId)
+    }
+
+    public func importMarkdown(from url: URL, collectionId: String) async throws {
+        isImporting = true
+        defer { isImporting = false }
+        _ = try await engine.importMarkdown(from: url, collectionId: collectionId)
+        await loadDocuments(collectionId: collectionId)
+        await refreshCollections()
     }
 }

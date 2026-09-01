@@ -13,10 +13,56 @@ final class NookEngineTests: XCTestCase {
         )
 
         XCTAssertFalse(hits.isEmpty)
+        XCTAssertLessThan(hits.count, 5, "Should not return every seeded chunk as a hit")
         XCTAssertTrue(
             hits.contains { $0.chunk.text.localizedCaseInsensitiveContains("risk") },
             "Expected risk-related passages from the seeded corpus"
         )
+    }
+
+    func testKnowledgeSearchOmitsIrrelevantPassages() throws {
+        let store = try KnowledgeStore.makeForTests()
+        let hits = try store.search(
+            query: "vendor contract liability penalty clauses",
+            scopedToCollections: ["Project Alpha"],
+            limit: 5
+        )
+
+        XCTAssertFalse(hits.isEmpty)
+        XCTAssertLessThanOrEqual(hits.count, 2)
+        XCTAssertTrue(
+            hits.allSatisfy { $0.documentName == "vendor-contract.docx" },
+            "Only vendor-contract passages should surface for this query"
+        )
+    }
+
+    func testMarkdownImportIndexesByHeading() throws {
+        let store = try KnowledgeStore.makeForTests()
+        let mdURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("notes-\(UUID().uuidString).md")
+        let markdown = """
+        # Risks
+
+        Vendor delay is the main schedule risk for launch.
+
+        ## Mitigation
+
+        Add buffer weeks to the integration timeline.
+        """
+        try markdown.write(to: mdURL, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: mdURL) }
+
+        let document = try store.importMarkdownFile(from: mdURL, collectionId: "project-alpha")
+        XCTAssertTrue(document.name.hasSuffix(".md"))
+        XCTAssertEqual(document.status, "Indexed")
+
+        let hits = try store.search(
+            query: "vendor delay schedule risk",
+            scopedToCollections: ["Project Alpha"],
+            limit: 5
+        )
+        XCTAssertFalse(hits.isEmpty)
+        XCTAssertTrue(hits.contains { $0.chunk.pageOrSection == "Risks" })
     }
 
     func testContextAssemblerTokenBudget() {

@@ -15,6 +15,10 @@ public actor KnowledgeEngine {
         (try? store.fetchDocuments(collectionId: collectionId)) ?? []
     }
 
+    public func importMarkdown(from url: URL, collectionId: String) throws -> KnowledgeDocument {
+        try store.importMarkdownFile(from: url, collectionId: collectionId)
+    }
+
     /// Chunks arbitrary text into 400-600 token pieces with 50-100 token overlap.
     public func chunkText(text: String, documentId: String, pageOrSection: String) -> [DocumentChunk] {
         store.chunkText(text: text, documentName: documentId, pageOrSection: pageOrSection)

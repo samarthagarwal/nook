@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 import NookDesign
 import NookCore
 import NookRuntime
@@ -34,6 +35,8 @@ public struct AppRootView: View {
     @State private var activeCitation: Citation? = nil
     @State private var isAttachSheetOpen: Bool = false
     @State private var isScopeSheetOpen: Bool = false
+    @State private var isMarkdownImporterPresented: Bool = false
+    @State private var markdownImportCollectionId: String? = nil
     @State private var activeToast: String? = nil
     
     public init(
@@ -167,12 +170,8 @@ public struct AppRootView: View {
                     if let coll = selectedCollection {
                         CollectionDetailView(
                             collection: coll,
-                            documents: [
-                                KnowledgeDocument(collectionId: coll.id, name: "alpha-spec-v4.pdf", meta: "42 pages", status: "Indexed"),
-                                KnowledgeDocument(collectionId: coll.id, name: "risk-register.pdf", meta: "6 pages", status: "Indexed"),
-                                KnowledgeDocument(collectionId: coll.id, name: "retro-notes.md", meta: "2,100 words", status: "Indexed"),
-                                KnowledgeDocument(collectionId: coll.id, name: "vendor-contract.docx", meta: "18 pages", status: "Extracting 62%", progressPct: 62)
-                            ],
+                            documents: knowledgeState.documents,
+                            isImporting: knowledgeState.isImporting,
                             onBack: {
                                 self.selectedCollection = nil
                             },
@@ -180,6 +179,10 @@ public struct AppRootView: View {
                                 self.selectedCollection = nil
                                 self.selectedTab = .chat
                                 startNewChat(scopedTo: [coll.name])
+                            },
+                            onAddMarkdown: {
+                                markdownImportCollectionId = coll.id
+                                isMarkdownImporterPresented = true
                             }
                         )
                     } else {
@@ -296,6 +299,9 @@ public struct AppRootView: View {
                     self.isSettingsOpen = false
                     showToast("Export package saved locally.")
                 },
+                onEraseAllLocalData: {
+                    eraseAllLocalData()
+                },
                 onClose: {
                     self.isSettingsOpen = false
                 }
@@ -344,6 +350,7 @@ public struct AppRootView: View {
                             session.persistConversationMetadata()
                         }
                     ),
+                    availableCollections: knowledgeState.collections.map(\.name),
                     onClose: {
                         self.isScopeSheetOpen = false
                     }
@@ -360,6 +367,33 @@ public struct AppRootView: View {
             }
             .presentationDetents([.fraction(0.65)])
         }
+        .onChange(of: selectedCollection?.id) { _, collectionId in
+            guard let collectionId else { return }
+            Task {
+                await knowledgeState.loadDocuments(collectionId: collectionId)
+            }
+        }
+        .fileImporter(
+            isPresented: $isMarkdownImporterPresented,
+            allowedContentTypes: Self.markdownImportTypes,
+            allowsMultipleSelection: false
+        ) { result in
+            guard case .success(let urls) = result,
+                  let url = urls.first,
+                  let collectionId = markdownImportCollectionId else { return }
+            Task {
+                do {
+                    try await knowledgeState.importMarkdown(from: url, collectionId: collectionId)
+                    if let coll = selectedCollection,
+                       let updated = knowledgeState.collections.first(where: { $0.id == coll.id }) {
+                        selectedCollection = updated
+                    }
+                    showToast("Indexed \(url.lastPathComponent)")
+                } catch {
+                    showToast(error.localizedDescription)
+                }
+            }
+        }
         .onChange(of: runtimeStore.downloadState) { oldState, newState in
             if case .downloading = oldState, case .ready = newState {
                 showToast("\(runtimeStore.activeTier.name) is ready.")
@@ -367,6 +401,14 @@ public struct AppRootView: View {
         }
     }
     
+    private static var markdownImportTypes: [UTType] {
+        var types: [UTType] = [.plainText]
+        if let markdown = UTType(filenameExtension: "md") {
+            types.append(markdown)
+        }
+        return types
+    }
+
     private func loadConversations() {
         conversations = (try? ChatStore.shared.fetchConversations()) ?? []
     }
@@ -404,6 +446,24 @@ public struct AppRootView: View {
         openConversation(newConvo)
     }
     
+    private func eraseAllLocalData() {
+        do {
+            try NookLocalDataReset.eraseAll()
+            conversations = []
+            activeSession = nil
+            selectedCollection = nil
+            isSettingsOpen = false
+            Task {
+                await knowledgeState.refreshCollections()
+                knowledgeState.documents = []
+            }
+            showToast("All chats and Knowledge erased.")
+        } catch {
+            showToast("Could not erase local data.")
+            print("[AppRootView] Erase failed: \(error)")
+        }
+    }
+
     private func showToast(_ message: String) {
         self.activeToast = message
         Task {

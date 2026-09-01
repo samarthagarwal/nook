@@ -116,6 +116,12 @@ public enum NookDatabase {
                 """)
         }
 
+        migrator.registerMigration("v3_knowledge_file_path") { db in
+            try db.alter(table: "knowledge_documents") { table in
+                table.add(column: "file_path", .text)
+            }
+        }
+
         try migrator.migrate(dbQueue)
     }
 }

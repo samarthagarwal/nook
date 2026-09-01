@@ -5,6 +5,12 @@ import NookRuntime
 @main
 struct NookCLIMain {
     static func main() async throws {
+        if CommandLine.arguments.contains("--erase-local-data") {
+            try NookLocalDataReset.eraseAll()
+            print("Erased all chats and Knowledge. Empty Project Alpha collection is ready for import.")
+            return
+        }
+
         print("=======================================================")
         print("          Nook Private AI Workspace — CLI Test         ")
         print("=======================================================")

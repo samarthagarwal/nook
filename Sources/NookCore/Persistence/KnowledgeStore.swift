@@ -8,6 +8,15 @@ public struct KnowledgeSearchHit: Sendable {
     public let score: Double
 }
 
+private struct RankedKnowledgeHit {
+    let chunk: DocumentChunk
+    let documentName: String
+    let collectionName: String
+    let combined: Double
+    let normalizedLexical: Double
+    let semanticScore: Double
+}
+
 /// Local SQLite store for Knowledge collections, documents, chunks, and hybrid search.
 public final class KnowledgeStore: @unchecked Sendable {
     public static let shared: KnowledgeStore = {
@@ -87,19 +96,96 @@ public final class KnowledgeStore: @unchecked Sendable {
         pageOrSection: String,
         text: String
     ) throws {
-        let chunks = chunkText(text: text, documentName: documentName, pageOrSection: pageOrSection)
-        try dbQueue.write { db in
+        _ = try indexDocument(
+            collectionId: collectionId,
+            documentName: documentName,
+            meta: meta,
+            filePath: nil,
+            sections: [(pageOrSection: pageOrSection, text: text)]
+        )
+    }
+
+    public func indexDocument(
+        collectionId: String,
+        documentName: String,
+        meta: String,
+        filePath: String?,
+        sections: [(pageOrSection: String, text: String)]
+    ) throws -> String {
+        guard !sections.isEmpty else { throw KnowledgeImportError.emptyDocument }
+
+        return try dbQueue.write { db in
             let documentId = try upsertDocument(
                 collectionId: collectionId,
                 name: documentName,
                 meta: meta,
+                filePath: filePath,
                 in: db
             )
             try deleteChunks(forDocumentId: documentId, in: db)
-            for chunk in chunks {
-                try insertChunk(chunk, documentId: documentId, in: db)
+            for section in sections {
+                let chunks = chunkText(
+                    text: section.text,
+                    documentName: documentName,
+                    pageOrSection: section.pageOrSection
+                )
+                for chunk in chunks {
+                    try insertChunk(chunk, documentId: documentId, in: db)
+                }
+            }
+            return documentId
+        }
+    }
+
+    /// Copies a Markdown file into app storage, splits on headings, chunks, and indexes.
+    public func importMarkdownFile(from sourceURL: URL, collectionId: String) throws -> KnowledgeDocument {
+        guard sourceURL.pathExtension.lowercased() == "md" else {
+            throw KnowledgeImportError.unsupportedType
+        }
+
+        let didAccess = sourceURL.startAccessingSecurityScopedResource()
+        defer {
+            if didAccess {
+                sourceURL.stopAccessingSecurityScopedResource()
             }
         }
+
+        let fileName = sourceURL.lastPathComponent
+        let destURL = try KnowledgeFiles.copyImportedFile(
+            from: sourceURL,
+            collectionId: collectionId,
+            fileName: fileName
+        )
+
+        let markdown: String
+        do {
+            markdown = try String(contentsOf: destURL, encoding: .utf8)
+        } catch {
+            throw KnowledgeImportError.unreadableFile
+        }
+
+        let trimmed = markdown.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { throw KnowledgeImportError.emptyDocument }
+
+        let sections = MarkdownSectionParser.sections(from: trimmed)
+        let wordCount = trimmed.split(whereSeparator: \.isWhitespace).count
+        let meta = wordCount == 1 ? "1 word" : "\(wordCount) words"
+
+        let documentId = try indexDocument(
+            collectionId: collectionId,
+            documentName: fileName,
+            meta: meta,
+            filePath: destURL.path,
+            sections: sections
+        )
+
+        return KnowledgeDocument(
+            id: documentId,
+            collectionId: collectionId,
+            name: fileName,
+            meta: meta,
+            status: "Indexed"
+        )
     }
 
     /// Hybrid lexical + embedding retrieval scoped to collection display names.
@@ -162,7 +248,7 @@ public final class KnowledgeStore: @unchecked Sendable {
 
             let maxLexical = lexicalScores.values.max() ?? 0
 
-            var hits: [KnowledgeSearchHit] = []
+            var ranked: [RankedKnowledgeHit] = []
             for row in candidateRows {
                 let chunkId: String = row["chunk_id"]
                 let text: String = row["text"]
@@ -182,10 +268,8 @@ public final class KnowledgeStore: @unchecked Sendable {
                 let normalizedLexical = maxLexical > 0 ? lexicalScore / maxLexical : 0
                 let combined = (0.35 * normalizedLexical) + (0.65 * max(0, semanticScore))
 
-                guard combined > 0.05 else { continue }
-
-                hits.append(
-                    KnowledgeSearchHit(
+                ranked.append(
+                    RankedKnowledgeHit(
                         chunk: DocumentChunk(
                             id: chunkId,
                             documentId: documentName,
@@ -194,15 +278,40 @@ public final class KnowledgeStore: @unchecked Sendable {
                         ),
                         documentName: documentName,
                         collectionName: collectionName,
-                        score: combined
+                        combined: combined,
+                        normalizedLexical: normalizedLexical,
+                        semanticScore: semanticScore
                     )
                 )
             }
 
-            return Array(
-                hits
-                    .sorted { $0.score > $1.score }
-                    .prefix(limit)
+            return filterRelevantHits(ranked, limit: limit)
+        }
+    }
+
+    /// Keeps only passages with a real lexical or semantic match — avoids showing every
+    /// chunk in a small collection as a citation pill.
+    private func filterRelevantHits(_ ranked: [RankedKnowledgeHit], limit: Int) -> [KnowledgeSearchHit] {
+        let sorted = ranked.sorted { $0.combined > $1.combined }
+        guard let top = sorted.first else { return [] }
+
+        let minAbsoluteScore = 0.20
+        let relativeToTopScore = 0.55
+        let minSemanticWhenNoLexical = 0.42
+
+        let filtered = sorted.filter { hit in
+            guard hit.combined >= minAbsoluteScore else { return false }
+            guard hit.combined >= top.combined * relativeToTopScore else { return false }
+            if hit.normalizedLexical > 0 { return true }
+            return hit.semanticScore >= minSemanticWhenNoLexical
+        }
+
+        return Array(filtered.prefix(limit)).map { hit in
+            KnowledgeSearchHit(
+                chunk: hit.chunk,
+                documentName: hit.documentName,
+                collectionName: hit.collectionName,
+                score: hit.combined
             )
         }
     }
@@ -247,6 +356,7 @@ public final class KnowledgeStore: @unchecked Sendable {
         collectionId: String,
         name: String,
         meta: String,
+        filePath: String?,
         in db: Database
     ) throws -> String {
         if let row = try Row.fetchOne(
@@ -261,10 +371,10 @@ public final class KnowledgeStore: @unchecked Sendable {
             try db.execute(
                 sql: """
                     UPDATE knowledge_documents
-                    SET meta = ?, status = 'Indexed'
+                    SET meta = ?, status = 'Indexed', file_path = COALESCE(?, file_path)
                     WHERE id = ?
                     """,
-                arguments: [meta, documentId]
+                arguments: [meta, filePath, documentId]
             )
             return documentId
         }
@@ -272,10 +382,10 @@ public final class KnowledgeStore: @unchecked Sendable {
         let documentId = UUID().uuidString
         try db.execute(
             sql: """
-                INSERT INTO knowledge_documents (id, collection_id, name, meta, status, created_at)
-                VALUES (?, ?, ?, ?, 'Indexed', ?)
+                INSERT INTO knowledge_documents (id, collection_id, name, meta, status, file_path, created_at)
+                VALUES (?, ?, ?, ?, 'Indexed', ?, ?)
                 """,
-            arguments: [documentId, collectionId, name, meta, Date()]
+            arguments: [documentId, collectionId, name, meta, filePath, Date()]
         )
         return documentId
     }
@@ -328,6 +438,8 @@ public final class KnowledgeStore: @unchecked Sendable {
     }
 
     private func seedDemoCorpusIfNeeded() throws {
+        guard !AppPreferences.skipDemoKnowledgeSeed else { return }
+
         try dbQueue.write { db in
             let count = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM knowledge_collections") ?? 0
             guard count == 0 else { return }
@@ -405,6 +517,7 @@ public final class KnowledgeStore: @unchecked Sendable {
                     collectionId: projectAlphaId,
                     name: entry.0,
                     meta: entry.1,
+                    filePath: nil,
                     in: db
                 )
                 for chunk in chunks {
@@ -481,6 +594,11 @@ extension KnowledgeStore {
                     tokenize='unicode61'
                 )
                 """)
+        }
+        migrator.registerMigration("v3_knowledge_file_path") { db in
+            try db.alter(table: "knowledge_documents") { table in
+                table.add(column: "file_path", .text)
+            }
         }
         try migrator.migrate(queue)
         return try KnowledgeStore(dbQueue: queue)
