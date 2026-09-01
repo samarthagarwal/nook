@@ -1,0 +1,958 @@
+{
+  "meta": {
+    "note": "Per-screen spec. Copy strings are final-intent. Prototype: design/Nook.dc.html",
+    "tokens": "design-tokens.json"
+  },
+  "iconMap": {
+    "‹ back": "chevron.left",
+    "+ new / attach": "plus",
+    "↑ send": "arrow.up",
+    "× close": "xmark",
+    "⚙ settings": "gearshape",
+    "⌥ chat scope": "line.3.horizontal.decrease.circle",
+    "› row disclosure": "chevron.right",
+    "local dot": "circle.fill (tint local)",
+    "external ring": "circle (tint external)"
+  },
+  "tabs": {
+    "items": [
+      "Chat",
+      "Knowledge",
+      "Skills",
+      "Connect",
+      "Memory"
+    ],
+    "style": "tabLabel, label-only, active = 5pt filled ink dot above label",
+    "hiddenOn": [
+      "chat (detail)",
+      "onboarding",
+      "paywall"
+    ]
+  },
+  "screens": [
+    {
+      "id": "onboarding",
+      "purpose": "Get a capable local model onto the device with one decision.",
+      "layout": "Full-bleed paper. Single column, 26pt horizontal padding, content vertically centered, CTA pinned to the bottom. Root must be border-box.",
+      "steps": [
+        {
+          "id": "hero",
+          "components": [
+            {
+              "el": "mark",
+              "spec": "34×34, radius 10, bg ink"
+            },
+            {
+              "el": "headline",
+              "style": "heroDisplay",
+              "copy": "Know.\nRemember.\nAct."
+            },
+            {
+              "el": "body",
+              "style": "body@15.5/1.6",
+              "color": "ink62",
+              "maxWidth": 300,
+              "copy": "Nook runs a capable AI model on this iPhone. Your chats, documents and memory stay here unless you send them somewhere yourself."
+            },
+            {
+              "el": "primaryButton",
+              "copy": "Get started"
+            },
+            {
+              "el": "footnote",
+              "style": "badge",
+              "color": "ink40",
+              "copy": "No account. No cloud by default."
+            }
+          ]
+        },
+        {
+          "id": "modelPick",
+          "components": [
+            {
+              "el": "title",
+              "style": "display@30/1.12",
+              "copy": "Choose a model"
+            },
+            {
+              "el": "sub",
+              "style": "body@14",
+              "color": "ink62",
+              "copy": "You can change this later, or keep more than one."
+            },
+            {
+              "el": "tierCard",
+              "repeat": 3,
+              "spec": "radius 14, padding 16/17, bg surface; unselected border hairlineStrong; selected border 1.5px local + shadow.card. Name left (17pt, 500 when selected), size right in mono (local when selected). Selected card also shows mono tags in localSoft chips.",
+              "data": [
+                {
+                  "name": "Fast",
+                  "size": "0.8 GB",
+                  "desc": "Quick answers, lighter reasoning.",
+                  "tags": [
+                    "text"
+                  ]
+                },
+                {
+                  "name": "Balanced",
+                  "size": "2.9 GB",
+                  "desc": "Recommended. Reads images and documents.",
+                  "tags": [
+                    "text",
+                    "images",
+                    "recommended"
+                  ],
+                  "default": true
+                },
+                {
+                  "name": "Powerful",
+                  "size": "3.6 GB",
+                  "desc": "Slower, stronger on long documents.",
+                  "tags": [
+                    "text",
+                    "images"
+                  ]
+                }
+              ]
+            },
+            {
+              "el": "primaryButton",
+              "copy": "Download 2.9 GB",
+              "note": "size follows selection"
+            }
+          ]
+        },
+        {
+          "id": "downloading",
+          "components": [
+            {
+              "el": "title",
+              "style": "display@30/1.12",
+              "copy": "Downloading"
+            },
+            {
+              "el": "progressBar",
+              "spec": "6pt tall, radius 6, track rgba(27,24,21,.09), fill local, transition width .2s linear"
+            },
+            {
+              "el": "statusRow",
+              "style": "badge@12.5",
+              "color": "ink55",
+              "copy": "Balanced · staying on this iPhone   ·   {pct}%"
+            },
+            {
+              "el": "body",
+              "color": "ink55",
+              "maxWidth": 290,
+              "copy": "Once it lands, Nook answers without a network connection. You can close the app; the download resumes."
+            }
+          ]
+        },
+        {
+          "id": "ready",
+          "components": [
+            {
+              "el": "title",
+              "style": "titleXL",
+              "copy": "You're set"
+            },
+            {
+              "el": "sub",
+              "style": "body@14.5",
+              "color": "ink62",
+              "copy": "Nook gets more useful as you give it things to know."
+            },
+            {
+              "el": "actionRow",
+              "repeat": 3,
+              "spec": "radius 13, bg surface, border hairlineStrong, title 15/500 + sub 12.5, chevron right",
+              "data": [
+                {
+                  "title": "Add Knowledge",
+                  "sub": "Documents Nook can search"
+                },
+                {
+                  "title": "Turn on a Skill",
+                  "sub": "Teach it a way of working"
+                },
+                {
+                  "title": "Connect a service",
+                  "sub": "Reach outside, with approval"
+                }
+              ]
+            },
+            {
+              "el": "primaryButton",
+              "copy": "Start a chat"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "chatList",
+      "purpose": "Home. Resume or start a conversation.",
+      "layout": "Header row (title + badge left, gear and + right), then a 7pt-gap list, 14pt horizontal padding. Tab bar pinned.",
+      "components": [
+        {
+          "el": "title",
+          "style": "tabRootTitle",
+          "copy": "Nook"
+        },
+        {
+          "el": "modelBadge",
+          "spec": "5pt local dot + mono 10.5",
+          "copy": "Balanced · on device",
+          "note": "the only always-visible technical fact"
+        },
+        {
+          "el": "iconButton",
+          "copy": "⚙ → Settings"
+        },
+        {
+          "el": "iconButtonPrimary",
+          "copy": "+ → new chat"
+        },
+        {
+          "el": "chatRow",
+          "spec": "radius 13, bg surface, border hairline; title 14.5/500, timestamp mono 10.5 right, snippet 13/1.5 ink55, optional collection tag in localSoft",
+          "data": [
+            {
+              "title": "Project Alpha review",
+              "when": "now",
+              "snippet": "Three risks come up repeatedly across your project…",
+              "tags": [
+                "Project Alpha"
+              ]
+            },
+            {
+              "title": "London trip debrief",
+              "when": "25 Aug",
+              "snippet": "Sarah recommended DuckDB for the local analytics layer."
+            },
+            {
+              "title": "Dinner planning",
+              "when": "24 Aug",
+              "snippet": "The bánh mì place on Exmouth Market, apparently worth the queue."
+            },
+            {
+              "title": "Receipts, July",
+              "when": "12 Aug",
+              "snippet": "Filed eleven receipts into Personal. Two need a category.",
+              "tags": [
+                "Personal"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "chat",
+      "purpose": "The conversation. Shows the whole agent loop inline.",
+      "layout": "Fixed header (back / centered title + on-device badge / scope button), scrolling transcript with 14pt gaps and 18pt horizontal padding, fixed composer. Tab bar hidden. Auto-scroll to bottom on new content.",
+      "messageTypes": [
+        {
+          "id": "user",
+          "spec": "right-aligned, max 80%, bg ink, fg inkOnDark, radius 16, padding 11/14, font userBubble. Optional attached image above: 150×104, radius 12, image placeholder gradient, filename in mono 9.5 bottom-left."
+        },
+        {
+          "id": "localTool",
+          "spec": "left-aligned pill, bg localSoft, radius 10, padding 9/12, 5pt local dot + mono 11.5 local text.",
+          "examples": [
+            "documents.search · Project Alpha · 5 passages",
+            "reading image · 1 page of alpha-spec-v4.pdf"
+          ]
+        },
+        {
+          "id": "externalTool",
+          "spec": "full-width card, border 1px externalHairline, bg externalSoft, radius 12, padding 12/13. Header: hollow external ring + mono 11/500 external tool name. Result lines 12.5/1.5 ink70. Footer mono 10.5 external at 0.75 alpha.",
+          "example": {
+            "name": "github.search_issues",
+            "lines": [
+              "#418 Identity provider fallback — open, unassigned",
+              "#402 Analytics scope — open, needs-estimate"
+            ],
+            "foot": "mcp.github-bridge.dev · 0.9s"
+          }
+        },
+        {
+          "id": "assistant",
+          "spec": "left-aligned, max 92%, paragraphs at assistantBody with 11pt gaps, text-wrap pretty. Below: eyebrow ('FROM YOUR KNOWLEDGE' or 'FROM GITHUB') then wrapping citation chips — radius 8, bg surface, border hairlineStrong, mono 10 local index + 11.5 ink70 label, hover border local."
+        }
+      ],
+      "components": [
+        {
+          "el": "emptyState",
+          "spec": "serif 26/1.2 prompt + three tappable starter rows (radius 12, surface, border hairlineStrong, 13.5/1.45)",
+          "copy": "What can I look into?"
+        },
+        {
+          "el": "thinking",
+          "spec": "three 6pt dots at 0.25/0.18/0.11 ink alpha"
+        },
+        {
+          "el": "scopeLine",
+          "spec": "above composer: 5pt local dot + mono 11",
+          "copy": "Searching Project Alpha · on device"
+        },
+        {
+          "el": "composer",
+          "spec": "38pt row: circular + button (fill), pill input (radius 19, surface, border hairlineStrong, placeholder 'Ask anything'), circular ink send button with ↑"
+        }
+      ],
+      "scriptedContent": {
+        "risksQuestion": "What are the biggest risks in this project?",
+        "risksAnswer": "Three risks come up repeatedly across your project documents.\n\nTimeline. The integration milestone assumes vendor delivery in week six, but your retro notes record two earlier slips of two to three weeks each.\n\nA single dependency. The spec names one identity provider and no fallback path is documented anywhere in the collection.\n\nUnestimated scope. The risk register flags the analytics work as unestimated, and it is still on the v1 list.",
+        "risksCitations": [
+          "alpha-spec-v4.pdf · p.18",
+          "risk-register.pdf · p.3",
+          "retro-notes.md · Timeline"
+        ],
+        "visionQuestion": "Does this match the spec?",
+        "visionAnswer": "Mostly, with one gap.\n\nYour screenshot puts the review step after submission. The specification puts review before it, so the confirmation copy on this screen would appear too late to be useful.\n\nEverything else matches: field order, the optional note, and the two-button footer.",
+        "mcpQuestion": "Check GitHub for open issues about these.",
+        "mcpAnswer": "Two open issues look related.\n\n#418, Identity provider fallback, is unassigned and describes the same single-provider risk your spec has. #402, Analytics scope, is tagged needs-estimate.\n\nNeither is on the current milestone, which is probably the thing worth raising."
+      }
+    },
+    {
+      "id": "citationSheet",
+      "purpose": "Show the retrieved passage, not the whole file.",
+      "layout": "Sheet inset 10pt sides / 10pt bottom / 64pt top, radius 22, bg surface, shadow.sheet.",
+      "components": [
+        {
+          "el": "header",
+          "spec": "mono 13 filename + mono 11 ink45 location; × close top-right"
+        },
+        {
+          "el": "pageStand-in",
+          "spec": "flex-fill, radius 12, documentPage gradient, border hairlineStrong, padding 16. Quoted passage 13/1.75 on citationHighlight, radius 6. Surrounding context in mono 11 ink30 below."
+        },
+        {
+          "el": "footnote",
+          "style": "meta",
+          "color": "ink45",
+          "copy": "Retrieved on device. The whole file was never put into the model's context."
+        }
+      ]
+    },
+    {
+      "id": "approvalSheet",
+      "purpose": "The external-call boundary. The one place the design raises its voice.",
+      "layout": "Bottom sheet inset 10pt, radius 22, padding 22/20/20, over scrim. Status bar remains visible above the scrim.",
+      "components": [
+        {
+          "el": "eyebrow",
+          "spec": "hollow external ring + mono 10.5/500 external, uppercase, tracking .1em",
+          "copy": "Leaving your device"
+        },
+        {
+          "el": "title",
+          "style": "sheetTitle",
+          "copy": "Send this to GitHub?"
+        },
+        {
+          "el": "body",
+          "color": "ink62",
+          "copy": "This is everything that goes out. Nothing from your documents is included."
+        },
+        {
+          "el": "payload",
+          "spec": "radius 12, bg surfaceSunken, border hairline, style code, pre-wrap",
+          "copy": "to    mcp.github-bridge.dev\ntool  github.search_issues\nrepo  alpha/core\nquery identity provider fallback,\n      analytics estimate\nstate open\n\nnot sent  your documents, this\n          chat, your memory"
+        },
+        {
+          "el": "actions",
+          "spec": "primary full-width, then a row of two secondaries",
+          "copy": [
+            "Send once",
+            "Always allow this tool",
+            "Don't"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "knowledge",
+      "purpose": "Collections of material Nook may search.",
+      "components": [
+        {
+          "el": "title",
+          "style": "tabRootTitle",
+          "copy": "Knowledge"
+        },
+        {
+          "el": "iconButtonPrimary",
+          "copy": "+"
+        },
+        {
+          "el": "intro",
+          "style": "body",
+          "color": "ink62",
+          "copy": "Collections you add are read, indexed and searched entirely on this iPhone."
+        },
+        {
+          "el": "collectionCard",
+          "spec": "radius 13, bg surface, border hairline. Serif 19 name, mono 10.5 count right, 12.5 desc, status row: local dot + status when indexed / external ring + status when indexing.",
+          "data": [
+            {
+              "name": "Project Alpha",
+              "count": "9 docs",
+              "desc": "Spec, risk register, retro notes, vendor contract.",
+              "status": "Indexed · 1,402 passages",
+              "state": "ready"
+            },
+            {
+              "name": "Personal",
+              "count": "23 docs",
+              "desc": "Receipts, letters, warranties, the flat.",
+              "status": "Indexed · 640 passages",
+              "state": "ready"
+            },
+            {
+              "name": "University",
+              "count": "5 docs",
+              "desc": "Reading list and two lecture handouts.",
+              "status": "Indexing 2 documents",
+              "state": "busy"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "collection",
+      "purpose": "Documents and their real indexing state.",
+      "components": [
+        {
+          "el": "header",
+          "spec": "back link '‹ Knowledge', detailTitle name, mono 11 meta",
+          "copy": "9 documents · 1,402 passages · 2.1 GB"
+        },
+        {
+          "el": "docRow",
+          "spec": "radius 12, bg surface, border hairline. Filename in mono 14, meta 11.5 ink45, status mono 10.5 (local when indexed, external while extracting). Busy rows add a 3pt external progress bar.",
+          "data": [
+            {
+              "name": "alpha-spec-v4.pdf",
+              "meta": "42 pages",
+              "status": "Indexed"
+            },
+            {
+              "name": "risk-register.pdf",
+              "meta": "6 pages",
+              "status": "Indexed"
+            },
+            {
+              "name": "retro-notes.md",
+              "meta": "2,100 words",
+              "status": "Indexed"
+            },
+            {
+              "name": "vendor-contract.docx",
+              "meta": "18 pages",
+              "status": "Extracting 62%",
+              "pct": 62
+            }
+          ]
+        },
+        {
+          "el": "dashedRow",
+          "spec": "1px dashed rgba(27,24,21,.22), radius 12",
+          "copy": "Use this collection in a new chat"
+        }
+      ]
+    },
+    {
+      "id": "skills",
+      "purpose": "Behaviors Nook can adopt. Installing grants nothing.",
+      "components": [
+        {
+          "el": "title",
+          "style": "tabRootTitle",
+          "copy": "Skills"
+        },
+        {
+          "el": "textAction",
+          "color": "local",
+          "copy": "Import"
+        },
+        {
+          "el": "intro",
+          "style": "body",
+          "color": "ink62",
+          "copy": "A Skill teaches Nook a way of working. It can ask for tools, but never grants itself any."
+        },
+        {
+          "el": "group",
+          "spec": "eyebrow label + rows, 16pt between groups",
+          "data": [
+            {
+              "label": "Built in",
+              "items": [
+                {
+                  "name": "Meeting Prep",
+                  "desc": "Pull the last thread and today's calendar into a short brief.",
+                  "on": true
+                },
+                {
+                  "name": "Weekly Review",
+                  "desc": "Summarise the week from chats and Knowledge you name.",
+                  "on": false
+                }
+              ]
+            },
+            {
+              "label": "Imported",
+              "items": [
+                {
+                  "name": "Competitive Teardown",
+                  "desc": "A structured way to read a rival's product docs.",
+                  "on": false
+                }
+              ]
+            },
+            {
+              "label": "Yours",
+              "items": [
+                {
+                  "name": "Receipt Filing",
+                  "desc": "Read a receipt photo, file it, name the category.",
+                  "on": true
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "el": "stateBadge",
+          "spec": "mono 10 in a radius-6 chip: ON = local on localSoft, OFF = ink40 on fill"
+        }
+      ]
+    },
+    {
+      "id": "skill",
+      "purpose": "Read the instructions, grant capabilities one at a time.",
+      "components": [
+        {
+          "el": "header",
+          "spec": "back '‹ Skills', detailTitle name, 13 sub",
+          "copy": "Imported 2 minutes ago · instructions only, nothing executable."
+        },
+        {
+          "el": "skillMd",
+          "spec": "eyebrow 'INSTRUCTIONS · SKILL.MD', then radius 11 surface card, border hairline, style code, pre-wrap. Footnote: 'Plain instructions. No code runs.'"
+        },
+        {
+          "el": "permissionRow",
+          "spec": "eyebrow 'WANTS ACCESS TO'. Rows: radius 11 surface, border hairline; tool name in mono 12.5, plain-English description 11.5 ink55, toggle right (on = local). All default off.",
+          "data": [
+            {
+              "tool": "documents.search",
+              "what": "Search collections you tick below"
+            },
+            {
+              "tool": "calendar.search",
+              "what": "Read your calendar"
+            },
+            {
+              "tool": "calendar.create_event",
+              "what": "Create events"
+            }
+          ]
+        },
+        {
+          "el": "footnote",
+          "copy": "The Skill asked for these. Nothing is granted until you switch it on, and you can revoke any of them later."
+        },
+        {
+          "el": "primaryButton",
+          "copy": "Turn on Skill / Turn off"
+        }
+      ]
+    },
+    {
+      "id": "connections",
+      "purpose": "External services, described without the acronym.",
+      "components": [
+        {
+          "el": "title",
+          "style": "tabRootTitle",
+          "copy": "Connections"
+        },
+        {
+          "el": "textAction",
+          "color": "local",
+          "copy": "Add"
+        },
+        {
+          "el": "intro",
+          "style": "body",
+          "color": "ink62",
+          "copy": "Outside services Nook can reach. Everything here leaves your device, so it asks first."
+        },
+        {
+          "el": "serverCard",
+          "spec": "radius 13 surface, border hairline. Name 15/500; connected shows hollow external ring + mono tool count, otherwise mono 'Not connected' in ink40. URL in mono 11.5 ink45.",
+          "data": [
+            {
+              "name": "GitHub",
+              "url": "mcp.github-bridge.dev",
+              "tools": "2 of 4 tools on",
+              "connected": true
+            },
+            {
+              "name": "Linear",
+              "url": "mcp.linear.app/sse",
+              "connected": false
+            },
+            {
+              "name": "Home Assistant",
+              "url": "not configured",
+              "connected": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "server",
+      "purpose": "Per-server approval policy and per-tool grants.",
+      "components": [
+        {
+          "el": "header",
+          "spec": "back '‹ Connections', detailTitle, mono 11.5 meta",
+          "copy": "https://mcp.github-bridge.dev · Streamable HTTP · header auth"
+        },
+        {
+          "el": "segmented",
+          "spec": "eyebrow 'ASK BEFORE SENDING'; track bg rgba(27,24,21,.05) radius 11 padding 4; selected item surface radius 8 with shadow.segmentSelected",
+          "options": [
+            "Every call",
+            "Consequential",
+            "Never"
+          ],
+          "default": "Consequential"
+        },
+        {
+          "el": "toolRow",
+          "spec": "eyebrow 'TOOLS FOUND ON THIS SERVER'. radius 11 surface, border hairline; name mono 12.5, description 11.5 ink55, toggle on = external.",
+          "data": [
+            {
+              "name": "github.search_issues",
+              "what": "Read issues in repos you name",
+              "on": true
+            },
+            {
+              "name": "github.list_prs",
+              "what": "Read open pull requests",
+              "on": true
+            },
+            {
+              "name": "github.read_file",
+              "what": "Read file contents",
+              "on": false
+            },
+            {
+              "name": "github.create_issue",
+              "what": "Write a new issue",
+              "on": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "memory",
+      "purpose": "Recall with provenance, and the ability to forget.",
+      "components": [
+        {
+          "el": "title",
+          "style": "tabRootTitle",
+          "copy": "Memory"
+        },
+        {
+          "el": "intro",
+          "style": "body",
+          "color": "ink62",
+          "copy": "What Nook has picked up from past chats. Every item points back to where you said it."
+        },
+        {
+          "el": "search",
+          "spec": "40pt pill, radius 20, surface, border hairlineStrong",
+          "copy": "Search your past chats"
+        },
+        {
+          "el": "suggestions",
+          "spec": "eyebrow 'TRY' + tappable rows",
+          "data": [
+            "that restaurant Sarah mentioned in London",
+            "what database did Sarah recommend"
+          ]
+        },
+        {
+          "el": "resultCard",
+          "spec": "radius 13 surface, border hairline. Serif 19 subject, mono 10 kind right, quote 13.5/1.55 ink70 with 2px localHairline left rule and 10pt indent, footer: mono 10.5 source left + 'Open' (local) and 'Forget' (ink45) right.",
+          "data": [
+            {
+              "subject": "Bánh Mì on Exmouth Market",
+              "kind": "place",
+              "quote": "Sarah said the bánh mì place on Exmouth Market was the best she had had in London — worth the queue.",
+              "source": "\\u201cDinner planning\\u201d · 24 Aug · message 14"
+            },
+            {
+              "subject": "DuckDB",
+              "kind": "technology",
+              "quote": "Sarah recommended DuckDB for the local analytics layer instead of shipping a second service.",
+              "source": "\\u201cLondon trip debrief\\u201d · 25 Aug · message 6"
+            }
+          ]
+        },
+        {
+          "el": "footnote",
+          "copy": "Forgetting removes what Nook derived. The original chat stays untouched."
+        }
+      ]
+    },
+    {
+      "id": "models",
+      "purpose": "Switch models, see storage, hide the advanced controls.",
+      "components": [
+        {
+          "el": "tierCard",
+          "spec": "as onboarding, but selected shows mono 'IN USE' instead of size; longer descriptions",
+          "data": [
+            {
+              "name": "Fast",
+              "long": "Gemma 3 1B. Instant on older iPhones, best for short questions and quick rewrites."
+            },
+            {
+              "name": "Balanced",
+              "long": "Qwen3-VL 4B. Reads screenshots and PDF pages, follows Skills reliably. The default."
+            },
+            {
+              "name": "Powerful",
+              "long": "Gemma 3 4B. Best grounded reasoning over long documents; warmer battery draw."
+            }
+          ]
+        },
+        {
+          "el": "storageBar",
+          "spec": "8pt stacked bar: local 38% (Models), local@45% 12% (Knowledge), external 6% (Chats); legend in mono 11",
+          "copy": [
+            "Models 6.5 GB",
+            "Knowledge 2.1 GB",
+            "Chats 0.9 GB"
+          ]
+        },
+        {
+          "el": "row",
+          "copy": {
+            "title": "Advanced",
+            "sub": "Import a model, context length, sampling"
+          }
+        }
+      ]
+    },
+    {
+      "id": "settings",
+      "purpose": "Plain-language privacy and data control.",
+      "components": [
+        {
+          "el": "proCard",
+          "spec": "radius 13, bg ink, fg inkOnDark, serif 19 title + 12 sub at 0.65 alpha",
+          "copy": {
+            "title": "Get Nook Pro",
+            "sub": "Memory, unlimited Knowledge, more connections"
+          }
+        },
+        {
+          "el": "toggleRow",
+          "spec": "eyebrow 'PRIVACY'; on = local",
+          "data": [
+            {
+              "label": "Keep everything on device",
+              "sub": "Chats, documents and memory never sync",
+              "on": true
+            },
+            {
+              "label": "Log outgoing calls",
+              "sub": "A record of what left, and when",
+              "on": true
+            },
+            {
+              "label": "Share usage data",
+              "sub": "Off. Nook works without it",
+              "on": false
+            }
+          ]
+        },
+        {
+          "el": "navRow",
+          "spec": "eyebrow 'DATA'",
+          "data": [
+            {
+              "label": "Models and storage",
+              "sub": "Balanced in use · 9.5 GB total"
+            },
+            {
+              "label": "Rebuild derived indexes",
+              "sub": "Deletes memory and search indexes, keeps chats"
+            },
+            {
+              "label": "Export everything",
+              "sub": "Chats, Knowledge and grants as files"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "paywall",
+      "purpose": "Sell depth, never access to the user's own compute.",
+      "components": [
+        {
+          "el": "title",
+          "style": "titleXL",
+          "copy": "Nook Pro"
+        },
+        {
+          "el": "body",
+          "style": "body@14.5",
+          "color": "ink62",
+          "copy": "Chat stays unlimited and free — you're supplying the compute. Pro is for making Nook deeply yours."
+        },
+        {
+          "el": "list",
+          "spec": "eyebrow 'ALWAYS FREE' in ink40, 5pt ink25 dots",
+          "items": [
+            "Unlimited local chat, never metered",
+            "A capable multimodal model",
+            "Knowledge up to three collections",
+            "Built-in Skills, and any Skill you import",
+            "One connected service"
+          ]
+        },
+        {
+          "el": "list",
+          "spec": "eyebrow 'WITH PRO' in local, 5pt local dots",
+          "items": [
+            "Memory across every past chat",
+            "Unlimited Knowledge collections and documents",
+            "Page-image retrieval for charts and tables",
+            "Unlimited connections and saved permissions",
+            "Import your own models",
+            "Export and backup controls"
+          ]
+        },
+        {
+          "el": "primaryButton",
+          "copy": "Get Pro — £39 once"
+        },
+        {
+          "el": "footnote",
+          "style": "badge",
+          "color": "ink40",
+          "copy": "One time. No subscription."
+        }
+      ]
+    },
+    {
+      "id": "shareSheet",
+      "purpose": "How content arrives from other apps, given the iOS sandbox.",
+      "components": [
+        {
+          "el": "sourceHeader",
+          "spec": "44×44 image placeholder + 13.5 title + mono 11 ink45 sub, divider below",
+          "copy": {
+            "title": "Safari — \\u201cVector search on iOS\\u201d",
+            "sub": "Shared to Nook"
+          }
+        },
+        {
+          "el": "actionRow",
+          "spec": "radius 12, bg surfaceSunken, 14 title + 11.5 sub, chevron",
+          "data": [
+            {
+              "label": "Ask AI",
+              "sub": "Start a chat about this page"
+            },
+            {
+              "label": "Add to Knowledge",
+              "sub": "Into Project Alpha"
+            },
+            {
+              "label": "Summarise",
+              "sub": "Five lines, no chat opened"
+            },
+            {
+              "label": "Open in Nook",
+              "sub": "Keep the page and decide later"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "attachSheet",
+      "purpose": "Add material to the current chat.",
+      "components": [
+        {
+          "el": "actionRow",
+          "data": [
+            {
+              "label": "Screenshot",
+              "sub": "Read on device by the vision model"
+            },
+            {
+              "label": "Take a photo",
+              "sub": "Receipts, whiteboards, pages"
+            },
+            {
+              "label": "A file",
+              "sub": "Added to this chat only"
+            },
+            {
+              "label": "A previous conversation",
+              "sub": "Attach an earlier chat as context"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "scopeSheet",
+      "purpose": "Limit what this chat can search.",
+      "components": [
+        {
+          "el": "title",
+          "style": "display@21/1.2",
+          "copy": "What can this chat see?"
+        },
+        {
+          "el": "sub",
+          "copy": "Only the collections you tick are searched."
+        },
+        {
+          "el": "toggleRow",
+          "spec": "one per collection, on = local",
+          "data": [
+            "Project Alpha",
+            "Personal",
+            "University"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "toast",
+      "purpose": "Transient confirmation.",
+      "spec": "Inset 20pt sides, 104pt from bottom (above tab bar), bg ink, fg inkOnDark, radius 12, padding 13/15, 13/1.45, shadow.toast, ~2.2s.",
+      "examples": [
+        "Forgotten. The chat itself is untouched.",
+        "github.search_issues is now always allowed.",
+        "Rebuilt from your chats. Nothing you wrote was deleted."
+      ]
+    }
+  ]
+}

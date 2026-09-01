@@ -1,0 +1,331 @@
+{
+  "meta": {
+    "product": "Nook",
+    "platform": "iOS 17+, iPhone",
+    "canvas": {
+      "width": 402,
+      "height": 874,
+      "unit": "pt"
+    },
+    "fidelity": "high"
+  },
+  "color": {
+    "paper": "#F7F4EE",
+    "surface": "#FDFCF9",
+    "surfaceSunken": "#F4F1EA",
+    "canvas": "#EDE8DF",
+    "ink": "#1B1815",
+    "inkOnDark": "#FBF9F5",
+    "ink70": "rgba(27,24,21,0.70)",
+    "ink62": "rgba(27,24,21,0.62)",
+    "ink55": "rgba(27,24,21,0.55)",
+    "ink45": "rgba(27,24,21,0.45)",
+    "ink40": "rgba(27,24,21,0.40)",
+    "ink30": "rgba(27,24,21,0.30)",
+    "hairline": "rgba(27,24,21,0.09)",
+    "hairlineStrong": "rgba(27,24,21,0.13)",
+    "fill": "rgba(27,24,21,0.06)",
+    "toggleOff": "rgba(27,24,21,0.14)",
+    "local": "#2F5D8A",
+    "localSoft": "rgba(47,93,138,0.10)",
+    "localHairline": "rgba(47,93,138,0.35)",
+    "external": "#8C6239",
+    "externalSoft": "rgba(140,98,57,0.05)",
+    "externalHairline": "rgba(140,98,57,0.35)",
+    "scrim": "rgba(27,24,21,0.34)"
+  },
+  "semantics": {
+    "local": {
+      "meaning": "executed on device",
+      "marker": "filled dot, 5px",
+      "color": "local"
+    },
+    "external": {
+      "meaning": "data leaves the device",
+      "marker": "hollow ring, 6px, 1.5px border",
+      "color": "external"
+    },
+    "inProgress": {
+      "meaning": "indexing / extracting",
+      "color": "external",
+      "note": "reuses external ochre as a not-yet-trusted state"
+    }
+  },
+  "type": {
+    "families": {
+      "display": {
+        "web": "Newsreader",
+        "ios": "New York (.serif)",
+        "weights": [
+          400,
+          500,
+          600
+        ]
+      },
+      "ui": {
+        "web": "-apple-system, system-ui",
+        "ios": "SF Pro",
+        "weights": [
+          400,
+          500
+        ]
+      },
+      "mono": {
+        "web": "IBM Plex Mono",
+        "ios": "SF Mono (.monospaced)",
+        "weights": [
+          400,
+          500
+        ]
+      }
+    },
+    "styles": {
+      "heroDisplay": {
+        "family": "display",
+        "size": 46,
+        "lineHeight": 1.04,
+        "weight": 400,
+        "tracking": "-0.015em"
+      },
+      "titleXL": {
+        "family": "display",
+        "size": 34,
+        "lineHeight": 1.08,
+        "weight": 400,
+        "tracking": "-0.01em"
+      },
+      "tabRootTitle": {
+        "family": "display",
+        "size": 32,
+        "lineHeight": 1,
+        "weight": 400,
+        "tracking": "-0.01em"
+      },
+      "detailTitle": {
+        "family": "display",
+        "size": 26,
+        "lineHeight": 1.12,
+        "weight": 400
+      },
+      "sheetTitle": {
+        "family": "display",
+        "size": 24,
+        "lineHeight": 1.18,
+        "weight": 400
+      },
+      "cardTitleSerif": {
+        "family": "display",
+        "size": 19,
+        "lineHeight": 1.2,
+        "weight": 400
+      },
+      "assistantBody": {
+        "family": "ui",
+        "size": 15,
+        "lineHeight": 1.62,
+        "weight": 400
+      },
+      "userBubble": {
+        "family": "ui",
+        "size": 14.5,
+        "lineHeight": 1.5,
+        "weight": 400
+      },
+      "rowTitle": {
+        "family": "ui",
+        "size": 14.5,
+        "lineHeight": 1.25,
+        "weight": 500
+      },
+      "body": {
+        "family": "ui",
+        "size": 13.5,
+        "lineHeight": 1.55,
+        "weight": 400
+      },
+      "cardSub": {
+        "family": "ui",
+        "size": 12.5,
+        "lineHeight": 1.45,
+        "weight": 400
+      },
+      "meta": {
+        "family": "ui",
+        "size": 11.5,
+        "lineHeight": 1.4,
+        "weight": 400
+      },
+      "buttonLabel": {
+        "family": "ui",
+        "size": 16,
+        "lineHeight": 1,
+        "weight": 500
+      },
+      "eyebrow": {
+        "family": "mono",
+        "size": 10,
+        "weight": 500,
+        "tracking": "0.13em",
+        "transform": "uppercase"
+      },
+      "badge": {
+        "family": "mono",
+        "size": 10.5,
+        "weight": 400
+      },
+      "fileName": {
+        "family": "mono",
+        "size": 12.5,
+        "lineHeight": 1.3,
+        "weight": 400
+      },
+      "code": {
+        "family": "mono",
+        "size": 11.5,
+        "lineHeight": 1.75,
+        "weight": 400
+      },
+      "tabLabel": {
+        "family": "mono",
+        "size": 10.5,
+        "weight": 400,
+        "activeWeight": 500
+      }
+    }
+  },
+  "space": [
+    3,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    14,
+    16,
+    18,
+    20,
+    22,
+    26,
+    36,
+    44
+  ],
+  "padding": {
+    "tabRootH": 20,
+    "detailH": 18,
+    "paywallH": 22,
+    "prototypeTopInset": [
+      60,
+      74
+    ],
+    "prototypeBottomInset": [
+      30,
+      44
+    ]
+  },
+  "radius": {
+    "tag": 6,
+    "chip": 8,
+    "chipLg": 9,
+    "row": 11,
+    "card": 12,
+    "cardLg": 13,
+    "button": 14,
+    "pill": 19,
+    "sheet": 22,
+    "toggleTrack": 26
+  },
+  "shadow": {
+    "card": "0 1px 2px rgba(27,24,21,0.04)",
+    "sheet": "0 20px 50px rgba(27,24,21,0.28)",
+    "toast": "0 12px 30px rgba(27,24,21,0.25)",
+    "segmentSelected": "0 1px 2px rgba(27,24,21,0.08)"
+  },
+  "controls": {
+    "toggle": {
+      "track": [
+        44,
+        26
+      ],
+      "knob": 20,
+      "inset": 3,
+      "onLocal": "local",
+      "onExternal": "external",
+      "off": "toggleOff",
+      "knobColor": "#FFFFFF"
+    },
+    "primaryButton": {
+      "padding": 16,
+      "radius": 14,
+      "bg": "ink",
+      "fg": "inkOnDark",
+      "font": "buttonLabel"
+    },
+    "secondaryButton": {
+      "padding": 14,
+      "radius": 13,
+      "border": "1px solid rgba(27,24,21,0.14)",
+      "fg": "ink70"
+    },
+    "iconButton": {
+      "size": 34,
+      "radius": "full",
+      "bg": "fill",
+      "primaryBg": "ink"
+    },
+    "composerInput": {
+      "height": 38,
+      "radius": 19,
+      "bg": "surface",
+      "border": "hairlineStrong",
+      "padding": 15
+    },
+    "tabBar": {
+      "paddingTop": 11,
+      "paddingBottom": 30,
+      "bg": "rgba(247,244,238,0.94)",
+      "blur": 14,
+      "borderTop": "hairline",
+      "activeDot": 5
+    },
+    "segmented": {
+      "trackBg": "rgba(27,24,21,0.05)",
+      "trackRadius": 11,
+      "itemRadius": 8,
+      "itemPadding": [
+        9,
+        4
+      ]
+    }
+  },
+  "motion": {
+    "progress": "width 0.2s linear",
+    "streamTick": {
+      "charsPerTick": 4,
+      "tickMs": 16,
+      "note": "tunable; citations attach only on completion"
+    },
+    "thinkingDots": {
+      "count": 3,
+      "size": 6,
+      "opacities": [
+        0.25,
+        0.18,
+        0.11
+      ]
+    },
+    "forbidden": [
+      "spring",
+      "scale-in",
+      "glow",
+      "gradient sweep"
+    ]
+  },
+  "placeholders": {
+    "image": "repeating-linear-gradient(135deg,#E6E1D8 0 6px,#DCD6CB 6px 12px)",
+    "documentPage": "repeating-linear-gradient(180deg,#F1EEE6 0 22px,#EDE9E0 22px 44px)",
+    "citationHighlight": "rgba(47,93,138,0.14)"
+  }
+}

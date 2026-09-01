@@ -1,0 +1,1089 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet"><style>body{margin:0;background:#EDE8DF;-webkit-font-smoothing:antialiased}a{color:#2F5D8A;text-decoration:none}a:hover{color:#24486B}input{font-family:-apple-system,system-ui,sans-serif}::-webkit-scrollbar{width:0;height:0}</style></helmet>
+<div style="min-height:100vh;background:#EDE8DF;padding:36px 40px 60px;display:flex;gap:44px;align-items:flex-start;justify-content:center;font-family:-apple-system,system-ui,sans-serif;color:#1B1815">
+
+<div style="width:296px;flex:none;display:flex;flex-direction:column;gap:26px;padding-top:6px">
+<div style="display:flex;flex-direction:column;gap:10px">
+<div style="font:500 11px/1 'IBM Plex Mono',ui-monospace,monospace;letter-spacing:.14em;text-transform:uppercase;color:rgba(27,24,21,.42)">Working prototype</div>
+<div style="font:400 40px/1.02 Newsreader,Georgia,serif;letter-spacing:-.01em">Nook</div>
+<div style="font:400 13.5px/1.55 -apple-system,system-ui,sans-serif;color:rgba(27,24,21,.62);text-wrap:pretty">A private AI workspace that runs on your iPhone, knows the information you give it, and acts only through tools you grant.</div>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:9px">
+<div style="font:500 11px/1 'IBM Plex Mono',ui-monospace,monospace;letter-spacing:.14em;text-transform:uppercase;color:rgba(27,24,21,.42)">Demo script</div>
+<sc-for list="{{ demos }}" as="d" hint-placeholder-count="7">
+<div onClick="{{ d.go }}" style="cursor:pointer">
+<sc-if value="{{ d.on }}"><div style="display:flex;gap:10px;align-items:baseline;padding:10px 12px;border-radius:9px;background:#1B1815;color:#FBF9F5"><span style="font:500 10.5px/1.4 'IBM Plex Mono',ui-monospace,monospace;opacity:.55">{{ d.n }}</span><span style="font:500 13.5px/1.35">{{ d.label }}</span></div></sc-if>
+<sc-if value="{{ d.off }}" hint-placeholder-val="{{ true }}"><div style="display:flex;gap:10px;align-items:baseline;padding:10px 12px;border-radius:9px;background:rgba(27,24,21,.045)" style-hover="background:rgba(27,24,21,.09)"><span style="font:500 10.5px/1.4 'IBM Plex Mono',ui-monospace,monospace;color:rgba(27,24,21,.35)">{{ d.n }}</span><span style="font:400 13.5px/1.35;color:rgba(27,24,21,.72)">{{ d.label }}</span></div></sc-if>
+</div>
+</sc-for>
+</div>
+
+<sc-if value="{{ showNotes }}" hint-placeholder-val="{{ true }}">
+<div style="display:flex;flex-direction:column;gap:8px;padding:16px 18px;background:#FDFCF9;border:1px solid rgba(27,24,21,.09);border-radius:12px">
+<div style="font:500 11px/1 'IBM Plex Mono',ui-monospace,monospace;letter-spacing:.14em;text-transform:uppercase;color:rgba(27,24,21,.42)">{{ noteTitle }}</div>
+<div style="font:400 13px/1.6 -apple-system,system-ui,sans-serif;color:rgba(27,24,21,.7);text-wrap:pretty">{{ noteBody }}</div>
+</div>
+</sc-if>
+
+<div style="display:flex;flex-direction:column;gap:7px">
+<div style="font:500 11px/1 'IBM Plex Mono',ui-monospace,monospace;letter-spacing:.14em;text-transform:uppercase;color:rgba(27,24,21,.42)">Reading the badges</div>
+<div style="display:flex;align-items:center;gap:8px;font:400 12.5px/1.4;color:rgba(27,24,21,.62)"><span style="width:6px;height:6px;border-radius:6px;background:#2F5D8A;flex:none"></span>Runs on device</div>
+<div style="display:flex;align-items:center;gap:8px;font:400 12.5px/1.4;color:rgba(27,24,21,.62)"><span style="width:6px;height:6px;border-radius:6px;border:1.5px solid #8C6239;flex:none"></span>Leaves the device, with approval</div>
+</div>
+</div>
+
+<x-import component-from-global-scope="IOSDevice" from="./ios-frame.jsx" hint-size="402px,874px">
+
+<div style="height:100%;background:#F7F4EE;position:relative;overflow:hidden;font-family:-apple-system,system-ui,sans-serif">
+
+<sc-if value="{{ isOnboard }}" hint-placeholder-val="{{ true }}">
+<div style="height:100%;box-sizing:border-box;display:flex;flex-direction:column;padding:74px 26px 44px;background:#F7F4EE">
+<sc-if value="{{ ob0 }}" hint-placeholder-val="{{ true }}">
+<div style="flex:1;display:flex;flex-direction:column;justify-content:center;gap:22px">
+<div style="width:34px;height:34px;border-radius:10px;background:#1B1815"></div>
+<div style="font:400 46px/1.04 Newsreader,Georgia,serif;letter-spacing:-.015em">Know.<br>Remember.<br>Act.</div>
+<div style="font:400 15.5px/1.6;color:rgba(27,24,21,.62);text-wrap:pretty;max-width:300px">Nook runs a capable AI model on this iPhone. Your chats, documents and memory stay here unless you send them somewhere yourself.</div>
+</div>
+<div style="display:flex;flex-direction:column;gap:14px">
+<div onClick="{{ obNext }}" style="padding:16px;border-radius:14px;background:#1B1815;color:#FBF9F5;text-align:center;font:500 16px/1;cursor:pointer">Get started</div>
+<div style="text-align:center;font:400 12.5px/1.4 'IBM Plex Mono',ui-monospace,monospace;color:rgba(27,24,21,.42)">No account. No cloud by default.</div>
+</div>
+</sc-if>
+<sc-if value="{{ ob1 }}">
+<div style="flex:1;display:flex;flex-direction:column;gap:20px">
+<div style="display:flex;flex-direction:column;gap:8px">
+<div style="font:400 30px/1.12 Newsreader,Georgia,serif;letter-spacing:-.01em">Choose a model</div>
+<div style="font:400 14px/1.55;color:rgba(27,24,21,.62)">You can change this later, or keep more than one.</div>
+</div>
+<div style="display:flex;flex-direction:column;gap:11px">
+<sc-for list="{{ tiers }}" as="t" hint-placeholder-count="3">
+<div onClick="{{ t.pick }}" style="cursor:pointer">
+<sc-if value="{{ t.on }}">
+<div style="padding:16px 17px;border-radius:14px;background:#FDFCF9;border:1.5px solid #2F5D8A;box-shadow:0 1px 2px rgba(27,24,21,.04)">
+<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px"><div style="font:500 17px/1.2">{{ t.name }}</div><div style="font:500 11px/1 'IBM Plex Mono',ui-monospace,monospace;color:#2F5D8A">{{ t.size }}</div></div>
+<div style="font:400 13px/1.5;color:rgba(27,24,21,.62);margin-top:6px">{{ t.desc }}</div>
+<div style="display:flex;gap:6px;margin-top:10px"><sc-for list="{{ t.tags }}" as="g" hint-placeholder-count="2"><span style="font:400 11px/1 'IBM Plex Mono',ui-monospace,monospace;padding:5px 7px;border-radius:6px;background:rgba(47,93,138,.1);color:#2F5D8A">{{ g }}</span></sc-for></div>
+</div>
+</sc-if>
+<sc-if value="{{ t.off }}" hint-placeholder-val="{{ true }}">
+<div style="padding:16px 17px;border-radius:14px;background:#FDFCF9;border:1px solid rgba(27,24,21,.1)">
+<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px"><div style="font:400 17px/1.2">{{ t.name }}</div><div style="font:400 11px/1 'IBM Plex Mono',ui-monospace,monospace;color:rgba(27,24,21,.42)">{{ t.size }}</div></div>
+<div style="font:400 13px/1.5;color:rgba(27,24,21,.55);margin-top:6px">{{ t.desc }}</div>
+</div>
+</sc-if>
+</div>
+</sc-for>
+</div>
+</div>
+<div onClick="{{ obDownload }}" style="padding:16px;border-radius:14px;background:#1B1815;color:#FBF9F5;text-align:center;font:500 16px/1;cursor:pointer">{{ dlLabel }}</div>
+</sc-if>
+<sc-if value="{{ ob2 }}">
+<div style="flex:1;display:flex;flex-direction:column;justify-content:center;gap:20px">
+<div style="font:400 30px/1.12 Newsreader,Georgia,serif">Downloading</div>
+<div style="display:flex;flex-direction:column;gap:11px">
+<div style="height:6px;border-radius:6px;background:rgba(27,24,21,.09);overflow:hidden"><div style="height:6px;border-radius:6px;background:#2F5D8A;width:{{ dlPct }}%;transition:width .2s linear"></div></div>
+<div style="display:flex;justify-content:space-between;font:400 12.5px/1 'IBM Plex Mono',ui-monospace,monospace;color:rgba(27,24,21,.5)"><span>{{ dlModel }}</span><span>{{ dlPct }}%</span></div>
+</div>
+<div style="font:400 13.5px/1.6;color:rgba(27,24,21,.55);max-width:290px">Once it lands, Nook answers without a network connection. You can close the app; the download resumes.</div>
+</div>
+</sc-if>
+<sc-if value="{{ ob3 }}">
+<div style="flex:1;display:flex;flex-direction:column;justify-content:center;gap:24px">
+<div style="display:flex;flex-direction:column;gap:8px">
+<div style="font:400 34px/1.1 Newsreader,Georgia,serif">You're set</div>
+<div style="font:400 14.5px/1.6;color:rgba(27,24,21,.62)">Nook gets more useful as you give it things to know.</div>
+</div>
+<div style="display:flex;flex-direction:column;gap:10px">
+<sc-for list="{{ obNext3 }}" as="n" hint-placeholder-count="3">
+<div onClick="{{ n.go }}" style="display:flex;justify-content:space-between;align-items:center;padding:15px 16px;border-radius:13px;background:#FDFCF9;border:1px solid rgba(27,24,21,.1);cursor:pointer" style-hover="border-color:rgba(27,24,21,.24)">
+<div><div style="font:500 15px/1.25">{{ n.title }}</div><div style="font:400 12.5px/1.4;color:rgba(27,24,21,.55);margin-top:3px">{{ n.sub }}</div></div>
+<div style="font:400 17px/1;color:rgba(27,24,21,.3)">›</div>
+</div>
+</sc-for>
+</div>
+</div>
+<div onClick="{{ enterApp }}" style="padding:16px;border-radius:14px;background:#1B1815;color:#FBF9F5;text-align:center;font:500 16px/1;cursor:pointer">Start a chat</div>
+</sc-if>
+</div>
+</sc-if>
+
+<sc-if value="{{ isChat }}">
+<div style="height:100%;display:flex;flex-direction:column">
+<div style="padding:60px 18px 10px;background:#F7F4EE;border-bottom:1px solid rgba(27,24,21,.08)">
+<div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+<div onClick="{{ goChatList }}" style="font:400 22px/1;color:rgba(27,24,21,.45);cursor:pointer;width:26px">‹</div>
+<div style="flex:1;text-align:center;display:flex;flex-direction:column;gap:3px">
+<div style="font:500 15px/1.2">{{ chatTitle }}</div>
+<div style="display:flex;align-items:center;justify-content:center;gap:5px"><span style="width:5px;height:5px;border-radius:5px;background:#2F5D8A"></span><span style="font:400 10.5px/1 'IBM Plex Mono',ui-monospace,monospace;color:rgba(27,24,21,.5)">{{ chatSub }}</span></div>
+</div>
+<div onClick="{{ openScope }}" style="width:26px;text-align:right;font:400 18px/1;color:rgba(27,24,21,.45);cursor:pointer">⌥</div>
+</div>
+</div>
+
+<div ref="{{ scrollRef }}" style="flex:1;overflow:auto;padding:16px 18px 8px;display:flex;flex-direction:column;gap:14px">
+<sc-if value="{{ chatEmpty }}">
+<div style="margin:auto 0;display:flex;flex-direction:column;gap:14px;padding:20px 0">
+<div style="font:400 26px/1.2 Newsreader,Georgia,serif;color:rgba(27,24,21,.85)">What can I look into?</div>
+<div style="display:flex;flex-direction:column;gap:8px">
+<sc-for list="{{ starters }}" as="s" hint-placeholder-count="3">
+<div onClick="{{ s.go }}" style="padding:13px 14px;border-radius:12px;background:#FDFCF9;border:1px solid rgba(27,24,21,.1);font:400 13.5px/1.45;color:rgba(27,24,21,.72);cursor:pointer" style-hover="border-color:rgba(27,24,21,.24)">{{ s.text }}</div>
+</sc-for>
+</div>
+</div>
+</sc-if>
+<sc-for list="{{ msgs }}" as="m" hint-placeholder-count="0">
+<div>
+<sc-if value="{{ m.isUser }}">
+<div style="display:flex;justify-content:flex-end">
+<div style="max-width:80%;display:flex;flex-direction:column;gap:8px;align-items:flex-end">
+<sc-if value="{{ m.hasImg }}">
+<div style="width:150px;height:104px;border-radius:12px;background:repeating-linear-gradient(135deg,#E6E1D8 0 6px,#DCD6CB 6px 12px);border:1px solid rgba(27,24,21,.12);display:flex;align-items:flex-end;padding:8px"><span style="font:400 9.5px/1.3 'IBM Plex Mono',ui-monospace,monospace;color:rgba(27,24,21,.55)">screenshot.png</span></div>
+</sc-if>
+<div style="padding:11px 14px;border-radius:16px;background:#1B1815;color:#FBF9F5;font:400 14.5px/1.5">{{ m.text }}</div>
+</div>
+</div>
+</sc-if>
+<sc-if value="{{ m.isLocalTool }}">
+<div style="display:flex;align-items:center;gap:8px;padding:9px 12px;border-radius:10px;background:rgba(47,93,138,.07);align-self:flex-start">
+<span style="width:5px;height:5px;border-radius:5px;background:#2F5D8A;flex:none"></span>
+<span style="font:400 11.5px/1.35 'IBM Plex Mono',ui-monospace,monospace;color:#2F5D8A">{{ m.text }}</span>
+</div>
+</sc-if>
+<sc-if value="{{ m.isExtTool }}">
+<div style="border:1px solid rgba(140,98,57,.35);border-radius:12px;background:rgba(140,98,57,.05);padding:12px 13px;display:flex;flex-direction:column;gap:9px">
+<div style="display:flex;align-items:center;gap:7px"><span style="width:6px;height:6px;border-radius:6px;border:1.5px solid #8C6239;flex:none"></span><span style="font:500 11px/1 'IBM Plex Mono',ui-monospace,monospace;color:#8C6239;letter-spacing:.04em">{{ m.text }}</span></div>
+<sc-for list="{{ m.lines }}" as="l" hint-placeholder-count="2">
+<div style="font:400 12.5px/1.5;color:rgba(27,24,21,.7)">{{ l }}</div>
+</sc-for>
+<div style="font:400 10.5px/1.4 'IBM Plex Mono',ui-monospace,monospace;color:rgba(140,98,57,.75)">{{ m.foot }}</div>
+</div>
+</sc-if>
+<sc-if value="{{ m.isAsst }}">
+<div style="display:flex;flex-direction:column;gap:10px;max-width:92%">
+<div style="display:flex;flex-direction:column;gap:11px">
+<sc-for list="{{ m.paras }}" as="p" hint-placeholder-count="1">
+<div style="font:400 15px/1.62;color:#1B1815;text-wrap:pretty">{{ p.t }}</div>
+</sc-for>
+</div>
+<sc-if value="{{ m.hasCites }}">
+<div style="display:flex;flex-direction:column;gap:7px;padding-top:2px">
+<div style="font:500 10px/1 'IBM Plex Mono',ui-monospace,monospace;letter-spacing:.13em;text-transform:uppercase;color:rgba(27,24,21,.4)">{{ m.citeLabel }}</div>
+<div style="display:flex;flex-wrap:wrap;gap:6px">
+<sc-for list="{{ m.cites }}" as="c" hint-placeholder-count="2">
+<div onClick="{{ c.open }}" style="display:flex;align-items:center;gap:6px;padding:6px 9px;border-radius:8px;background:#FDFCF9;border:1px solid rgba(27,24,21,.13);cursor:pointer" style-hover="border-color:#2F5D8A">
+<span style="font:500 10px/1 'IBM Plex Mono',ui-monospace,monospace;color:#2F5D8A">{{ c.n }}</span>
+<span style="font:400 11.5px/1.3;color:rgba(27,24,21,.72)">{{ c.label }}</span>
+</div>
+</sc-for>
+</div>
+</div>
+</sc-if>
+</div>
+</sc-if>
+</div>
+</sc-for>
+<sc-if value="{{ thinking }}">
+<div style="display:flex;gap:5px;padding:4px 2px"><span style="width:6px;height:6px;border-radius:6px;background:rgba(27,24,21,.25)"></span><span style="width:6px;height:6px;border-radius:6px;background:rgba(27,24,21,.18)"></span><span style="width:6px;height:6px;border-radius:6px;background:rgba(27,24,21,.11)"></span></div>
+</sc-if>
+</div>
+
+<div style="padding:10px 14px 12px;background:#F7F4EE;border-top:1px solid rgba(27,24,21,.08)">
+<sc-if value="{{ scopeOn }}">
+<div style="display:flex;align-items:center;gap:6px;padding:0 4px 9px">
+<span style="width:5px;height:5px;border-radius:5px;background:#2F5D8A"></span>
+<span style="font:400 11px/1.3 'IBM Plex Mono',ui-monospace,monospace;color:rgba(27,24,21,.55)">{{ scopeLabel }}</span>
+</div>
+</sc-if>
+<div style="display:flex;align-items:center;gap:9px">
+<div onClick="{{ openAttach }}" style="width:38px;height:38px;flex:none;border-radius:38px;background:rgba(27,24,21,.06);display:flex;align-items:center;justify-content:center;font:300 20px/1;color:rgba(27,24,21,.55);cursor:pointer">+</div>
+<input value="{{ input }}" onChange="{{ onInput }}" onKeyDown="{{ onKey }}" placeholder="Ask anything" style="flex:1;min-width:0;height:38px;border-radius:19px;border:1px solid rgba(27,24,21,.13);background:#FDFCF9;padding:0 15px;font:400 14.5px/1;color:#1B1815;outline:none">
+<div onClick="{{ sendInput }}" style="width:38px;height:38px;flex:none;border-radius:38px;background:#1B1815;display:flex;align-items:center;justify-content:center;font:400 16px/1;color:#FBF9F5;cursor:pointer">↑</div>
+</div>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ isChatList }}">
+<div style="height:100%;display:flex;flex-direction:column">
+<div style="padding:62px 20px 12px;display:flex;align-items:flex-end;justify-content:space-between">
+<div style="display:flex;flex-direction:column;gap:5px">
+<div style="font:400 32px/1 Newsreader,Georgia,serif;letter-spacing:-.01em">Nook</div>
+<div style="display:flex;align-items:center;gap:5px"><span style="width:5px;height:5px;border-radius:5px;background:#2F5D8A"></span><span style="font:400 10.5px/1 'IBM Plex Mono',ui-monospace,monospace;color:rgba(27,24,21,.5)">{{ activeModel }} · on device</span></div>
+</div>
+<div style="display:flex;gap:8px">
+<div onClick="{{ goSettings }}" style="width:34px;height:34px;border-radius:34px;background:rgba(27,24,21,.06);display:flex;align-items:center;justify-content:center;font:400 15px/1;color:rgba(27,24,21,.55);cursor:pointer">⚙</div>
+<div onClick="{{ newChat }}" style="width:34px;height:34px;border-radius:34px;background:#1B1815;display:flex;align-items:center;justify-content:center;font:300 19px/1;color:#FBF9F5;cursor:pointer">+</div>
+</div>
+</div>
+<div style="flex:1;overflow:auto;padding:6px 14px 12px;display:flex;flex-direction:column;gap:7px">
+<sc-for list="{{ chats }}" as="c" hint-placeholder-count="4">
+<div onClick="{{ c.go }}" style="padding:14px 15px;border-radius:13px;background:#FDFCF9;border:1px solid rgba(27,24,21,.08);cursor:pointer" style-hover="border-color:rgba(27,24,21,.2)">
+<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px">
+<div style="font:500 14.5px/1.25">{{ c.title }}</div>
+<div style="font:400 10.5px/1 'IBM Plex Mono',ui-monospace,monospace;color:rgba(27,24,21,.38);flex:none">{{ c.when }}</div>
+</div>
+<div style="font:400 13px/1.5;color:rgba(27,24,21,.55);margin-top:5px">{{ c.snippet }}</div>
+<sc-if value="{{ c.hasTags }}">
+<div style="display:flex;gap:6px;margin-top:9px">
+<sc-for list="{{ c.tags }}" as="g" hint-placeholder-count="1">
+<span style="font:400 10px/1 'IBM Plex Mono',ui-monospace,monospace;padding:5px 7px;border-radius:6px;background:rgba(47,93,138,.09);color:#2F5D8A">{{ g }}</span>
+</sc-for>
+</div>
+</sc-if>
+</div>
+</sc-for>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ isKnowledge }}">
+<div style="height:100%;display:flex;flex-direction:column">
+<div style="padding:62px 20px 12px;display:flex;align-items:flex-end;justify-content:space-between">
+<div style="font:400 32px/1 Newsreader,Georgia,serif;letter-spacing:-.01em">Knowledge</div>
+<div onClick="{{ toastAdd }}" style="width:34px;height:34px;border-radius:34px;background:#1B1815;display:flex;align-items:center;justify-content:center;font:300 19px/1;color:#FBF9F5;cursor:pointer">+</div>
+</div>
+<div style="padding:0 20px 12px;font:400 13.5px/1.55;color:rgba(27,24,21,.6);text-wrap:pretty">Collections you add are read, indexed and searched entirely on this iPhone.</div>
+<div style="flex:1;overflow:auto;padding:2px 14px 12px;display:flex;flex-direction:column;gap:8px">
+<sc-for list="{{ collections }}" as="k" hint-placeholder-count="3">
+<div onClick="{{ k.go }}" style="padding:15px 16px;border-radius:13px;background:#FDFCF9;border:1px solid rgba(27,24,21,.08);cursor:pointer" style-hover="border-color:rgba(27,24,21,.2)">
+<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px">
+<div style="font:400 19px/1.2 Newsreader,Georgia,serif">{{ k.name }}</div>
+<div style="font:400 10.5px/1 'IBM Plex Mono',ui-monospace,monospace;color:rgba(27,24,21,.38)">{{ k.count }}</div>
+</div>
+<div style="font:400 12.5px/1.45;color:rgba(27,24,21,.55);margin-top:6px">{{ k.desc }}</div>
+<div style="display:flex;align-items:center;gap:6px;margin-top:10px">
+<sc-if value="{{ k.busy }}"><span style="width:5px;height:5px;border-radius:5px;border:1.5px solid #8C6239"></span><span style="font:400 10.5px/1 'IBM Plex Mono',ui-monospace,monospace;color:#8C6239">{{ k.status }}</span></sc-if>
+<sc-if value="{{ k.ready }}"><span style="width:5px;height:5px;border-radius:5px;background:#2F5D8A"></span><span style="font:400 10.5px/1 'IBM Plex Mono',ui-monospace,monospace;color:rgba(27,24,21,.5)">{{ k.status }}</span></sc-if>
+</div>
+</div>
+</sc-for>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ isCollection }}">
+<div style="height:100%;display:flex;flex-direction:column">
+<div style="padding:60px 18px 12px;border-bottom:1px solid rgba(27,24,21,.08)">
+<div onClick="{{ goKnowledge }}" style="font:400 13px/1;color:rgba(27,24,21,.45);cursor:pointer;margin-bottom:10px">‹ Knowledge</div>
+<div style="font:400 27px/1.1 Newsreader,Georgia,serif">{{ colName }}</div>
+<div style="font:400 11px/1.4 'IBM Plex Mono',ui-monospace,monospace;color:rgba(27,24,21,.45);margin-top:6px">{{ colMeta }}</div>
+</div>
+<div style="flex:1;overflow:auto;padding:12px 14px;display:flex;flex-direction:column;gap:7px">
+<sc-for list="{{ docs }}" as="d" hint-placeholder-count="4">
+<div onClick="{{ d.open }}" style="padding:13px 14px;border-radius:12px;background:#FDFCF9;border:1px solid rgba(27,24,21,.08);cursor:pointer">
+<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px">
+<div style="font:400 14px/1.3 'IBM Plex Mono',ui-monospace,monospace">{{ d.name }}</div>
+</div>
+<div style="display:flex;align-items:center;gap:8px;margin-top:8px">
+<div style="font:400 11.5px/1;color:rgba(27,24,21,.45)">{{ d.meta }}</div>
+<sc-if value="{{ d.busy }}"><div style="font:400 10.5px/1 'IBM Plex Mono',ui-monospace,monospace;color:#8C6239">{{ d.status }}</div></sc-if>
+<sc-if value="{{ d.ready }}"><div style="font:400 10.5px/1 'IBM Plex Mono',ui-monospace,monospace;color:#2F5D8A">{{ d.status }}</div></sc-if>
+</div>
+<sc-if value="{{ d.busy }}">
+<div style="height:3px;border-radius:3px;background:rgba(27,24,21,.08);margin-top:9px;overflow:hidden"><div style="height:3px;border-radius:3px;background:#8C6239;width:{{ d.pct }}%"></div></div>
+</sc-if>
+</div>
+</sc-for>
+<div onClick="{{ scopeToChat }}" style="margin-top:6px;padding:14px 15px;border-radius:12px;border:1px dashed rgba(27,24,21,.22);display:flex;justify-content:space-between;align-items:center;cursor:pointer">
+<div style="font:400 13.5px/1.3;color:rgba(27,24,21,.7)">Use this collection in a new chat</div>
+<div style="font:400 16px/1;color:rgba(27,24,21,.3)">›</div>
+</div>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ isSkills }}">
+<div style="height:100%;display:flex;flex-direction:column">
+<div style="padding:62px 20px 12px;display:flex;align-items:flex-end;justify-content:space-between">
+<div style="font:400 32px/1 Newsreader,Georgia,serif;letter-spacing:-.01em">Skills</div>
+<div onClick="{{ toastImport }}" style="font:400 12.5px/1;color:#2F5D8A;cursor:pointer;padding-bottom:4px">Import</div>
+</div>
+<div style="padding:0 20px 14px;font:400 13.5px/1.55;color:rgba(27,24,21,.6);text-wrap:pretty">A Skill teaches Nook a way of working. It can ask for tools, but never grants itself any.</div>
+<div style="flex:1;overflow:auto;padding:2px 14px 12px;display:flex;flex-direction:column;gap:16px">
+<sc-for list="{{ skillGroups }}" as="g" hint-placeholder-count="2">
+<div style="display:flex;flex-direction:column;gap:7px">
+<div style="font:500 10px/1 'IBM Plex Mono',ui-monospace,monospace;letter-spacing:.13em;text-transform:uppercase;color:rgba(27,24,21,.4);padding:0 6px">{{ g.label }}</div>
+<sc-for list="{{ g.items }}" as="s" hint-placeholder-count="2">
+<div onClick="{{ s.go }}" style="padding:14px 15px;border-radius:12px;background:#FDFCF9;border:1px solid rgba(27,24,21,.08);cursor:pointer" style-hover="border-color:rgba(27,24,21,.2)">
+<div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
+<div style="font:500 14.5px/1.25">{{ s.name }}</div>
+<sc-if value="{{ s.on }}"><div style="font:400 10px/1 'IBM Plex Mono',ui-monospace,monospace;color:#2F5D8A;padding:5px 7px;border-radius:6px;background:rgba(47,93,138,.1)">ON</div></sc-if>
+<sc-if value="{{ s.off }}"><div style="font:400 10px/1 'IBM Plex Mono',ui-monospace,monospace;color:rgba(27,24,21,.38);padding:5px 7px;border-radius:6px;background:rgba(27,24,21,.05)">OFF</div></sc-if>
+</div>
+<div style="font:400 12.5px/1.5;color:rgba(27,24,21,.55);margin-top:5px">{{ s.desc }}</div>
+</div>
+</sc-for>
+</div>
+</sc-for>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ isSkill }}">
+<div style="height:100%;display:flex;flex-direction:column">
+<div style="padding:60px 18px 12px;border-bottom:1px solid rgba(27,24,21,.08)">
+<div onClick="{{ goSkills }}" style="font:400 13px/1;color:rgba(27,24,21,.45);cursor:pointer;margin-bottom:10px">‹ Skills</div>
+<div style="font:400 26px/1.12 Newsreader,Georgia,serif">{{ skillName }}</div>
+<div style="font:400 13px/1.5;color:rgba(27,24,21,.6);margin-top:7px">{{ skillDesc }}</div>
+</div>
+<div style="flex:1;overflow:auto;padding:14px 18px;display:flex;flex-direction:column;gap:18px">
+<div style="display:flex;flex-direction:column;gap:8px">
+<div style="font:500 10px/1 'IBM Plex Mono',ui-monospace,monospace;letter-spacing:.13em;text-transform:uppercase;color:rgba(27,24,21,.4)">Instructions · SKILL.md</div>
+<div style="padding:14px;border-radius:11px;background:#FDFCF9;border:1px solid rgba(27,24,21,.09);font:400 11.5px/1.7 'IBM Plex Mono',ui-monospace,monospace;color:rgba(27,24,21,.72);white-space:pre-wrap">{{ skillMd }}</div>
+<div style="font:400 11.5px/1.5;color:rgba(27,24,21,.45)">Plain instructions. No code runs.</div>
+</div>
+<div style="display:flex;flex-direction:column;gap:8px">
+<div style="font:500 10px/1 'IBM Plex Mono',ui-monospace,monospace;letter-spacing:.13em;text-transform:uppercase;color:rgba(27,24,21,.4)">Wants access to</div>
+<sc-for list="{{ skillPerms }}" as="p" hint-placeholder-count="3">
+<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:13px 14px;border-radius:11px;background:#FDFCF9;border:1px solid rgba(27,24,21,.09)">
+<div style="min-width:0">
+<div style="font:400 12.5px/1.3 'IBM Plex Mono',ui-monospace,monospace">{{ p.tool }}</div>
+<div style="font:400 11.5px/1.4;color:rgba(27,24,21,.5);margin-top:4px">{{ p.what }}</div>
+</div>
+<div onClick="{{ p.toggle }}" style="cursor:pointer;flex:none">
+<sc-if value="{{ p.on }}"><div style="width:44px;height:26px;border-radius:26px;background:#2F5D8A;display:flex;align-items:center;justify-content:flex-end;padding:0 3px"><div style="width:20px;height:20px;border-radius:20px;background:#fff"></div></div></sc-if>
+<sc-if value="{{ p.off }}"><div style="width:44px;height:26px;border-radius:26px;background:rgba(27,24,21,.14);display:flex;align-items:center;padding:0 3px"><div style="width:20px;height:20px;border-radius:20px;background:#fff"></div></div></sc-if>
+</div>
+</div>
+</sc-for>
+<div style="font:400 11.5px/1.55;color:rgba(27,24,21,.45);text-wrap:pretty">{{ permNote }}</div>
+</div>
+<div onClick="{{ toggleSkill }}" style="padding:15px;border-radius:13px;text-align:center;font:500 15px/1;cursor:pointer;background:#1B1815;color:#FBF9F5">{{ skillCta }}</div>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ isConnections }}">
+<div style="height:100%;display:flex;flex-direction:column">
+<div style="padding:62px 20px 12px;display:flex;align-items:flex-end;justify-content:space-between">
+<div style="font:400 32px/1 Newsreader,Georgia,serif;letter-spacing:-.01em">Connections</div>
+<div onClick="{{ toastAddServer }}" style="font:400 12.5px/1;color:#2F5D8A;cursor:pointer;padding-bottom:4px">Add</div>
+</div>
+<div style="padding:0 20px 14px;font:400 13.5px/1.55;color:rgba(27,24,21,.6);text-wrap:pretty">Outside services Nook can reach. Everything here leaves your device, so it asks first.</div>
+<div style="flex:1;overflow:auto;padding:2px 14px 12px;display:flex;flex-direction:column;gap:8px">
+<sc-for list="{{ servers }}" as="v" hint-placeholder-count="3">
+<div onClick="{{ v.go }}" style="padding:15px 16px;border-radius:13px;background:#FDFCF9;border:1px solid rgba(27,24,21,.08);cursor:pointer" style-hover="border-color:rgba(27,24,21,.2)">
+<div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
+<div style="font:500 15px/1.2">{{ v.name }}</div>
+<sc-if value="{{ v.on }}"><div style="display:flex;align-items:center;gap:5px"><span style="width:6px;height:6px;border-radius:6px;border:1.5px solid #8C6239"></span><span style="font:400 10px/1 'IBM Plex Mono',ui-monospace,monospace;color:#8C6239">{{ v.tools }}</span></div></sc-if>
+<sc-if value="{{ v.off }}"><div style="font:400 10px/1 'IBM Plex Mono',ui-monospace,monospace;color:rgba(27,24,21,.38)">Not connected</div></sc-if>
+</div>
+<div style="font:400 11.5px/1.4 'IBM Plex Mono',ui-monospace,monospace;color:rgba(27,24,21,.42);margin-top:7px">{{ v.url }}</div>
+</div>
+</sc-for>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ isServer }}">
+<div style="height:100%;display:flex;flex-direction:column">
+<div style="padding:60px 18px 12px;border-bottom:1px solid rgba(27,24,21,.08)">
+<div onClick="{{ goConnections }}" style="font:400 13px/1;color:rgba(27,24,21,.45);cursor:pointer;margin-bottom:10px">‹ Connections</div>
+<div style="font:400 26px/1.12 Newsreader,Georgia,serif">{{ serverName }}</div>
+<div style="font:400 11.5px/1.4 'IBM Plex Mono',ui-monospace,monospace;color:rgba(27,24,21,.45);margin-top:7px">{{ serverUrl }}</div>
+</div>
+<div style="flex:1;overflow:auto;padding:14px 18px;display:flex;flex-direction:column;gap:18px">
+<div style="display:flex;flex-direction:column;gap:8px">
+<div style="font:500 10px/1 'IBM Plex Mono',ui-monospace,monospace;letter-spacing:.13em;text-transform:uppercase;color:rgba(27,24,21,.4)">Ask before sending</div>
+<div style="display:flex;gap:6px;padding:4px;border-radius:11px;background:rgba(27,24,21,.05)">
+<sc-for list="{{ policies }}" as="p" hint-placeholder-count="3">
+<div onClick="{{ p.pick }}" style="flex:1;cursor:pointer">
+<sc-if value="{{ p.on }}"><div style="padding:9px 4px;border-radius:8px;background:#FDFCF9;text-align:center;font:500 12px/1.2;box-shadow:0 1px 2px rgba(27,24,21,.08)">{{ p.label }}</div></sc-if>
+<sc-if value="{{ p.off }}"><div style="padding:9px 4px;border-radius:8px;text-align:center;font:400 12px/1.2;color:rgba(27,24,21,.5)">{{ p.label }}</div></sc-if>
+</div>
+</sc-for>
+</div>
+</div>
+<div style="display:flex;flex-direction:column;gap:8px">
+<div style="font:500 10px/1 'IBM Plex Mono',ui-monospace,monospace;letter-spacing:.13em;text-transform:uppercase;color:rgba(27,24,21,.4)">Tools found on this server</div>
+<sc-for list="{{ serverTools }}" as="t" hint-placeholder-count="4">
+<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;border-radius:11px;background:#FDFCF9;border:1px solid rgba(27,24,21,.09)">
+<div style="min-width:0">
+<div style="font:400 12.5px/1.3 'IBM Plex Mono',ui-monospace,monospace">{{ t.name }}</div>
+<div style="font:400 11.5px/1.4;color:rgba(27,24,21,.5);margin-top:4px">{{ t.what }}</div>
+</div>
+<div onClick="{{ t.toggle }}" style="cursor:pointer;flex:none">
+<sc-if value="{{ t.on }}"><div style="width:44px;height:26px;border-radius:26px;background:#8C6239;display:flex;align-items:center;justify-content:flex-end;padding:0 3px"><div style="width:20px;height:20px;border-radius:20px;background:#fff"></div></div></sc-if>
+<sc-if value="{{ t.off }}"><div style="width:44px;height:26px;border-radius:26px;background:rgba(27,24,21,.14);display:flex;align-items:center;padding:0 3px"><div style="width:20px;height:20px;border-radius:20px;background:#fff"></div></div></sc-if>
+</div>
+</div>
+</sc-for>
+</div>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ isMemory }}">
+<div style="height:100%;display:flex;flex-direction:column">
+<div style="padding:62px 20px 12px">
+<div style="font:400 32px/1 Newsreader,Georgia,serif;letter-spacing:-.01em">Memory</div>
+<div style="font:400 13.5px/1.55;color:rgba(27,24,21,.6);margin-top:8px;text-wrap:pretty">What Nook has picked up from past chats. Every item points back to where you said it.</div>
+</div>
+<div style="padding:2px 18px 12px">
+<input value="{{ memQuery }}" onChange="{{ onMemInput }}" onKeyDown="{{ onMemKey }}" placeholder="Search your past chats" style="width:100%;box-sizing:border-box;height:40px;border-radius:20px;border:1px solid rgba(27,24,21,.13);background:#FDFCF9;padding:0 15px;font:400 14px/1;color:#1B1815;outline:none">
+</div>
+<div style="flex:1;overflow:auto;padding:2px 14px 12px;display:flex flex-direction:column">
+<sc-if value="{{ memIdle }}">
+<div style="padding:10px 6px;display:flex;flex-direction:column;gap:10px">
+<div style="font:500 10px/1 'IBM Plex Mono',ui-monospace,monospace;letter-spacing:.13em;text-transform:uppercase;color:rgba(27,24,21,.4)">Try</div>
+<sc-for list="{{ memSuggestions }}" as="s" hint-placeholder-count="2">
+<div onClick="{{ s.go }}" style="padding:13px 14px;border-radius:12px;background:#FDFCF9;border:1px solid rgba(27,24,21,.09);font:400 13.5px/1.45;color:rgba(27,24,21,.7);cursor:pointer">{{ s.text }}</div>
+</sc-for>
+</div>
+</sc-if>
+<sc-if value="{{ memHasResults }}">
+<div style="display:flex;flex-direction:column;gap:9px">
+<sc-for list="{{ memResults }}" as="r" hint-placeholder-count="2">
+<div style="padding:15px 16px;border-radius:13px;background:#FDFCF9;border:1px solid rgba(27,24,21,.08)">
+<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px">
+<div style="font:400 19px/1.2 Newsreader,Georgia,serif">{{ r.subject }}</div>
+<div style="font:400 10px/1 'IBM Plex Mono',ui-monospace,monospace;color:rgba(27,24,21,.38);flex:none">{{ r.kind }}</div>
+</div>
+<div style="font:400 13.5px/1.55;color:rgba(27,24,21,.72);margin-top:8px;padding-left:10px;border-left:2px solid rgba(47,93,138,.35);text-wrap:pretty">{{ r.quote }}</div>
+<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:11px">
+<div style="font:400 10.5px/1.4 'IBM Plex Mono',ui-monospace,monospace;color:rgba(27,24,21,.42)">{{ r.source }}</div>
+<div style="display:flex;gap:8px">
+<div onClick="{{ r.open }}" style="font:400 12px/1;color:#2F5D8A;cursor:pointer">Open</div>
+<div onClick="{{ r.forget }}" style="font:400 12px/1;color:rgba(27,24,21,.42);cursor:pointer">Forget</div>
+</div>
+</div>
+</div>
+</sc-for>
+<div style="font:400 11.5px/1.55;color:rgba(27,24,21,.45);padding:6px 6px 0;text-wrap:pretty">Forgetting removes what Nook derived. The original chat stays untouched.</div>
+</div>
+</sc-if>
+<sc-if value="{{ memEmpty }}">
+<div style="padding:24px 8px;font:400 13.5px/1.55;color:rgba(27,24,21,.5)">Nothing left under that. Try “DuckDB” or “Sarah”.</div>
+</sc-if>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ isModels }}">
+<div style="height:100%;display:flex;flex-direction:column">
+<div style="padding:60px 18px 12px;border-bottom:1px solid rgba(27,24,21,.08)">
+<div onClick="{{ goSettings }}" style="font:400 13px/1;color:rgba(27,24,21,.45);cursor:pointer;margin-bottom:10px">‹ Settings</div>
+<div style="font:400 26px/1.12 Newsreader,Georgia,serif">Models</div>
+</div>
+<div style="flex:1;overflow:auto;padding:14px 18px;display:flex;flex-direction:column;gap:18px">
+<div style="display:flex;flex-direction:column;gap:10px">
+<sc-for list="{{ tiers }}" as="t" hint-placeholder-count="3">
+<div onClick="{{ t.pick }}" style="cursor:pointer">
+<sc-if value="{{ t.on }}">
+<div style="padding:15px 16px;border-radius:13px;background:#FDFCF9;border:1.5px solid #2F5D8A">
+<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px"><div style="font:500 16px/1.2">{{ t.name }}</div><div style="font:500 10.5px/1 'IBM Plex Mono',ui-monospace,monospace;color:#2F5D8A">IN USE</div></div>
+<div style="font:400 12.5px/1.5;color:rgba(27,24,21,.6);margin-top:6px">{{ t.long }}</div>
+</div>
+</sc-if>
+<sc-if value="{{ t.off }}">
+<div style="padding:15px 16px;border-radius:13px;background:#FDFCF9;border:1px solid rgba(27,24,21,.09)">
+<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px"><div style="font:400 16px/1.2">{{ t.name }}</div><div style="font:400 10.5px/1 'IBM Plex Mono',ui-monospace,monospace;color:rgba(27,24,21,.4)">{{ t.size }}</div></div>
+<div style="font:400 12.5px/1.5;color:rgba(27,24,21,.55);margin-top:6px">{{ t.long }}</div>
+</div>
+</sc-if>
+</div>
+</sc-for>
+</div>
+<div style="display:flex;flex-direction:column;gap:9px">
+<div style="font:500 10px/1 'IBM Plex Mono',ui-monospace,monospace;letter-spacing:.13em;text-transform:uppercase;color:rgba(27,24,21,.4)">Storage on this iPhone</div>
+<div style="height:8px;border-radius:8px;background:rgba(27,24,21,.08);overflow:hidden;display:flex">
+<div style="width:38%;background:#2F5D8A"></div><div style="width:12%;background:rgba(47,93,138,.45)"></div><div style="width:6%;background:#8C6239"></div>
+</div>
+<div style="display:flex;flex-wrap:wrap;gap:14px;font:400 11px/1.4 'IBM Plex Mono',ui-monospace,monospace;color:rgba(27,24,21,.5)">
+<span>Models 6.5 GB</span><span>Knowledge 2.1 GB</span><span>Chats 0.9 GB</span>
+</div>
+</div>
+<div onClick="{{ toastAdvanced }}" style="display:flex;justify-content:space-between;align-items:center;padding:14px 15px;border-radius:12px;background:#FDFCF9;border:1px solid rgba(27,24,21,.09);cursor:pointer">
+<div><div style="font:400 14px/1.25">Advanced</div><div style="font:400 11.5px/1.4;color:rgba(27,24,21,.5);margin-top:3px">Import a model, context length, sampling</div></div>
+<div style="font:400 16px/1;color:rgba(27,24,21,.3)">›</div>
+</div>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ isSettings }}">
+<div style="height:100%;display:flex;flex-direction:column">
+<div style="padding:60px 18px 12px;border-bottom:1px solid rgba(27,24,21,.08)">
+<div onClick="{{ goChatList }}" style="font:400 13px/1;color:rgba(27,24,21,.45);cursor:pointer;margin-bottom:10px">‹ Nook</div>
+<div style="font:400 26px/1.12 Newsreader,Georgia,serif">Settings</div>
+</div>
+<div style="flex:1;overflow:auto;padding:14px 18px;display:flex;flex-direction:column;gap:18px">
+<div onClick="{{ goPaywall }}" style="padding:16px 17px;border-radius:13px;background:#1B1815;color:#FBF9F5;cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:10px">
+<div><div style="font:400 19px/1.2 Newsreader,Georgia,serif">{{ proTitle }}</div><div style="font:400 12px/1.45;opacity:.65;margin-top:4px">{{ proSub }}</div></div>
+<div style="font:400 16px/1;opacity:.5">›</div>
+</div>
+<div style="display:flex;flex-direction:column;gap:8px">
+<div style="font:500 10px/1 'IBM Plex Mono',ui-monospace,monospace;letter-spacing:.13em;text-transform:uppercase;color:rgba(27,24,21,.4)">Privacy</div>
+<sc-for list="{{ privacyRows }}" as="p" hint-placeholder-count="3">
+<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:13px 14px;border-radius:11px;background:#FDFCF9;border:1px solid rgba(27,24,21,.09)">
+<div style="min-width:0"><div style="font:400 13.5px/1.3">{{ p.label }}</div><div style="font:400 11.5px/1.45;color:rgba(27,24,21,.5);margin-top:4px">{{ p.sub }}</div></div>
+<div onClick="{{ p.toggle }}" style="cursor:pointer;flex:none">
+<sc-if value="{{ p.on }}"><div style="width:44px;height:26px;border-radius:26px;background:#2F5D8A;display:flex;align-items:center;justify-content:flex-end;padding:0 3px"><div style="width:20px;height:20px;border-radius:20px;background:#fff"></div></div></sc-if>
+<sc-if value="{{ p.off }}"><div style="width:44px;height:26px;border-radius:26px;background:rgba(27,24,21,.14);display:flex;align-items:center;padding:0 3px"><div style="width:20px;height:20px;border-radius:20px;background:#fff"></div></div></sc-if>
+</div>
+</div>
+</sc-for>
+</div>
+<div style="display:flex;flex-direction:column;gap:8px">
+<div style="font:500 10px/1 'IBM Plex Mono',ui-monospace,monospace;letter-spacing:.13em;text-transform:uppercase;color:rgba(27,24,21,.4)">Data</div>
+<sc-for list="{{ settingRows }}" as="r" hint-placeholder-count="3">
+<div onClick="{{ r.go }}" style="display:flex;justify-content:space-between;align-items:center;padding:14px 15px;border-radius:11px;background:#FDFCF9;border:1px solid rgba(27,24,21,.09);cursor:pointer">
+<div><div style="font:400 13.5px/1.25">{{ r.label }}</div><div style="font:400 11.5px/1.45;color:rgba(27,24,21,.5);margin-top:4px">{{ r.sub }}</div></div>
+<div style="font:400 16px/1;color:rgba(27,24,21,.3)">›</div>
+</div>
+</sc-for>
+</div>
+<div onClick="{{ openShareDemo }}" style="padding:14px 15px;border-radius:11px;border:1px dashed rgba(27,24,21,.22);font:400 13px/1.4;color:rgba(27,24,21,.6);cursor:pointer">Preview the iOS share sheet</div>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ isPaywall }}">
+<div style="height:100%;display:flex;flex-direction:column;background:#F7F4EE">
+<div style="padding:60px 22px 8px">
+<div onClick="{{ goSettings }}" style="font:400 13px/1;color:rgba(27,24,21,.45);cursor:pointer">‹ Settings</div>
+</div>
+<div style="flex:1;overflow:auto;padding:14px 22px 20px;display:flex;flex-direction:column;gap:20px">
+<div style="display:flex;flex-direction:column;gap:9px">
+<div style="font:400 34px/1.08 Newsreader,Georgia,serif;letter-spacing:-.01em">Nook Pro</div>
+<div style="font:400 14.5px/1.6;color:rgba(27,24,21,.62);text-wrap:pretty">Chat stays unlimited and free — you're supplying the compute. Pro is for making Nook deeply yours.</div>
+</div>
+<div style="display:flex;flex-direction:column;gap:7px">
+<div style="font:500 10px/1 'IBM Plex Mono',ui-monospace,monospace;letter-spacing:.13em;text-transform:uppercase;color:rgba(27,24,21,.4)">Always free</div>
+<sc-for list="{{ freeList }}" as="f" hint-placeholder-count="3">
+<div style="display:flex;gap:9px;align-items:baseline;font:400 13.5px/1.5;color:rgba(27,24,21,.7)"><span style="width:5px;height:5px;border-radius:5px;background:rgba(27,24,21,.25);flex:none;transform:translateY(-3px)"></span>{{ f }}</div>
+</sc-for>
+</div>
+<div style="display:flex;flex-direction:column;gap:7px">
+<div style="font:500 10px/1 'IBM Plex Mono',ui-monospace,monospace;letter-spacing:.13em;text-transform:uppercase;color:#2F5D8A">With Pro</div>
+<sc-for list="{{ proList }}" as="f" hint-placeholder-count="4">
+<div style="display:flex;gap:9px;align-items:baseline;font:400 13.5px/1.5;color:#1B1815"><span style="width:5px;height:5px;border-radius:5px;background:#2F5D8A;flex:none;transform:translateY(-3px)"></span>{{ f }}</div>
+</sc-for>
+</div>
+</div>
+<div style="padding:0 22px 40px;display:flex;flex-direction:column;gap:10px">
+<div onClick="{{ buyPro }}" style="padding:16px;border-radius:14px;background:#1B1815;color:#FBF9F5;text-align:center;font:500 15.5px/1;cursor:pointer">{{ buyLabel }}</div>
+<div style="text-align:center;font:400 11.5px/1.4 'IBM Plex Mono',ui-monospace,monospace;color:rgba(27,24,21,.42)">One time. No subscription.</div>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ hasTabs }}">
+<div style="position:absolute;bottom:0;left:0;right:0;z-index:6;background:rgba(247,244,238,.94);backdrop-filter:blur(14px);border-top:1px solid rgba(27,24,21,.09);padding:11px 8px 30px;display:flex">
+<sc-for list="{{ tabs }}" as="t" hint-placeholder-count="5">
+<div onClick="{{ t.go }}" style="flex:1;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:5px">
+<sc-if value="{{ t.on }}"><div style="width:5px;height:5px;border-radius:5px;background:#1B1815"></div><div style="font:500 10.5px/1 'IBM Plex Mono',ui-monospace,monospace;letter-spacing:.02em;color:#1B1815">{{ t.label }}</div></sc-if>
+<sc-if value="{{ t.off }}"><div style="width:5px;height:5px;border-radius:5px;background:transparent"></div><div style="font:400 10.5px/1 'IBM Plex Mono',ui-monospace,monospace;letter-spacing:.02em;color:rgba(27,24,21,.4)">{{ t.label }}</div></sc-if>
+</div>
+</sc-for>
+</div>
+</sc-if>
+
+<sc-if value="{{ sheetOpen }}">
+<div onClick="{{ closeSheet }}" style="position:absolute;inset:0;z-index:8;background:rgba(27,24,21,.34);display:flex;flex-direction:column;justify-content:flex-end"></div>
+</sc-if>
+
+<sc-if value="{{ sheetApprove }}">
+<div style="position:absolute;left:10px;right:10px;bottom:10px;z-index:9;background:#FDFCF9;border-radius:22px;padding:22px 20px 20px;box-shadow:0 20px 50px rgba(27,24,21,.28)">
+<div style="display:flex;align-items:center;gap:7px;margin-bottom:12px"><span style="width:7px;height:7px;border-radius:7px;border:1.5px solid #8C6239"></span><span style="font:500 10.5px/1 'IBM Plex Mono',ui-monospace,monospace;letter-spacing:.1em;text-transform:uppercase;color:#8C6239">Leaving your device</span></div>
+<div style="font:400 24px/1.18 Newsreader,Georgia,serif;margin-bottom:8px">Send this to GitHub?</div>
+<div style="font:400 13.5px/1.55;color:rgba(27,24,21,.6);margin-bottom:14px;text-wrap:pretty">This is everything that goes out. Nothing from your documents is included.</div>
+<div style="padding:14px;border-radius:12px;background:#F4F1EA;border:1px solid rgba(27,24,21,.09);font:400 11.5px/1.75 'IBM Plex Mono',ui-monospace,monospace;color:rgba(27,24,21,.75);white-space:pre-wrap;margin-bottom:16px">{{ approvePayload }}</div>
+<div style="display:flex;flex-direction:column;gap:8px">
+<div onClick="{{ approveOnce }}" style="padding:15px;border-radius:13px;background:#1B1815;color:#FBF9F5;text-align:center;font:500 15px/1;cursor:pointer">Send once</div>
+<div style="display:flex;gap:8px">
+<div onClick="{{ approveAlways }}" style="flex:1;padding:14px;border-radius:13px;border:1px solid rgba(27,24,21,.14);text-align:center;font:400 13.5px/1;cursor:pointer;color:rgba(27,24,21,.75)">Always allow this tool</div>
+<div onClick="{{ closeSheet }}" style="flex:none;padding:14px 20px;border-radius:13px;border:1px solid rgba(27,24,21,.14);text-align:center;font:400 13.5px/1;cursor:pointer;color:rgba(27,24,21,.55)">Don't</div>
+</div>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ sheetAttach }}">
+<div style="position:absolute;left:10px;right:10px;bottom:10px;z-index:9;background:#FDFCF9;border-radius:22px;padding:20px;box-shadow:0 20px 50px rgba(27,24,21,.28)">
+<div style="font:400 21px/1.2 Newsreader,Georgia,serif;margin-bottom:14px">Add to this chat</div>
+<div style="display:flex;flex-direction:column;gap:8px">
+<sc-for list="{{ attachOptions }}" as="a" hint-placeholder-count="4">
+<div onClick="{{ a.go }}" style="display:flex;justify-content:space-between;align-items:center;padding:14px 15px;border-radius:12px;background:#F4F1EA;cursor:pointer" style-hover="background:#EDE8DF">
+<div><div style="font:400 14px/1.25">{{ a.label }}</div><div style="font:400 11.5px/1.4;color:rgba(27,24,21,.5);margin-top:3px">{{ a.sub }}</div></div>
+<div style="font:400 16px/1;color:rgba(27,24,21,.3)">›</div>
+</div>
+</sc-for>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ sheetScope }}">
+<div style="position:absolute;left:10px;right:10px;bottom:10px;z-index:9;background:#FDFCF9;border-radius:22px;padding:20px;box-shadow:0 20px 50px rgba(27,24,21,.28)">
+<div style="font:400 21px/1.2 Newsreader,Georgia,serif;margin-bottom:6px">What can this chat see?</div>
+<div style="font:400 12.5px/1.5;color:rgba(27,24,21,.55);margin-bottom:14px">Only the collections you tick are searched.</div>
+<div style="display:flex;flex-direction:column;gap:8px">
+<sc-for list="{{ scopeRows }}" as="s" hint-placeholder-count="3">
+<div onClick="{{ s.toggle }}" style="display:flex;justify-content:space-between;align-items:center;padding:14px 15px;border-radius:12px;background:#F4F1EA;cursor:pointer">
+<div style="font:400 14px/1.25">{{ s.name }}</div>
+<sc-if value="{{ s.on }}"><div style="width:44px;height:26px;border-radius:26px;background:#2F5D8A;display:flex;align-items:center;justify-content:flex-end;padding:0 3px"><div style="width:20px;height:20px;border-radius:20px;background:#fff"></div></div></sc-if>
+<sc-if value="{{ s.off }}"><div style="width:44px;height:26px;border-radius:26px;background:rgba(27,24,21,.14);display:flex;align-items:center;padding:0 3px"><div style="width:20px;height:20px;border-radius:20px;background:#fff"></div></div></sc-if>
+</div>
+</sc-for>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ sheetCite }}">
+<div style="position:absolute;left:10px;right:10px;top:64px;bottom:10px;z-index:9;background:#FDFCF9;border-radius:22px;padding:20px;box-shadow:0 20px 50px rgba(27,24,21,.28);display:flex;flex-direction:column">
+<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:14px">
+<div><div style="font:400 13px/1.3 'IBM Plex Mono',ui-monospace,monospace">{{ citeDoc }}</div><div style="font:400 11px/1.3 'IBM Plex Mono',ui-monospace,monospace;color:rgba(27,24,21,.45);margin-top:5px">{{ citeWhere }}</div></div>
+<div onClick="{{ closeSheet }}" style="font:400 20px/1;color:rgba(27,24,21,.35);cursor:pointer">×</div>
+</div>
+<div style="flex:1;border-radius:12px;background:repeating-linear-gradient(180deg,#F1EEE6 0 22px,#EDE9E0 22px 44px);border:1px solid rgba(27,24,21,.1);padding:16px;overflow:auto">
+<div style="font:400 13px/1.75;color:rgba(27,24,21,.82);background:rgba(47,93,138,.14);padding:10px;border-radius:6px;text-wrap:pretty">{{ citeQuote }}</div>
+<div style="font:400 11px/1.6 'IBM Plex Mono',ui-monospace,monospace;color:rgba(27,24,21,.38);margin-top:14px">{{ citeContext }}</div>
+</div>
+<div style="font:400 11.5px/1.5;color:rgba(27,24,21,.45);margin-top:12px">Retrieved on device. The whole file was never put into the model's context.</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ sheetShare }}">
+<div style="position:absolute;left:10px;right:10px;bottom:10px;z-index:9;background:#FDFCF9;border-radius:22px;padding:20px;box-shadow:0 20px 50px rgba(27,24,21,.28)">
+<div style="display:flex;gap:12px;align-items:center;padding-bottom:14px;border-bottom:1px solid rgba(27,24,21,.08);margin-bottom:14px">
+<div style="width:44px;height:44px;border-radius:10px;background:repeating-linear-gradient(135deg,#E6E1D8 0 6px,#DCD6CB 6px 12px);flex:none"></div>
+<div style="min-width:0"><div style="font:400 13.5px/1.3">Safari — “Vector search on iOS”</div><div style="font:400 11px/1.3 'IBM Plex Mono',ui-monospace,monospace;color:rgba(27,24,21,.45);margin-top:4px">Shared to Nook</div></div>
+</div>
+<div style="display:flex;flex-direction:column;gap:8px">
+<sc-for list="{{ shareOptions }}" as="a" hint-placeholder-count="4">
+<div onClick="{{ a.go }}" style="display:flex;justify-content:space-between;align-items:center;padding:14px 15px;border-radius:12px;background:#F4F1EA;cursor:pointer" style-hover="background:#EDE8DF">
+<div><div style="font:400 14px/1.25">{{ a.label }}</div><div style="font:400 11.5px/1.4;color:rgba(27,24,21,.5);margin-top:3px">{{ a.sub }}</div></div>
+<div style="font:400 16px/1;color:rgba(27,24,21,.3)">›</div>
+</div>
+</sc-for>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ toastOn }}">
+<div style="position:absolute;left:20px;right:20px;bottom:104px;z-index:20;background:#1B1815;color:#FBF9F5;border-radius:12px;padding:13px 15px;font:400 13px/1.45;box-shadow:0 12px 30px rgba(27,24,21,.25)">{{ toast }}</div>
+</sc-if>
+
+</div>
+</x-import>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1000,&quot;height&quot;:1000},&quot;accent&quot;:{&quot;editor&quot;:&quot;color&quot;,&quot;default&quot;:&quot;#2F5D8A&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;options&quot;:[&quot;#2F5D8A&quot;,&quot;#3F6B4F&quot;,&quot;#8A5A2F&quot;,&quot;#5B4A8A&quot;],&quot;section&quot;:&quot;Look&quot;},&quot;showNotes&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Look&quot;},&quot;streamSpeed&quot;:{&quot;editor&quot;:&quot;range&quot;,&quot;default&quot;:16,&quot;min&quot;:4,&quot;max&quot;:40,&quot;step&quot;:2,&quot;unit&quot;:&quot;ms&quot;,&quot;tsType&quot;:&quot;number&quot;,&quot;section&quot;:&quot;Demo&quot;}}">
+const TIERS = [
+  { key: 'Fast', name: 'Fast', size: '0.8 GB', desc: 'Quick answers, lighter reasoning.', long: 'Gemma 3 1B. Instant on older iPhones, best for short questions and quick rewrites.', tags: ['text'] },
+  { key: 'Balanced', name: 'Balanced', size: '2.9 GB', desc: 'Recommended. Reads images and documents.', long: 'Qwen3-VL 4B. Reads screenshots and PDF pages, follows Skills reliably. The default.', tags: ['text', 'images', 'recommended'] },
+  { key: 'Powerful', name: 'Powerful', size: '3.6 GB', desc: 'Slower, stronger on long documents.', long: 'Gemma 3 4B. Best grounded reasoning over long documents; warmer battery draw.', tags: ['text', 'images'] },
+];
+
+const RISK_ANSWER = "Three risks come up repeatedly across your project documents.\n\nTimeline. The integration milestone assumes vendor delivery in week six, but your retro notes record two earlier slips of two to three weeks each.\n\nA single dependency. The spec names one identity provider and no fallback path is documented anywhere in the collection.\n\nUnestimated scope. The risk register flags the analytics work as unestimated, and it is still on the v1 list.";
+
+const VISION_ANSWER = "Mostly, with one gap.\n\nYour screenshot puts the review step after submission. The specification puts review before it, so the confirmation copy on this screen would appear too late to be useful.\n\nEverything else matches: field order, the optional note, and the two-button footer.";
+
+const MCP_ANSWER = "Two open issues look related.\n\n#418, Identity provider fallback, is unassigned and describes the same single-provider risk your spec has. #402, Analytics scope, is tagged needs-estimate.\n\nNeither is on the current milestone, which is probably the thing worth raising.";
+
+const CITES = {
+  risk: [
+    { n: '1', label: 'alpha-spec-v4.pdf · p.18', doc: 'alpha-spec-v4.pdf', where: 'Page 18 · Integration plan', quote: 'Vendor delivery of the identity bundle is assumed complete by end of week 6. No alternate provider path is specified.', context: '…preceding section covers environment setup and staging cutover. Following section: analytics instrumentation (unestimated).' },
+    { n: '2', label: 'risk-register.pdf · p.3', doc: 'risk-register.pdf', where: 'Page 3 · Open risks', quote: 'R-11 Analytics instrumentation — unestimated, remains in v1 scope. Owner unassigned.', context: '…R-09 closed, R-10 accepted. R-12 onwards relate to hiring.' },
+    { n: '3', label: 'retro-notes.md · Timeline', doc: 'retro-notes.md', where: 'Section · Timeline', quote: 'Two vendor slips so far: 3 weeks on the SDK, 2 weeks on the sandbox keys. We planned as if neither had happened.', context: '…other sections: What went well, Handoffs, Action items.' },
+  ],
+  vision: [
+    { n: '1', label: 'alpha-spec-v4.pdf · p.12', doc: 'alpha-spec-v4.pdf', where: 'Page 12 · Submission flow', quote: 'Review precedes submission. The user must be able to change any field before the request is sent.', context: '…page 11 covers validation states; page 13 covers error recovery.' },
+    { n: '2', label: 'screenshot.png', doc: 'screenshot.png', where: 'Attached image · read on device', quote: 'Review step rendered after the Submit action, with confirmation copy below the fold.', context: 'Read by the local vision model. The image never left this iPhone.' },
+  ],
+  mcp: [
+    { n: '1', label: 'github · alpha/core', doc: 'github.search_issues', where: 'External result · mcp.github-bridge.dev', quote: '#418 Identity provider fallback (open, unassigned) · #402 Analytics scope (open, needs-estimate)', context: 'Returned by an approved external tool. Stored in this chat only.' },
+  ],
+};
+
+const MEM_RESULTS = [
+  { id: 'm1', subject: 'Bánh Mì on Exmouth Market', kind: 'place', quote: 'Sarah said the bánh mì place on Exmouth Market was the best she had had in London — worth the queue.', source: '“Dinner planning” · 24 Aug · message 14' },
+  { id: 'm2', subject: 'DuckDB', kind: 'technology', quote: 'Sarah recommended DuckDB for the local analytics layer instead of shipping a second service.', source: '“London trip debrief” · 25 Aug · message 6' },
+];
+
+class Component extends DCLogic {
+  state = {
+    screen: 'onboard', ob: 0, dl: 0, tier: 'Balanced',
+    msgs: [], input: '', thinking: false, streaming: false,
+    sheet: null, cite: null,
+    col: 'Project Alpha', skill: 'Competitive Teardown', server: 'GitHub',
+    memQuery: '', forgotten: {},
+    grants: { 'documents.search': true, 'calendar.create_event': false, 'calendar.search': false },
+    skillOn: false,
+    tools: { 'github.search_issues': true, 'github.create_issue': false, 'github.list_prs': true, 'github.read_file': false },
+    policy: 'Consequential',
+    scope: { 'Project Alpha': true, 'Personal': false, 'University': false },
+    privacy: { local: true, mcpLog: true, analytics: false },
+    pro: false, toast: null, demo: 'onboard',
+  };
+
+  componentDidUpdate(_, prev) {
+    if (this._scroll && this.state.msgs !== prev.msgs) this._scroll.scrollTop = this._scroll.scrollHeight;
+  }
+  componentWillUnmount() { clearInterval(this._iv); clearInterval(this._dv); clearTimeout(this._tt); }
+
+  set(p) { this.setState(p); }
+  go(screen, demo) { clearInterval(this._iv); this.setState({ screen, sheet: null, thinking: false, streaming: false, demo: demo || screen }); }
+  flash(t) { clearTimeout(this._tt); this.setState({ toast: t }); this._tt = setTimeout(() => this.setState({ toast: null }), 2200); }
+
+  startDownload() {
+    this.setState({ ob: 2, dl: 0 });
+    clearInterval(this._dv);
+    this._dv = setInterval(() => {
+      this.setState(s => {
+        const d = s.dl + 4;
+        if (d >= 100) { clearInterval(this._dv); return { dl: 100, ob: 3 }; }
+        return { dl: d };
+      });
+    }, 70);
+  }
+
+  stream(text, cites, after) {
+    const id = 'a' + Math.random().toString(36).slice(2);
+    this.setState(s => ({ msgs: [...s.msgs, { id, role: 'assistant', text: '', cites: null }], thinking: false, streaming: true }));
+    let i = 0;
+    const speed = Math.max(4, Math.round(this.props.streamSpeed ?? 16));
+    clearInterval(this._iv);
+    this._iv = setInterval(() => {
+      i += 4;
+      const done = i >= text.length;
+      this.setState(s => ({
+        msgs: s.msgs.map(m => m.id === id ? { ...m, text: text.slice(0, i), cites: done ? cites : null } : m),
+        streaming: !done,
+      }));
+      if (done) { clearInterval(this._iv); if (after) after(); }
+    }, speed);
+  }
+
+  push(m) { this.setState(s => ({ msgs: [...s.msgs, { id: 'x' + Math.random().toString(36).slice(2), ...m }] })); }
+
+  ask(kind) {
+    if (kind === 'risk') {
+      this.push({ role: 'user', text: 'What are the biggest risks in this project?' });
+      this.setState({ thinking: true, input: '' });
+      setTimeout(() => {
+        this.push({ role: 'localTool', text: 'documents.search · Project Alpha · 5 passages' });
+        setTimeout(() => this.stream(RISK_ANSWER, CITES.risk), 550);
+      }, 700);
+    }
+    if (kind === 'vision') {
+      this.push({ role: 'user', text: 'Does this match the spec?', img: true });
+      this.setState({ thinking: true, input: '', sheet: null });
+      setTimeout(() => {
+        this.push({ role: 'localTool', text: 'reading image · 1 page of alpha-spec-v4.pdf' });
+        setTimeout(() => this.stream(VISION_ANSWER, CITES.vision), 550);
+      }, 800);
+    }
+    if (kind === 'mcp') {
+      this.push({ role: 'user', text: 'Check GitHub for open issues about these.' });
+      this.setState({ input: '' });
+      setTimeout(() => this.setState({ sheet: 'approve' }), 600);
+    }
+  }
+
+  runMcp(always) {
+    this.setState({ sheet: null, thinking: true });
+    if (always) this.flash('github.search_issues is now always allowed.');
+    setTimeout(() => {
+      this.push({ role: 'extTool', text: 'github.search_issues', lines: ['#418 Identity provider fallback — open, unassigned', '#402 Analytics scope — open, needs-estimate'], foot: 'mcp.github-bridge.dev · 0.9s' });
+      setTimeout(() => this.stream(MCP_ANSWER, CITES.mcp), 500);
+    }, 900);
+  }
+
+  preload(kind) {
+    clearInterval(this._iv);
+    const base = [
+      { id: 'p1', role: 'user', text: 'What are the biggest risks in this project?' },
+      { id: 'p2', role: 'localTool', text: 'documents.search · Project Alpha · 5 passages' },
+      { id: 'p3', role: 'assistant', text: RISK_ANSWER, cites: CITES.risk },
+    ];
+    this.setState({ screen: 'chat', msgs: base, sheet: null, thinking: false, streaming: false, demo: kind });
+    setTimeout(() => this.ask(kind), 450);
+  }
+
+  demoGo(key) {
+    clearInterval(this._iv); clearInterval(this._dv);
+    if (key === 'onboard') return this.setState({ screen: 'onboard', ob: 0, dl: 0, sheet: null, demo: 'onboard', msgs: [] });
+    if (key === 'risk') { this.setState({ screen: 'chat', msgs: [], sheet: null, demo: 'risk' }); return setTimeout(() => this.ask('risk'), 450); }
+    if (key === 'vision') return this.preload('vision');
+    if (key === 'mcp') return this.preload('mcp');
+    if (key === 'memory') return this.setState({ screen: 'memory', memQuery: 'that restaurant Sarah mentioned in London', sheet: null, demo: 'memory' });
+    if (key === 'skill') return this.setState({ screen: 'skill', skill: 'Competitive Teardown', skillOn: false, grants: { 'documents.search': true, 'calendar.create_event': false, 'calendar.search': false }, sheet: null, demo: 'skill' });
+    if (key === 'knowledge') return this.setState({ screen: 'knowledge', sheet: null, demo: 'knowledge' });
+    if (key === 'connections') return this.setState({ screen: 'connections', sheet: null, demo: 'connections' });
+    if (key === 'share') return this.setState({ screen: 'chatList', sheet: 'share', demo: 'share' });
+    if (key === 'pro') return this.setState({ screen: 'paywall', sheet: null, demo: 'pro' });
+  }
+
+  toggle(group, key) { this.setState(s => ({ [group]: { ...s[group], [key]: !s[group][key] } })); }
+
+  renderVals() {
+    const s = this.state;
+    const accent = this.props.accent ?? '#2F5D8A';
+    const scr = s.screen;
+    const notes = {
+      onboard: ['Onboarding', 'Human tiers instead of model names. Nothing about quantization or context windows — the first screen sells the promise, the second makes one choice, the third waits.'],
+      risk: ['Grounded answer', 'The retrieval step is shown as a small on-device line, not hidden. Citations sit under the answer as tappable chips; tapping one shows the passage, not the whole file.'],
+      vision: ['Screenshot + Knowledge', 'The local vision model reads the image and the retrieved spec page together. The badge stays blue: nothing left the phone.'],
+      mcp: ['The approval boundary', 'The one moment Nook raises its voice. The exact outgoing payload is shown verbatim, and the result card keeps its warm outline for the rest of the chat.'],
+      memory: ['Memory with provenance', 'Recall is a first-class surface, not a hidden index. Every item quotes the original message and offers Forget — which deletes the derived memory, never the chat.'],
+      skill: ['Skills and permissions', 'Installing is free and grants nothing. The SKILL.md is readable in full, and every requested tool starts off.'],
+      knowledge: ['Knowledge', 'Collections, not folders of embeddings. Indexing state is visible per document so trust never depends on a spinner.'],
+      connections: ['Connections', 'MCP without the acronym. Tools discovered on the server are listed plainly, each individually switchable.'],
+      share: ['Share sheet', 'The main way content reaches Nook from other apps, given the iOS sandbox. Four verbs, no configuration.'],
+      pro: ['Free and Pro', 'Local inference is never metered. Pro sells depth — Memory, unlimited Knowledge, more connections — not access to your own compute.'],
+      chatList: ['Home', 'The model badge is the only always-visible technical fact, and it reads as reassurance rather than configuration.'],
+      settings: ['Privacy controls', 'Written as plain outcomes. Derived indexes are separable from raw chats, so a nervous user can reset without losing anything they wrote.'],
+      models: ['Models', 'Advanced controls exist, but behind one more tap and after the storage picture.'],
+      collection: ['Collection', 'Per-document indexing progress, and a direct route into a chat scoped to just this collection.'],
+      connect: ['Connections', ''],
+    };
+    const note = notes[s.demo] || notes[scr] || ['Nook', ''];
+
+    const demos = [
+      ['onboard', 'Set up and download a model'],
+      ['risk', 'Grounded answer with citations'],
+      ['vision', 'Screenshot vs. the spec'],
+      ['mcp', 'Approve an external call'],
+      ['memory', 'Recall with provenance'],
+      ['skill', 'Install a Skill, grant tools'],
+      ['knowledge', 'Knowledge collections'],
+      ['share', 'Share from another app'],
+      ['pro', 'Free and Pro'],
+    ].map(([k, label], i) => ({
+      n: String(i + 1).padStart(2, '0'), label, on: s.demo === k, off: s.demo !== k,
+      go: () => this.demoGo(k),
+    }));
+
+    const tabMap = { chat: 'Chat', chatList: 'Chat', knowledge: 'Knowledge', collection: 'Knowledge', skills: 'Skills', skill: 'Skills', connections: 'Connect', server: 'Connect', memory: 'Memory' };
+    const activeTab = tabMap[scr];
+    const tabs = [['Chat', 'chatList'], ['Knowledge', 'knowledge'], ['Skills', 'skills'], ['Connect', 'connections'], ['Memory', 'memory']]
+      .map(([label, target]) => ({ label, on: activeTab === label, off: activeTab !== label, go: () => this.go(target, target) }));
+
+    const openCite = c => this.setState({ sheet: 'cite', cite: c });
+    const msgs = s.msgs.map(m => ({
+      id: m.id,
+      text: m.text,
+      isUser: m.role === 'user',
+      hasImg: !!m.img,
+      isLocalTool: m.role === 'localTool',
+      isExtTool: m.role === 'extTool',
+      isAsst: m.role === 'assistant',
+      lines: m.lines || [],
+      foot: m.foot || '',
+      paras: (m.text || '').split('\n\n').map((t, i) => ({ id: i, t })),
+      hasCites: !!(m.cites && m.cites.length),
+      citeLabel: m.cites && m.cites[0] && m.cites[0].n === '1' && m.role === 'assistant' && m.cites === CITES.mcp ? 'From GitHub' : 'From your Knowledge',
+      cites: (m.cites || []).map(c => ({ ...c, open: () => openCite(c) })),
+    }));
+
+    const tiers = TIERS.map(t => ({ ...t, on: s.tier === t.key, off: s.tier !== t.key, pick: () => this.setState({ tier: t.key }) }));
+    const scopeNames = Object.keys(s.scope).filter(k => s.scope[k]);
+    const cite = s.cite || {};
+
+    const memHits = MEM_RESULTS.filter(r => !s.forgotten[r.id]).filter(r => {
+      const q = s.memQuery.toLowerCase();
+      if (!q) return false;
+      if (/restaurant|london|sarah|eat|dinner|food/.test(q)) return true;
+      return (r.subject + ' ' + r.quote).toLowerCase().includes(q);
+    });
+
+    return {
+      accent,
+      showNotes: (this.props.showNotes ?? true) !== false,
+      noteTitle: note[0], noteBody: note[1], demos,
+
+      isOnboard: scr === 'onboard', isChat: scr === 'chat', isChatList: scr === 'chatList',
+      isKnowledge: scr === 'knowledge', isCollection: scr === 'collection',
+      isSkills: scr === 'skills', isSkill: scr === 'skill',
+      isConnections: scr === 'connections', isServer: scr === 'server',
+      isMemory: scr === 'memory', isModels: scr === 'models',
+      isSettings: scr === 'settings', isPaywall: scr === 'paywall',
+      hasTabs: !!activeTab && scr !== 'chat',
+
+      ob0: s.ob === 0, ob1: s.ob === 1, ob2: s.ob === 2, ob3: s.ob === 3,
+      obNext: () => this.setState({ ob: 1 }),
+      obDownload: () => this.startDownload(),
+      dlLabel: 'Download ' + (TIERS.find(t => t.key === s.tier) || TIERS[1]).size,
+      dlPct: s.dl, dlModel: s.tier + ' · staying on this iPhone',
+      tiers,
+      obNext3: [
+        { id: 'a', title: 'Add Knowledge', sub: 'Documents Nook can search', go: () => this.go('knowledge', 'knowledge') },
+        { id: 'b', title: 'Turn on a Skill', sub: 'Teach it a way of working', go: () => this.go('skills', 'skill') },
+        { id: 'c', title: 'Connect a service', sub: 'Reach outside, with approval', go: () => this.go('connections', 'connections') },
+      ],
+      enterApp: () => { this.setState({ screen: 'chat', msgs: [], demo: 'risk' }); },
+
+      chatTitle: 'Project Alpha review', chatSub: s.tier + ' · on device',
+      chatEmpty: s.msgs.length === 0,
+      msgs, thinking: s.thinking,
+      starters: [
+        { id: 's1', text: 'What are the biggest risks in this project?', go: () => this.ask('risk') },
+        { id: 's2', text: 'Summarise the vendor contract in five lines.', go: () => this.flash('Demo covers the risks question — try that one.') },
+        { id: 's3', text: 'What did we decide about analytics?', go: () => this.flash('Demo covers the risks question — try that one.') },
+      ],
+      input: s.input,
+      onInput: e => this.setState({ input: e.target.value }),
+      onKey: e => { if (e.key === 'Enter') this.sendNow(); },
+      sendInput: () => this.sendNow(),
+      scopeOn: scopeNames.length > 0,
+      scopeLabel: 'Searching ' + (scopeNames.join(', ') || 'nothing') + ' · on device',
+      openScope: () => this.setState({ sheet: 'scope' }),
+      openAttach: () => this.setState({ sheet: 'attach' }),
+      goChatList: () => this.go('chatList', 'chatList'),
+
+      activeModel: s.tier,
+      newChat: () => this.setState({ screen: 'chat', msgs: [], demo: 'risk' }),
+      goSettings: () => this.go('settings', 'settings'),
+      chats: [
+        { id: 'c1', title: 'Project Alpha review', when: 'now', snippet: 'Three risks come up repeatedly across your project…', hasTags: true, tags: ['Project Alpha'], go: () => this.demoGo('risk') },
+        { id: 'c2', title: 'London trip debrief', when: '25 Aug', snippet: 'Sarah recommended DuckDB for the local analytics layer.', hasTags: false, tags: [], go: () => this.demoGo('memory') },
+        { id: 'c3', title: 'Dinner planning', when: '24 Aug', snippet: 'The bánh mì place on Exmouth Market, apparently worth the queue.', hasTags: false, tags: [], go: () => this.demoGo('memory') },
+        { id: 'c4', title: 'Receipts, July', when: '12 Aug', snippet: 'Filed eleven receipts into Personal. Two need a category.', hasTags: true, tags: ['Personal'], go: () => this.flash('Not part of the demo script.') },
+      ],
+
+      collections: [
+        { id: 'k1', name: 'Project Alpha', count: '9 docs', desc: 'Spec, risk register, retro notes, vendor contract.', status: 'Indexed · 1,402 passages', ready: true, busy: false, go: () => this.setState({ screen: 'collection', col: 'Project Alpha', demo: 'collection' }) },
+        { id: 'k2', name: 'Personal', count: '23 docs', desc: 'Receipts, letters, warranties, the flat.', status: 'Indexed · 640 passages', ready: true, busy: false, go: () => this.setState({ screen: 'collection', col: 'Personal', demo: 'collection' }) },
+        { id: 'k3', name: 'University', count: '5 docs', desc: 'Reading list and two lecture handouts.', status: 'Indexing 2 documents', ready: false, busy: true, go: () => this.setState({ screen: 'collection', col: 'University', demo: 'collection' }) },
+      ],
+      toastAdd: () => this.flash('Files, Photos, or anything shared to Nook.'),
+      goKnowledge: () => this.go('knowledge', 'knowledge'),
+      colName: s.col, colMeta: s.col === 'Project Alpha' ? '9 documents · 1,402 passages · 2.1 GB' : '5 documents · indexing',
+      docs: [
+        { id: 'd1', name: 'alpha-spec-v4.pdf', meta: '42 pages', status: 'Indexed', ready: true, busy: false, pct: 100, open: () => openCite(CITES.risk[0]) },
+        { id: 'd2', name: 'risk-register.pdf', meta: '6 pages', status: 'Indexed', ready: true, busy: false, pct: 100, open: () => openCite(CITES.risk[1]) },
+        { id: 'd3', name: 'retro-notes.md', meta: '2,100 words', status: 'Indexed', ready: true, busy: false, pct: 100, open: () => openCite(CITES.risk[2]) },
+        { id: 'd4', name: 'vendor-contract.docx', meta: '18 pages', status: 'Extracting 62%', ready: false, busy: true, pct: 62, open: () => this.flash('Still extracting text on device.') },
+      ],
+      scopeToChat: () => { this.setState({ screen: 'chat', msgs: [], scope: { 'Project Alpha': true, Personal: false, University: false }, demo: 'risk' }); },
+
+      skillGroups: [
+        { id: 'g1', label: 'Built in', items: [
+          { id: 's1', name: 'Meeting Prep', desc: 'Pull the last thread and today’s calendar into a short brief.', on: true, off: false, go: () => this.setState({ screen: 'skill', skill: 'Meeting Prep', skillOn: true, demo: 'skill' }) },
+          { id: 's2', name: 'Weekly Review', desc: 'Summarise the week from chats and Knowledge you name.', on: false, off: true, go: () => this.setState({ screen: 'skill', skill: 'Weekly Review', skillOn: false, demo: 'skill' }) },
+        ] },
+        { id: 'g2', label: 'Imported', items: [
+          { id: 's3', name: 'Competitive Teardown', desc: 'A structured way to read a rival’s product docs.', on: s.skillOn, off: !s.skillOn, go: () => this.setState({ screen: 'skill', skill: 'Competitive Teardown', demo: 'skill' }) },
+        ] },
+        { id: 'g3', label: 'Yours', items: [
+          { id: 's4', name: 'Receipt Filing', desc: 'Read a receipt photo, file it, name the category.', on: true, off: false, go: () => this.setState({ screen: 'skill', skill: 'Receipt Filing', skillOn: true, demo: 'skill' }) },
+        ] },
+      ],
+      toastImport: () => this.flash('Import a SKILL.md folder. Free and unlimited.'),
+      goSkills: () => this.go('skills', 'skill'),
+      skillName: s.skill,
+      skillDesc: 'Imported 2 minutes ago · instructions only, nothing executable.',
+      skillMd: '# Competitive Teardown\n\nWhen asked to tear down a\nproduct:\n\n1. Establish the promise in one\n   sentence.\n2. List capabilities, then find\n   the gaps.\n3. Search granted Knowledge\n   for our equivalent.\n4. End with three things we\n   should copy and one we\n   should not.',
+      skillPerms: [
+        { id: 'p1', tool: 'documents.search', what: 'Search collections you tick below', on: s.grants['documents.search'], off: !s.grants['documents.search'], toggle: () => this.toggle('grants', 'documents.search') },
+        { id: 'p2', tool: 'calendar.search', what: 'Read your calendar', on: s.grants['calendar.search'], off: !s.grants['calendar.search'], toggle: () => this.toggle('grants', 'calendar.search') },
+        { id: 'p3', tool: 'calendar.create_event', what: 'Create events', on: s.grants['calendar.create_event'], off: !s.grants['calendar.create_event'], toggle: () => this.toggle('grants', 'calendar.create_event') },
+      ],
+      permNote: 'The Skill asked for these. Nothing is granted until you switch it on, and you can revoke any of them later.',
+      skillCta: s.skillOn ? 'Turn off' : 'Turn on Skill',
+      toggleSkill: () => { this.setState(p => ({ skillOn: !p.skillOn })); this.flash(s.skillOn ? 'Skill turned off.' : 'Skill on. It can use what you granted.'); },
+
+      servers: [
+        { id: 'v1', name: 'GitHub', url: 'mcp.github-bridge.dev', tools: '2 of 4 tools on', on: true, off: false, go: () => this.setState({ screen: 'server', server: 'GitHub', demo: 'connections' }) },
+        { id: 'v2', name: 'Linear', url: 'mcp.linear.app/sse', tools: '', on: false, off: true, go: () => this.flash('Add a server URL and headers to connect.') },
+        { id: 'v3', name: 'Home Assistant', url: 'not configured', tools: '', on: false, off: true, go: () => this.flash('Add a server URL and headers to connect.') },
+      ],
+      toastAddServer: () => this.flash('Paste a server URL. Headers stay in the keychain.'),
+      goConnections: () => this.go('connections', 'connections'),
+      serverName: s.server, serverUrl: 'https://mcp.github-bridge.dev · Streamable HTTP · header auth',
+      policies: ['Every call', 'Consequential', 'Never'].map(label => ({ id: label, label, on: s.policy === label, off: s.policy !== label, pick: () => this.setState({ policy: label }) })),
+      serverTools: [
+        { id: 't1', name: 'github.search_issues', what: 'Read issues in repos you name', on: s.tools['github.search_issues'], off: !s.tools['github.search_issues'], toggle: () => this.toggle('tools', 'github.search_issues') },
+        { id: 't2', name: 'github.list_prs', what: 'Read open pull requests', on: s.tools['github.list_prs'], off: !s.tools['github.list_prs'], toggle: () => this.toggle('tools', 'github.list_prs') },
+        { id: 't3', name: 'github.read_file', what: 'Read file contents', on: s.tools['github.read_file'], off: !s.tools['github.read_file'], toggle: () => this.toggle('tools', 'github.read_file') },
+        { id: 't4', name: 'github.create_issue', what: 'Write a new issue', on: s.tools['github.create_issue'], off: !s.tools['github.create_issue'], toggle: () => this.toggle('tools', 'github.create_issue') },
+      ],
+
+      memQuery: s.memQuery,
+      onMemInput: e => this.setState({ memQuery: e.target.value }),
+      onMemKey: () => {},
+      memIdle: s.memQuery.trim() === '',
+      memHasResults: s.memQuery.trim() !== '' && memHits.length > 0,
+      memEmpty: s.memQuery.trim() !== '' && memHits.length === 0,
+      memSuggestions: [
+        { id: 'q1', text: 'that restaurant Sarah mentioned in London', go: () => this.setState({ memQuery: 'that restaurant Sarah mentioned in London' }) },
+        { id: 'q2', text: 'what database did Sarah recommend', go: () => this.setState({ memQuery: 'what database did Sarah recommend' }) },
+      ],
+      memResults: memHits.map(r => ({
+        ...r,
+        open: () => this.flash('Opens the original message in “' + r.source.split('”')[0].replace('“', '') + '”.'),
+        forget: () => { this.setState(p => ({ forgotten: { ...p.forgotten, [r.id]: true } })); this.flash('Forgotten. The chat itself is untouched.'); },
+      })),
+
+      proTitle: s.pro ? 'Nook Pro' : 'Get Nook Pro',
+      proSub: s.pro ? 'Active · lifetime' : 'Memory, unlimited Knowledge, more connections',
+      goPaywall: () => this.go('paywall', 'pro'),
+      privacyRows: [
+        { id: 'r1', label: 'Keep everything on device', sub: 'Chats, documents and memory never sync', on: s.privacy.local, off: !s.privacy.local, toggle: () => this.toggle('privacy', 'local') },
+        { id: 'r2', label: 'Log outgoing calls', sub: 'A record of what left, and when', on: s.privacy.mcpLog, off: !s.privacy.mcpLog, toggle: () => this.toggle('privacy', 'mcpLog') },
+        { id: 'r3', label: 'Share usage data', sub: 'Off. Nook works without it', on: s.privacy.analytics, off: !s.privacy.analytics, toggle: () => this.toggle('privacy', 'analytics') },
+      ],
+      settingRows: [
+        { id: 'g1', label: 'Models and storage', sub: s.tier + ' in use · 9.5 GB total', go: () => this.go('models', 'models') },
+        { id: 'g2', label: 'Rebuild derived indexes', sub: 'Deletes memory and search indexes, keeps chats', go: () => this.flash('Rebuilt from your chats. Nothing you wrote was deleted.') },
+        { id: 'g3', label: 'Export everything', sub: 'Chats, Knowledge and grants as files', go: () => this.flash('Exported to Files as a folder you can read.') },
+      ],
+      openShareDemo: () => this.setState({ sheet: 'share' }),
+
+      freeList: ['Unlimited local chat, never metered', 'A capable multimodal model', 'Knowledge up to three collections', 'Built-in Skills, and any Skill you import', 'One connected service'],
+      proList: ['Memory across every past chat', 'Unlimited Knowledge collections and documents', 'Page-image retrieval for charts and tables', 'Unlimited connections and saved permissions', 'Import your own models', 'Export and backup controls'],
+      buyLabel: s.pro ? 'Pro is active' : 'Get Pro — £39 once',
+      buyPro: () => { this.setState({ pro: true }); this.flash('Pro unlocked. Memory is on.'); },
+
+      sheetOpen: !!s.sheet,
+      closeSheet: () => this.setState({ sheet: null }),
+      sheetApprove: s.sheet === 'approve', sheetAttach: s.sheet === 'attach',
+      sheetScope: s.sheet === 'scope', sheetCite: s.sheet === 'cite', sheetShare: s.sheet === 'share',
+      approvePayload: 'to    mcp.github-bridge.dev\ntool  github.search_issues\nrepo  alpha/core\nquery identity provider fallback,\n      analytics estimate\nstate open\n\nnot sent  your documents, this\n          chat, your memory',
+      approveOnce: () => this.runMcp(false),
+      approveAlways: () => this.runMcp(true),
+      attachOptions: [
+        { id: 'a1', label: 'Screenshot', sub: 'Read on device by the vision model', go: () => this.ask('vision') },
+        { id: 'a2', label: 'Take a photo', sub: 'Receipts, whiteboards, pages', go: () => this.flash('Camera opens here.') },
+        { id: 'a3', label: 'A file', sub: 'Added to this chat only', go: () => this.flash('Picked from Files.') },
+        { id: 'a4', label: 'A previous conversation', sub: 'Attach an earlier chat as context', go: () => this.flash('Attached “London trip debrief”.') },
+      ],
+      scopeRows: Object.keys(s.scope).map(name => ({ id: name, name, on: s.scope[name], off: !s.scope[name], toggle: () => this.toggle('scope', name) })),
+      citeDoc: cite.doc || '', citeWhere: cite.where || '', citeQuote: cite.quote || '', citeContext: cite.context || '',
+      shareOptions: [
+        { id: 'h1', label: 'Ask AI', sub: 'Start a chat about this page', go: () => { this.setState({ sheet: null, screen: 'chat', msgs: [], demo: 'risk' }); this.flash('Page text handed to a new chat.'); } },
+        { id: 'h2', label: 'Add to Knowledge', sub: 'Into Project Alpha', go: () => { this.setState({ sheet: null, screen: 'knowledge', demo: 'knowledge' }); this.flash('Saved. Indexing on device.'); } },
+        { id: 'h3', label: 'Summarise', sub: 'Five lines, no chat opened', go: () => this.flash('Summarised in place.') },
+        { id: 'h4', label: 'Open in Nook', sub: 'Keep the page and decide later', go: () => this.setState({ sheet: null }) },
+      ],
+
+      toastOn: !!s.toast, toast: s.toast,
+      scrollRef: el => { this._scroll = el; },
+    };
+  }
+
+  sendNow() {
+    const t = this.state.input.trim();
+    if (!t) return;
+    if (/risk/i.test(t)) return this.ask('risk');
+    if (/github|issue/i.test(t)) return this.ask('mcp');
+    this.setState({ input: '' });
+    this.push({ role: 'user', text: t });
+    setTimeout(() => this.stream('This prototype answers three scripted questions in full — risks in the project, whether a screenshot matches the spec, and open issues on GitHub. Try the demo script on the left.'), 500);
+  }
+}
+
+</script>
+</body>
+</html>
