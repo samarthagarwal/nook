@@ -1,13 +1,18 @@
 import SwiftUI
 import NookDesign
 import NookCore
+import NookRuntime
 
 public struct ModelsView: View {
-    @Binding public var activeTier: ModelTier
+    @ObservedObject public var runtimeStore: ModelRuntimeStore
     public let onBack: () -> Void
-    
-    public init(activeTier: Binding<ModelTier>, onBack: @escaping () -> Void) {
-        self._activeTier = activeTier
+
+    @State private var tierError: String?
+    @State private var switchingTierId: String?
+    @State private var storageBreakdown: StorageBreakdown = .empty
+
+    public init(runtimeStore: ModelRuntimeStore, onBack: @escaping () -> Void) {
+        self.runtimeStore = runtimeStore
         self.onBack = onBack
     }
     
@@ -41,19 +46,33 @@ public struct ModelsView: View {
                     // Curated Model Cards
                     VStack(spacing: 10) {
                         ForEach(ModelTier.standardTiers) { tier in
-                            let isSelected = activeTier.id == tier.id
+                            let isSelected = runtimeStore.activeTier.id == tier.id
+                            let isSwitching = switchingTierId == tier.id
                             Button(action: {
-                                activeTier = tier
+                                guard switchingTierId == nil else { return }
+                                tierError = nil
+                                switchingTierId = tier.id
+                                Task {
+                                    do {
+                                        try await runtimeStore.switchTier(tier)
+                                    } catch {
+                                        tierError = runtimeStore.userFacingErrorMessage(for: error)
+                                    }
+                                    switchingTierId = nil
+                                }
                             }) {
                                 VStack(alignment: .leading, spacing: 8) {
                                     HStack {
                                         Text(tier.name)
                                             .font(.system(size: 16, weight: isSelected ? .medium : .regular))
                                             .foregroundColor(NookColors.ink)
-                                        
+
                                         Spacer()
-                                        
-                                        if isSelected {
+
+                                        if isSwitching {
+                                            ProgressView()
+                                                .controlSize(.small)
+                                        } else if isSelected {
                                             Text("IN USE")
                                                 .font(NookTypography.badge)
                                                 .foregroundColor(NookColors.local)
@@ -69,7 +88,7 @@ public struct ModelsView: View {
                                                 .foregroundColor(NookColors.ink45)
                                         }
                                     }
-                                    
+
                                     Text(tier.longDesc)
                                         .font(NookTypography.cardSub)
                                         .foregroundColor(NookColors.ink62)
@@ -87,62 +106,32 @@ public struct ModelsView: View {
                                 .nookCardShadow()
                             }
                             .buttonStyle(.plain)
+                            .disabled(isSwitching)
                         }
                     }
-                    
-                    // Storage Breakdown Section
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("STORAGE")
-                            .nookEyebrow()
-                            .foregroundColor(NookColors.ink40)
-                        
-                        // Stacked Bar (8pt)
-                        HStack(spacing: 2) {
-                            // Models: 38%
-                            RoundedRectangle(cornerRadius: 2)
-                                .fill(NookColors.local)
-                                .frame(width: 140, height: 8)
-                            
-                            // Knowledge: 12%
-                            RoundedRectangle(cornerRadius: 2)
-                                .fill(NookColors.local.opacity(0.45))
-                                .frame(width: 50, height: 8)
-                            
-                            // Chats: 6%
-                            RoundedRectangle(cornerRadius: 2)
-                                .fill(NookColors.external)
-                                .frame(width: 30, height: 8)
-                            
-                            // Available Space
-                            RoundedRectangle(cornerRadius: 2)
-                                .fill(NookColors.hairline)
-                                .frame(height: 8)
+
+                    if case .downloading(let progress, let transfer) = runtimeStore.downloadState {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("DOWNLOADING")
+                                .nookEyebrow()
+                                .foregroundColor(NookColors.ink40)
+                            ProgressView(value: progress)
+                                .tint(NookColors.local)
+                            Text(downloadStatusLabel(progress: progress, transfer: transfer))
+                                .font(NookTypography.badge)
+                                .foregroundColor(NookColors.ink55)
                         }
-                        
-                        // Legend
-                        HStack(spacing: 16) {
-                            HStack(spacing: 5) {
-                                Circle().fill(NookColors.local).frame(width: 5, height: 5)
-                                Text("Models 6.5 GB")
-                                    .font(NookTypography.badge)
-                                    .foregroundColor(NookColors.ink55)
-                            }
-                            HStack(spacing: 5) {
-                                Circle().fill(NookColors.local.opacity(0.45)).frame(width: 5, height: 5)
-                                Text("Knowledge 2.1 GB")
-                                    .font(NookTypography.badge)
-                                    .foregroundColor(NookColors.ink55)
-                            }
-                            HStack(spacing: 5) {
-                                Circle().fill(NookColors.external).frame(width: 5, height: 5)
-                                Text("Chats 0.9 GB")
-                                    .font(NookTypography.badge)
-                                    .foregroundColor(NookColors.ink55)
-                            }
-                        }
-                        .padding(.top, 4)
+                    }
+
+                    if let tierError {
+                        Text(tierError)
+                            .font(NookTypography.meta)
+                            .foregroundColor(NookColors.external)
+                            .lineSpacing(3)
                     }
                     
+                    storageSection
+
                     // Advanced Settings
                     VStack(alignment: .leading, spacing: 6) {
                         HStack {
@@ -176,6 +165,130 @@ public struct ModelsView: View {
             }
         }
         .background(NookColors.paper.ignoresSafeArea())
+        .onAppear {
+            refreshStorageBreakdown()
+        }
+        .onChange(of: runtimeStore.downloadState) { _, _ in
+            refreshStorageBreakdown()
+        }
+    }
+
+    private var storageSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("STORAGE ON THIS IPHONE")
+                .nookEyebrow()
+                .foregroundColor(NookColors.ink40)
+
+            GeometryReader { geo in
+                HStack(spacing: 2) {
+                    storageBarSegment(
+                        bytes: storageBreakdown.modelsBytes,
+                        total: max(storageBreakdown.nookBytes, 1),
+                        width: geo.size.width,
+                        color: NookColors.local
+                    )
+                    storageBarSegment(
+                        bytes: storageBreakdown.knowledgeBytes,
+                        total: max(storageBreakdown.nookBytes, 1),
+                        width: geo.size.width,
+                        color: NookColors.local.opacity(0.45)
+                    )
+                    storageBarSegment(
+                        bytes: storageBreakdown.chatsBytes,
+                        total: max(storageBreakdown.nookBytes, 1),
+                        width: geo.size.width,
+                        color: NookColors.external
+                    )
+                    if storageBreakdown.nookBytes == 0 {
+                        RoundedRectangle(cornerRadius: 2)
+                            .fill(NookColors.hairline)
+                            .frame(height: 8)
+                    }
+                }
+            }
+            .frame(height: 8)
+
+            Text("Bar shows Nook usage only — models, knowledge, and chats.")
+                .font(NookTypography.badge)
+                .foregroundColor(NookColors.ink40)
+                .lineSpacing(3)
+
+            VStack(alignment: .leading, spacing: 6) {
+                storageLegendRow(
+                    color: NookColors.local,
+                    label: "Models",
+                    bytes: storageBreakdown.modelsBytes
+                )
+                storageLegendRow(
+                    color: NookColors.local.opacity(0.45),
+                    label: "Knowledge",
+                    bytes: storageBreakdown.knowledgeBytes
+                )
+                storageLegendRow(
+                    color: NookColors.external,
+                    label: "Chats",
+                    bytes: storageBreakdown.chatsBytes
+                )
+                storageLegendRow(
+                    color: NookColors.hairline,
+                    label: "Free on device",
+                    bytes: storageBreakdown.deviceFreeBytes
+                )
+            }
+            .padding(.top, 4)
+        }
+    }
+
+    @ViewBuilder
+    private func storageBarSegment(
+        bytes: Int64,
+        total: Int64,
+        width: CGFloat,
+        color: Color
+    ) -> some View {
+        if bytes > 0, total > 0 {
+            let segmentWidth = width * CGFloat(Double(bytes) / Double(total))
+            RoundedRectangle(cornerRadius: 2)
+                .fill(color)
+                .frame(width: max(4, segmentWidth), height: 8)
+        }
+    }
+
+    private func storageLegendRow(color: Color, label: String, bytes: Int64) -> some View {
+        HStack(spacing: 5) {
+            Circle().fill(color).frame(width: 5, height: 5)
+            Text("\(label) \(AppStorageUsage.format(bytes))")
+                .font(NookTypography.badge)
+                .foregroundColor(NookColors.ink55)
+        }
+    }
+
+    private func refreshStorageBreakdown() {
+        storageBreakdown = AppStorageUsage.measure()
+    }
+
+    private func downloadStatusLabel(progress: Double, transfer: DownloadTransferProgress?) -> String {
+        if let transfer, transfer.totalBytes > 0 {
+            let downloaded = AppStorageUsage.format(transfer.completedBytes)
+            let total = AppStorageUsage.format(transfer.totalBytes)
+            switch progress {
+            case ..<0.05:
+                return "Connecting… \(downloaded) of \(total)"
+            case ..<0.85:
+                return "Downloading… \(downloaded) of \(total)"
+            default:
+                return "Loading into memory… \(Int(progress * 100))%"
+            }
+        }
+
+        switch progress {
+        case ..<0.05:
+            return "Connecting… \(Int(progress * 100))%"
+        case ..<0.85:
+            return "Downloading… \(Int(progress * 100))%"
+        default:
+            return "Loading into memory… \(Int(progress * 100))%"
+        }
     }
 }
 

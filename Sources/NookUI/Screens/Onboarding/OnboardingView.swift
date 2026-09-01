@@ -1,6 +1,7 @@
 import SwiftUI
 import NookDesign
 import NookCore
+import NookRuntime
 
 public enum OnboardingStep {
     case hero
@@ -10,19 +11,63 @@ public enum OnboardingStep {
 }
 
 public struct OnboardingView: View {
+    @ObservedObject public var runtimeStore: ModelRuntimeStore
     @State private var currentStep: OnboardingStep = .hero
     @State private var selectedTier: ModelTier = ModelTier.standardTiers[0]
-    @State private var downloadProgress: Double = 0.0
     @State private var downloadError: String? = nil
     private let downloadModel: @Sendable (ModelTier, @escaping @Sendable (Double) -> Void) async throws -> Void
     private let onComplete: (ModelTier) -> Void
     
     public init(
+        runtimeStore: ModelRuntimeStore,
         downloadModel: @escaping @Sendable (ModelTier, @escaping @Sendable (Double) -> Void) async throws -> Void,
         onComplete: @escaping (ModelTier) -> Void
     ) {
+        self.runtimeStore = runtimeStore
         self.downloadModel = downloadModel
         self.onComplete = onComplete
+    }
+
+    private var downloadProgress: Double {
+        if case .downloading(let progress, _) = runtimeStore.downloadState {
+            return progress
+        }
+        return 0
+    }
+
+    private var downloadTransfer: DownloadTransferProgress? {
+        if case .downloading(_, let transfer) = runtimeStore.downloadState {
+            return transfer
+        }
+        return nil
+    }
+
+    private var downloadStatusDetail: String {
+        if selectedTier.shipsBundled {
+            return "Preparing bundled model…"
+        }
+        if let transfer = downloadTransfer, transfer.totalBytes > 0 {
+            let downloaded = AppStorageUsage.format(transfer.completedBytes)
+            let total = AppStorageUsage.format(transfer.totalBytes)
+            switch downloadProgress {
+            case ..<0.85:
+                return "\(downloaded) of \(total)"
+            case ..<1.0:
+                return "Loading weights into memory…"
+            default:
+                return "Ready."
+            }
+        }
+        switch downloadProgress {
+        case ..<0.05:
+            return "Connecting to Hugging Face…"
+        case ..<0.85:
+            return "Downloading model files…"
+        case ..<1.0:
+            return "Loading weights into memory…"
+        default:
+            return "Ready."
+        }
     }
     
     public var body: some View {
@@ -54,17 +99,15 @@ public struct OnboardingView: View {
     private var heroStepView: some View {
         VStack(alignment: .leading, spacing: 20) {
             // App Mark
-            RoundedRectangle(cornerRadius: 10)
-                .fill(NookColors.ink)
+            Image("AppLogo", bundle: .main)
+                .resizable()
+                .interpolation(.high)
+                .aspectRatio(contentMode: .fit)
                 .frame(width: 34, height: 34)
-                .overlay(
-                    Text("N")
-                        .font(.system(size: 20, weight: .bold, design: .serif))
-                        .foregroundColor(NookColors.inkOnDark)
-                )
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
             
             Text("Know.\nRemember.\nAct.")
-                .font(NookTypography.heroDisplay)
+                .nookHeroDisplay()
                 .foregroundColor(NookColors.ink)
                 .lineSpacing(2)
             
@@ -197,7 +240,7 @@ public struct OnboardingView: View {
             }
             .frame(height: 6)
             
-            Text("\(selectedTier.name) · staying on this iPhone   ·   \(Int(downloadProgress * 100))%")
+            Text("\(selectedTier.name) · \(downloadStatusDetail)   ·   \(Int(downloadProgress * 100))%")
                 .font(NookTypography.badge)
                 .foregroundColor(NookColors.ink55)
             
@@ -225,24 +268,14 @@ public struct OnboardingView: View {
     private func startDownload() {
         downloadError = nil
         let tier = selectedTier
-        let download = downloadModel
-        Task.detached(priority: .userInitiated) {
+        Task {
             do {
-                try await download(tier) { progress in
-                    Task { @MainActor in
-                        self.downloadProgress = min(1.0, progress)
-                    }
-                }
-                await MainActor.run {
-                    self.downloadProgress = 1.0
-                    withAnimation(.linear(duration: 0.2)) {
-                        self.currentStep = .ready
-                    }
+                try await downloadModel(tier) { _ in }
+                withAnimation(.linear(duration: 0.2)) {
+                    currentStep = .ready
                 }
             } catch {
-                await MainActor.run {
-                    self.downloadError = "Download failed. Check your connection and try again."
-                }
+                downloadError = runtimeStore.userFacingErrorMessage(for: error)
             }
         }
     }

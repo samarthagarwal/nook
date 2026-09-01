@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		A10000012C84E00000000001 /* NookApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000022C84E00000000001 /* NookApp.swift */; };
+		A100001D2C84E00000000001 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A100001E2C84E00000000001 /* Assets.xcassets */; };
 		A10000032C84E00000000001 /* NookUI in Frameworks */ = {isa = PBXBuildFile; productRef = A10000042C84E00000000001 /* NookUI */; };
 		A10000052C84E00000000001 /* NookRuntime in Frameworks */ = {isa = PBXBuildFile; productRef = A10000062C84E00000000001 /* NookRuntime */; };
 		A10000072C84E00000000001 /* NookCore in Frameworks */ = {isa = PBXBuildFile; productRef = A10000082C84E00000000001 /* NookCore */; };
@@ -18,6 +19,7 @@
 		A10000022C84E00000000001 /* NookApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NookApp.swift; sourceTree = "<group>"; };
 		A100000B2C84E00000000001 /* NookApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = NookApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A100000C2C84E00000000001 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		A100001E2C84E00000000001 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -48,6 +50,7 @@
 			isa = PBXGroup;
 			children = (
 				A10000022C84E00000000001 /* NookApp.swift */,
+				A100001E2C84E00000000001 /* Assets.xcassets */,
 				A100000C2C84E00000000001 /* Info.plist */,
 			);
 			path = NookApp;
@@ -135,6 +138,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A100001D2C84E00000000001 /* Assets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

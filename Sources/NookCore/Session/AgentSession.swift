@@ -17,6 +17,7 @@ public final class AgentSession: ObservableObject {
     public let contextAssembler: ContextAssembler
     
     private var pendingStreamHandler: (@Sendable (AssembledPromptContext, @escaping @Sendable (String) -> Void) async throws -> String)? = nil
+    private var activeGenerationTask: Task<Void, Never>?
     
     public init(
         conversation: Conversation,
@@ -46,12 +47,21 @@ public final class AgentSession: ObservableObject {
         }
     }
     
+    public func cancelGeneration() {
+        activeGenerationTask?.cancel()
+        activeGenerationTask = nil
+        isThinking = false
+        isStreaming = false
+    }
+    
     public func sendMessage(
         text: String,
         attachedImageName: String? = nil,
         runtime: any Sendable,
         streamHandler: @escaping @Sendable (AssembledPromptContext, @escaping @Sendable (String) -> Void) async throws -> String
     ) async {
+        activeGenerationTask?.cancel()
+        
         let userMsg = Message(
             conversationId: conversation.id,
             role: .user,
@@ -180,6 +190,10 @@ public final class AgentSession: ObservableObject {
     ) async {
         self.isThinking = true
         try? await Task.sleep(nanoseconds: 350_000_000)
+        if Task.isCancelled {
+            self.isThinking = false
+            return
+        }
         self.isThinking = false
         
         let assistantMsg = Message(
@@ -194,46 +208,56 @@ public final class AgentSession: ObservableObject {
         self.isStreaming = true
         
         let promptContext = contextAssembler.assemble(
-            baseSystemPrompt: "You are Nook, a private on-device assistant.",
+            baseSystemPrompt: NookSystemPrompt.standard,
             activeSkill: nil,
             evidenceChunks: evidenceChunks,
-            chatHistory: messages,
+            chatHistory: messages.filter { $0.id != assistantMsgId },
             toolResults: toolResults
         )
         
-        do {
-            var fullText = ""
-            let stream = AsyncStream<String> { continuation in
-                Task.detached(priority: .userInitiated) {
-                    do {
-                        _ = try await streamHandler(promptContext) { token in
-                            continuation.yield(token)
+        let task = Task {
+            do {
+                _ = try await streamHandler(promptContext) { token in
+                    guard !Task.isCancelled else { return }
+                    Task { @MainActor in
+                        if let index = self.messages.firstIndex(where: { $0.id == assistantMsgId }) {
+                            self.messages[index].content += token
                         }
-                        continuation.finish()
-                    } catch {
-                        continuation.finish()
                     }
                 }
-            }
 
-            for await token in stream {
-                fullText += token
-                if let index = self.messages.firstIndex(where: { $0.id == assistantMsgId }) {
-                    self.messages[index].content = fullText
+                guard !Task.isCancelled else { return }
+
+                await MainActor.run {
+                    if let index = self.messages.firstIndex(where: { $0.id == assistantMsgId }) {
+                        self.messages[index].citations = citationsToAttachOnCompletion
+                    }
+                    self.isStreaming = false
+                    self.activeGenerationTask = nil
+                }
+            } catch is CancellationError {
+                await MainActor.run {
+                    self.isStreaming = false
+                    self.activeGenerationTask = nil
+                }
+            } catch {
+                await MainActor.run {
+                    if let index = self.messages.firstIndex(where: { $0.id == assistantMsgId }),
+                       self.messages[index].content.isEmpty {
+                        self.messages[index].content = "An error occurred during local generation."
+                    }
+                    self.isStreaming = false
+                    self.activeGenerationTask = nil
+                    let message = (error as? LocalizedError)?.errorDescription
+                        ?? "Something went wrong while generating on device."
+                    self.showToast(message)
+                    print("[AgentSession] Generation failed: \(error)")
                 }
             }
-
-            if let index = self.messages.firstIndex(where: { $0.id == assistantMsgId }) {
-                self.messages[index].content = fullText
-                self.messages[index].citations = citationsToAttachOnCompletion
-            }
-        } catch {
-            if let index = self.messages.firstIndex(where: { $0.id == assistantMsgId }) {
-                self.messages[index].content = "An error occurred during local generation."
-            }
         }
-        
-        self.isStreaming = false
+
+        activeGenerationTask = task
+        await task.value
     }
 }
 

@@ -4,9 +4,9 @@ import NookCore
 import NookRuntime
 
 public struct AppRootView: View {
-    @State private var isOnboardingComplete: Bool = false
+    @State private var isOnboardingComplete: Bool = AppPreferences.isOnboardingComplete
     @State private var selectedTab: NookTab = .chat
-    @State private var activeTier: ModelTier = ModelTier.standardTiers[0]
+    @StateObject private var runtimeStore: ModelRuntimeStore
     
     // Core Engine Instances
     @StateObject private var knowledgeState: ObservableKnowledgeEngine
@@ -19,7 +19,6 @@ public struct AppRootView: View {
     private let skillManager: SkillManager
     private let toolRegistry: ToolRegistry
     private let mcpClient: MCPClient
-    private let runtime: ModelRuntime
     
     // Navigation / Detail States
     @State private var conversations: [Conversation] = []
@@ -43,14 +42,14 @@ public struct AppRootView: View {
         skillManager: SkillManager = SkillManager(),
         toolRegistry: ToolRegistry = ToolRegistry(),
         mcpClient: MCPClient = MCPClient(),
-        runtime: ModelRuntime = ModelRuntimeFactory.make(activeTier: ModelTier.standardTiers[0])
+        runtime: ModelRuntime? = nil
     ) {
         self.knowledgeEngine = knowledgeEngine
         self.memoryEngine = memoryEngine
         self.skillManager = skillManager
         self.toolRegistry = toolRegistry
         self.mcpClient = mcpClient
-        self.runtime = runtime
+        _runtimeStore = StateObject(wrappedValue: ModelRuntimeStore(runtime: runtime))
         
         _knowledgeState = StateObject(wrappedValue: ObservableKnowledgeEngine(engine: knowledgeEngine))
         _skillState = StateObject(wrappedValue: ObservableSkillManager(manager: skillManager))
@@ -64,12 +63,14 @@ public struct AppRootView: View {
             
             if !isOnboardingComplete {
                 OnboardingView(
+                    runtimeStore: runtimeStore,
                     downloadModel: { tier, progress in
-                        try await self.runtime.downloadModel(tier: tier, progressHandler: progress)
+                        try await self.runtimeStore.downloadModel(tier: tier, progressHandler: progress)
                     },
                     onComplete: { chosenTier in
-                        self.activeTier = chosenTier
+                        AppPreferences.markOnboardingComplete(chosenTier: chosenTier)
                         self.isOnboardingComplete = true
+                        self.runtimeStore.syncFromRuntime()
                         startNewChat()
                     }
                 )
@@ -78,7 +79,7 @@ public struct AppRootView: View {
             }
             
             // Toast Overlay
-            if let toast = activeToast ?? activeSession?.toastMessage {
+            if let toast = activeToast ?? activeSession?.toastMessage ?? runtimeStore.statusMessage {
                 VStack {
                     Spacer()
                     ToastOverlay(message: toast)
@@ -87,27 +88,21 @@ public struct AppRootView: View {
                 .animation(.linear(duration: 0.2), value: toast)
             }
         }
-        .onChange(of: activeTier) { _, newTier in
-            guard isOnboardingComplete else { return }
-            Task {
-                try? await runtime.downloadModel(tier: newTier) { _ in }
-            }
-        }
         .onAppear {
             setupInitialConversations()
-            print("[AppRootView] App launched. Runtime: \(type(of: runtime)) (\(MLXPlatformSupport.runtimeLabel)). DownloadState: \(runtime.downloadState)")
-            // If onboarding is already complete (e.g. dev mode), trigger model download
-            // immediately so it's ready before the user sends their first message.
-            if isOnboardingComplete && runtime.downloadState == .notDownloaded {
-                let tier = activeTier
-                Task.detached(priority: .userInitiated) {
-                    print("[AppRootView] Pre-loading model for tier: \(tier.name)")
-                    try? await runtime.downloadModel(tier: tier) { progress in
-                        print("[AppRootView] Pre-load progress: \(Int(progress * 100))%")
-                    }
-                    print("[AppRootView] Pre-load complete. Model ready.")
+            print("[AppRootView] App launched. Runtime: \(type(of: runtimeStore.runtime)) (\(MLXPlatformSupport.runtimeLabel)). DownloadState: \(runtimeStore.downloadState)")
+            if isOnboardingComplete {
+                Task {
+                    await runtimeStore.preloadActiveTierIfNeeded()
                 }
             }
+        }
+        .onChange(of: runtimeStore.thermalAdvice) { _, advice in
+            guard advice != .normal else { return }
+            let message = advice == .throttled
+                ? "This iPhone is running hot. Generation may pause until it cools."
+                : "This iPhone is warming up. Responses may be slower."
+            showToast(message)
         }
     }
     
@@ -119,7 +114,7 @@ public struct AppRootView: View {
                     if let session = activeSession {
                         ChatView(
                             session: session,
-                            runtime: runtime,
+                            runtimeStore: runtimeStore,
                             onBack: {
                                 self.activeSession = nil
                             },
@@ -136,7 +131,7 @@ public struct AppRootView: View {
                     } else {
                         ChatListView(
                             conversations: $conversations,
-                            activeTier: activeTier,
+                            activeTier: runtimeStore.activeTier,
                             onSelectConversation: { convo in
                                 openConversation(convo)
                             },
@@ -259,7 +254,10 @@ public struct AppRootView: View {
         // Sheets
         .sheet(isPresented: $isSettingsOpen) {
             SettingsView(
-                activeTier: $activeTier,
+                activeTier: Binding(
+                    get: { runtimeStore.activeTier },
+                    set: { _ in }
+                ),
                 onOpenModels: {
                     self.isSettingsOpen = false
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
@@ -286,7 +284,7 @@ public struct AppRootView: View {
             )
         }
         .sheet(isPresented: $isModelsOpen) {
-            ModelsView(activeTier: $activeTier) {
+            ModelsView(runtimeStore: runtimeStore) {
                 self.isModelsOpen = false
             }
         }

@@ -12,7 +12,6 @@ let package = Package(
         .library(name: "NookCore", targets: ["NookCore"]),
         .library(name: "NookRuntime", targets: ["NookRuntime"]),
         .library(name: "NookUI", targets: ["NookUI"]),
-        .executable(name: "NookApp", targets: ["NookApp"]),
         .executable(name: "NookCLI", targets: ["NookCLI"])
     ],
     dependencies: [
@@ -48,10 +47,6 @@ let package = Package(
         .target(
             name: "NookUI",
             dependencies: ["NookDesign", "NookCore", "NookRuntime"]
-        ),
-        .executableTarget(
-            name: "NookApp",
-            dependencies: ["NookDesign", "NookCore", "NookRuntime", "NookUI"]
         ),
         .executableTarget(
             name: "NookCLI",

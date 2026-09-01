@@ -3,7 +3,7 @@ import NookCore
 
 public enum ModelDownloadState: Equatable, Sendable {
     case notDownloaded
-    case downloading(progressPct: Double)
+    case downloading(progressPct: Double, transfer: DownloadTransferProgress? = nil)
     case ready
 }
 
@@ -12,12 +12,18 @@ public protocol ModelRuntime: Sendable {
     var downloadState: ModelDownloadState { get }
     
     func switchTier(_ tier: ModelTier) async throws
-    func downloadModel(tier: ModelTier, progressHandler: @escaping @Sendable (Double) -> Void) async throws
+    func downloadModel(
+        tier: ModelTier,
+        progressHandler: @escaping @Sendable (Double, DownloadTransferProgress?) -> Void
+    ) async throws
     
     func generateStreaming(
         promptContext: AssembledPromptContext,
         onToken: @escaping @Sendable (String) -> Void
     ) async throws -> String
+
+    func cancelGeneration()
+    func releaseLoadedModel() async
 }
 
 public final class ScriptedModelRuntime: ModelRuntime, @unchecked Sendable {
@@ -32,13 +38,16 @@ public final class ScriptedModelRuntime: ModelRuntime, @unchecked Sendable {
         self.activeTier = tier
     }
     
-    public func downloadModel(tier: ModelTier, progressHandler: @escaping @Sendable (Double) -> Void) async throws {
+    public func downloadModel(
+        tier: ModelTier,
+        progressHandler: @escaping @Sendable (Double, DownloadTransferProgress?) -> Void
+    ) async throws {
         self.activeTier = tier
         self.downloadState = .downloading(progressPct: 0)
         
         for p in stride(from: 0.1, through: 1.0, by: 0.15) {
             try? await Task.sleep(nanoseconds: 120_000_000)
-            progressHandler(p)
+            progressHandler(p, nil)
         }
         
         self.downloadState = .ready
@@ -74,4 +83,8 @@ public final class ScriptedModelRuntime: ModelRuntime, @unchecked Sendable {
         
         return responseText
     }
+
+    public func cancelGeneration() {}
+
+    public func releaseLoadedModel() async {}
 }

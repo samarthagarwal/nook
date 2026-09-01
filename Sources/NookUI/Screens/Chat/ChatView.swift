@@ -5,7 +5,7 @@ import NookRuntime
 
 public struct ChatView: View {
     @ObservedObject public var session: AgentSession
-    public let runtime: ModelRuntime
+    @ObservedObject public var runtimeStore: ModelRuntimeStore
     public let onBack: () -> Void
     public let onOpenScope: () -> Void
     public let onOpenAttach: () -> Void
@@ -16,14 +16,14 @@ public struct ChatView: View {
     
     public init(
         session: AgentSession,
-        runtime: ModelRuntime,
+        runtimeStore: ModelRuntimeStore,
         onBack: @escaping () -> Void,
         onOpenScope: @escaping () -> Void,
         onOpenAttach: @escaping () -> Void,
         onSelectCitation: @escaping (Citation) -> Void
     ) {
         self.session = session
-        self.runtime = runtime
+        self.runtimeStore = runtimeStore
         self.onBack = onBack
         self.onOpenScope = onOpenScope
         self.onOpenAttach = onOpenAttach
@@ -142,20 +142,32 @@ public struct ChatView: View {
                             .strokeBorder(NookColors.hairlineStrong, lineWidth: 1)
                     )
                     
-                    // Send Button
+                    // Send / Stop
                     Button(action: {
-                        sendCurrentMessage()
+                        if session.isStreaming || session.isThinking {
+                            session.cancelGeneration()
+                            runtimeStore.cancelGeneration()
+                        } else {
+                            sendCurrentMessage()
+                        }
                     }) {
-                        Image(systemName: "arrow.up")
+                        Image(systemName: (session.isStreaming || session.isThinking) ? "stop.fill" : "arrow.up")
                             .font(.system(size: 14, weight: .bold))
                             .foregroundColor(NookColors.inkOnDark)
                             .frame(width: 38, height: 38)
                             .background(
                                 Circle()
-                                    .fill(inputText.isEmpty ? NookColors.ink40 : NookColors.ink)
+                                    .fill(
+                                        (session.isStreaming || session.isThinking)
+                                            ? NookColors.external
+                                            : (inputText.isEmpty ? NookColors.ink40 : NookColors.ink)
+                                    )
                             )
                     }
-                    .disabled(inputText.trimmingCharacters(in: .whitespaces).isEmpty)
+                    .disabled(
+                        !(session.isStreaming || session.isThinking)
+                            && inputText.trimmingCharacters(in: .whitespaces).isEmpty
+                    )
                     .buttonStyle(.plain)
                 }
                 .padding(.horizontal, 18)
@@ -296,11 +308,7 @@ public struct ChatView: View {
             
         case .assistant:
             VStack(alignment: .leading, spacing: 11) {
-                Text(message.content)
-                    .font(NookTypography.assistantBody)
-                    .foregroundColor(NookColors.ink)
-                    .lineSpacing(5)
-                    .multilineTextAlignment(.leading)
+                AssistantMessageText(message.content)
                 
                 if !message.citations.isEmpty {
                     VStack(alignment: .leading, spacing: 6) {
@@ -400,9 +408,9 @@ public struct ChatView: View {
             await session.sendMessage(
                 text: text,
                 attachedImageName: img,
-                runtime: runtime,
+                runtime: runtimeStore.runtime,
                 streamHandler: { promptContext, tokenCallback in
-                    try await runtime.generateStreaming(
+                    try await runtimeStore.runtime.generateStreaming(
                         promptContext: promptContext,
                         onToken: tokenCallback
                     )
