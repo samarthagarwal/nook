@@ -73,6 +73,49 @@ public enum NookDatabase {
             try db.create(index: "conversations_by_updated_at", on: "conversations", columns: ["updated_at"])
         }
 
+        migrator.registerMigration("v2_knowledge") { db in
+            try db.create(table: "knowledge_collections") { table in
+                table.column("id", .text).primaryKey()
+                table.column("name", .text).notNull()
+                table.column("desc", .text).notNull().defaults(to: "")
+                table.column("state", .text).notNull().defaults(to: "ready")
+                table.column("created_at", .datetime).notNull()
+            }
+
+            try db.create(table: "knowledge_documents") { table in
+                table.column("id", .text).primaryKey()
+                table.column("collection_id", .text)
+                    .notNull()
+                    .references("knowledge_collections", onDelete: .cascade)
+                table.column("name", .text).notNull()
+                table.column("meta", .text).notNull().defaults(to: "")
+                table.column("status", .text).notNull().defaults(to: "Indexed")
+                table.column("created_at", .datetime).notNull()
+            }
+
+            try db.create(table: "knowledge_chunks") { table in
+                table.column("id", .text).primaryKey()
+                table.column("document_id", .text)
+                    .notNull()
+                    .references("knowledge_documents", onDelete: .cascade)
+                table.column("text", .text).notNull()
+                table.column("page_or_section", .text).notNull()
+                table.column("embedding", .blob)
+                table.column("created_at", .datetime).notNull()
+            }
+
+            try db.create(index: "knowledge_chunks_by_document", on: "knowledge_chunks", columns: ["document_id"])
+
+            try db.execute(sql: """
+                CREATE VIRTUAL TABLE knowledge_chunks_fts USING fts5(
+                    chunk_id UNINDEXED,
+                    text,
+                    page_or_section UNINDEXED,
+                    tokenize='unicode61'
+                )
+                """)
+        }
+
         try migrator.migrate(dbQueue)
     }
 }

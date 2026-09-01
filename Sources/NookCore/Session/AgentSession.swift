@@ -86,32 +86,26 @@ public final class AgentSession: ObservableObject {
         persist(message: userMsg, userTextForMetadata: text)
         
         let lower = text.lowercased()
-        
-        // Scenario 1: Knowledge RAG inquiry
-        if lower.contains("risk") || lower.contains("project") {
-            let localPill = Message(
-                conversationId: conversation.id,
-                role: .localTool,
-                content: "",
-                localToolText: "documents.search · Project Alpha · 5 passages"
-            )
-            messages.append(localPill)
-            persist(message: localPill)
+        let knowledgeScope = conversation.activeKnowledgeScope
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+
+        // Scenario 1: MCP / External GitHub inquiry
+        if lower.contains("github") || lower.contains("issue") {
+            let isAlwaysAllowed = await toolRegistry.isAlwaysAllowed(toolName: "github.search_issues")
             
-            let (chunks, citations) = await knowledgeEngine.search(
-                query: text,
-                scopedToCollections: conversation.activeKnowledgeScope
-            )
-            
-            await performAssistantStream(
-                evidenceChunks: chunks,
-                citationsToAttachOnCompletion: citations,
-                streamHandler: streamHandler
-            )
-            return
+            if !isAlwaysAllowed {
+                let payload = await mcpClient.buildApprovalPayload(toolName: "github.search_issues", parameters: [:])
+                self.pendingApproval = payload
+                self.pendingStreamHandler = streamHandler
+                return
+            } else {
+                await executeApprovedMCP(streamHandler: streamHandler)
+                return
+            }
         }
-        
-        // Scenario 2: Vision inquiry
+
+        // Scenario 2: Vision inquiry (placeholder until attachments ship)
         if attachedImageName != nil || lower.contains("spec") || lower.contains("match") {
             let localPill = Message(
                 conversationId: conversation.id,
@@ -129,18 +123,30 @@ public final class AgentSession: ObservableObject {
             )
             return
         }
-        
-        // Scenario 3: MCP / External GitHub inquiry
-        if lower.contains("github") || lower.contains("issue") {
-            let isAlwaysAllowed = await toolRegistry.isAlwaysAllowed(toolName: "github.search_issues")
-            
-            if !isAlwaysAllowed {
-                let payload = await mcpClient.buildApprovalPayload(toolName: "github.search_issues", parameters: [:])
-                self.pendingApproval = payload
-                self.pendingStreamHandler = streamHandler
-                return
-            } else {
-                await executeApprovedMCP(streamHandler: streamHandler)
+
+        // Scenario 3: Knowledge RAG when chat scope includes collections
+        if !knowledgeScope.isEmpty {
+            let (chunks, citations) = await knowledgeEngine.search(
+                query: text,
+                scopedToCollections: knowledgeScope
+            )
+
+            if !chunks.isEmpty {
+                let scopeLabel = knowledgeScope.joined(separator: ", ")
+                let localPill = Message(
+                    conversationId: conversation.id,
+                    role: .localTool,
+                    content: "",
+                    localToolText: "documents.search · \(scopeLabel) · \(chunks.count) passages"
+                )
+                messages.append(localPill)
+                persist(message: localPill)
+
+                await performAssistantStream(
+                    evidenceChunks: chunks,
+                    citationsToAttachOnCompletion: citations,
+                    streamHandler: streamHandler
+                )
                 return
             }
         }

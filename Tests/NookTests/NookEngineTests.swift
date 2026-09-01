@@ -4,6 +4,21 @@ import XCTest
 
 final class NookEngineTests: XCTestCase {
     
+    func testKnowledgeHybridSearchReturnsProjectAlphaPassages() throws {
+        let store = try KnowledgeStore.makeForTests()
+        let hits = try store.search(
+            query: "What are the biggest risks in this project?",
+            scopedToCollections: ["Project Alpha"],
+            limit: 5
+        )
+
+        XCTAssertFalse(hits.isEmpty)
+        XCTAssertTrue(
+            hits.contains { $0.chunk.text.localizedCaseInsensitiveContains("risk") },
+            "Expected risk-related passages from the seeded corpus"
+        )
+    }
+
     func testContextAssemblerTokenBudget() {
         let budget = ContextBudgetConfig(
             totalContextLimit: 8000,
