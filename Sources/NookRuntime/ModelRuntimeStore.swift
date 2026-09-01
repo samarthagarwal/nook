@@ -5,12 +5,27 @@ import NookCore
 public final class ModelRuntimeStore: ObservableObject {
     @Published public private(set) var downloadState: ModelDownloadState
     @Published public private(set) var activeTier: ModelTier
+    @Published public private(set) var downloadingTier: ModelTier?
     @Published public private(set) var thermalAdvice: ThermalStateMonitor.Advice = .normal
     @Published public var statusMessage: String?
 
     public let runtime: any ModelRuntime
 
+    private var downloadTask: Task<Void, Error>?
+    private var modelNeedsReload = false
+
+    /// Tier name to show while a download is in progress, otherwise the active tier.
+    public var displayTierName: String {
+        downloadingTier?.name ?? activeTier.name
+    }
+
+    public var isDownloading: Bool {
+        if case .downloading = downloadState { return true }
+        return false
+    }
+
     public init(runtime: (any ModelRuntime)? = nil) {
+        ModelCatalog.migrateDownloadedTiersIfNeeded()
         let tier = AppPreferences.activeTier
         let resolvedRuntime = runtime ?? ModelRuntimeFactory.make(activeTier: tier)
         self.runtime = resolvedRuntime
@@ -27,11 +42,42 @@ public final class ModelRuntimeStore: ObservableObject {
             forName: .nookModelUnloadedDueToMemory,
             object: nil,
             queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in
-                self?.presentStatus("Freed memory. The model will reload on your next message.")
+        ) { [weak self] notification in
+            let reason = notification.userInfo?["reason"] as? String
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                if reason == ModelUnloadReason.memoryPressure.rawValue {
+                    self.modelNeedsReload = true
+                    self.presentStatus(
+                        "Freed model memory. It reloads automatically when you send your next message."
+                    )
+                }
             }
         }
+    }
+
+    public func resetMemoryPressureState() {
+        MemoryPressureState.shared.reset()
+        modelNeedsReload = false
+    }
+
+    public func prepareForGenerationIfNeeded() async throws {
+        guard modelNeedsReload else { return }
+
+        if activeTier.id != "fast",
+           MemoryPressureState.shared.recentWarningCount > 0 {
+            modelNeedsReload = false
+            throw MLXModelRuntimeError.memoryConstrained
+        }
+
+        presentStatus("Reloading on-device model…")
+        defer {
+            if statusMessage == "Reloading on-device model…" {
+                statusMessage = nil
+            }
+        }
+        try await runtime.ensureModelReady()
+        modelNeedsReload = false
     }
 
     public func presentStatus(_ message: String) {
@@ -60,8 +106,32 @@ public final class ModelRuntimeStore: ObservableObject {
         tier: ModelTier,
         progressHandler: (@Sendable (Double) -> Void)? = nil
     ) async throws {
+        if let downloadTask {
+            try await downloadTask.value
+            syncFromRuntime()
+            if activeTier.id == tier.id, case .ready = downloadState {
+                progressHandler?(1.0)
+            }
+            return
+        }
+
+        let task = Task<Void, Error> {
+            try await self.runDownload(tier: tier, progressHandler: progressHandler)
+        }
+        downloadTask = task
+        defer { downloadTask = nil }
+        try await task.value
+    }
+
+    private func runDownload(
+        tier: ModelTier,
+        progressHandler: (@Sendable (Double) -> Void)?
+    ) async throws {
+        downloadingTier = tier
+        defer { downloadingTier = nil }
+
         downloadState = .downloading(progressPct: 0.01)
-        let repoId = MLXModelRuntime.modelHubMap[tier.name] ?? tier.name
+        let repoId = ModelCatalog.repoId(for: tier)
         print("[ModelRuntimeStore] Starting download for \(tier.name) → \(repoId)")
 
         let uiLogger = DownloadProgressLogger(label: "UI \(tier.name)", minInterval: 10)
@@ -91,8 +161,12 @@ public final class ModelRuntimeStore: ObservableObject {
             return
         }
 
+        if let downloadingTier, downloadingTier.id == tier.id {
+            return
+        }
+
         if tier.shipsBundled || AppPreferences.isTierDownloaded(tier.id)
-            || LocalModelDiscovery.mlxDirectory(for: MLXModelRuntime.modelHubMap[tier.name] ?? "") != nil {
+            || LocalModelDiscovery.mlxDirectory(for: ModelCatalog.repoId(for: tier)) != nil {
             try await runtime.switchTier(tier)
             activeTier = tier
             AppPreferences.activeTier = tier
@@ -104,8 +178,16 @@ public final class ModelRuntimeStore: ObservableObject {
     }
 
     public func preloadActiveTierIfNeeded() async {
+        guard activeTier.shipsBundled else { return }
         guard case .notDownloaded = downloadState else { return }
+        guard !isDownloading else { return }
         try? await downloadModel(tier: activeTier)
+    }
+
+    public func releaseModelWhenIdle() {
+        Task {
+            await runtime.releaseLoadedModel()
+        }
     }
 
     public func cancelGeneration() {

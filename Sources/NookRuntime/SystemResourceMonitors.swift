@@ -9,6 +9,45 @@ extension Notification.Name {
     public static let nookModelUnloadedDueToMemory = Notification.Name("nook.modelUnloadedDueToMemory")
 }
 
+enum ModelUnloadReason: String {
+    case memoryPressure
+    case idle
+}
+
+/// Tracks recent iOS memory warnings for diagnostics.
+public final class MemoryPressureState: @unchecked Sendable {
+    public static let shared = MemoryPressureState()
+
+    private let lock = NSLock()
+    private var warningCount = 0
+    private var lastWarningAt: Date?
+
+    private init() {}
+
+    public var recentWarningCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return warningCount
+    }
+
+    public func recordWarning() {
+        lock.lock()
+        if let lastWarningAt, Date().timeIntervalSince(lastWarningAt) > 120 {
+            warningCount = 0
+        }
+        warningCount += 1
+        lastWarningAt = Date()
+        lock.unlock()
+    }
+
+    public func reset() {
+        lock.lock()
+        warningCount = 0
+        lastWarningAt = nil
+        lock.unlock()
+    }
+}
+
 /// Observes system memory pressure and notifies the model runtime to release weights.
 public final class MemoryPressureMonitor: @unchecked Sendable {
     public static let shared = MemoryPressureMonitor()

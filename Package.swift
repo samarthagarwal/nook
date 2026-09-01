@@ -18,7 +18,8 @@ let package = Package(
         .package(url: "https://github.com/ml-explore/mlx-swift", from: "0.31.6"),
         .package(url: "https://github.com/ml-explore/mlx-swift-lm", from: "3.31.3"),
         .package(url: "https://github.com/huggingface/swift-huggingface", from: "0.9.0"),
-        .package(url: "https://github.com/huggingface/swift-transformers", from: "1.3.0")
+        .package(url: "https://github.com/huggingface/swift-transformers", from: "1.3.0"),
+        .package(url: "https://github.com/groue/GRDB.swift", from: "7.0.0")
     ],
     targets: [
         .target(
@@ -27,7 +28,10 @@ let package = Package(
         ),
         .target(
             name: "NookCore",
-            dependencies: ["NookDesign"]
+            dependencies: [
+                "NookDesign",
+                .product(name: "GRDB", package: "GRDB.swift")
+            ]
         ),
         .target(
             name: "NookRuntime",
@@ -35,6 +39,7 @@ let package = Package(
                 "NookCore",
                 .product(name: "MLX", package: "mlx-swift"),
                 .product(name: "MLXLLM", package: "mlx-swift-lm"),
+                .product(name: "MLXVLM", package: "mlx-swift-lm"),
                 .product(name: "MLXLMCommon", package: "mlx-swift-lm"),
                 .product(name: "MLXHuggingFace", package: "mlx-swift-lm"),
                 .product(name: "HuggingFace", package: "swift-huggingface"),

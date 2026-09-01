@@ -39,6 +39,11 @@ public enum ModelDownloadProgressMapper {
         switch (hub, disk) {
         case let (hub?, disk?):
             let total = max(hub.totalBytes, disk.totalBytes)
+            // Disk cache can include bytes from a prior attempt while hub/direct
+            // download restarted — trust the active transfer until it finishes.
+            if hub.fraction < 0.99 {
+                return DownloadTransferProgress(completedBytes: hub.completedBytes, totalBytes: total)
+            }
             let completed = max(hub.completedBytes, disk.completedBytes)
             return DownloadTransferProgress(completedBytes: completed, totalBytes: total)
         case let (hub?, nil):
@@ -65,7 +70,7 @@ public enum ModelDownloadProgressMapper {
         let total = AppStorageUsage.format(transfer.totalBytes)
 
         if transfer.fraction < 0.01 {
-            return "\(downloaded) of \(total) — downloading model.safetensors (~4.3 GB)"
+            return "\(downloaded) of \(total) — downloading model weights"
         }
         return "\(downloaded) of \(total)"
     }

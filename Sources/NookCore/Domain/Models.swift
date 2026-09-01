@@ -375,18 +375,18 @@ public struct ModelTier: Identifiable, Codable, Equatable, Sendable {
         ModelTier(
             id: "balanced",
             name: "Balanced",
-            size: "2.0 GB",
-            desc: "Stronger reasoning for everyday chat.",
-            longDesc: "Llama 3.2 3B (4-bit). A solid step up from Fast for longer answers and Skills.",
+            size: "750 MB",
+            desc: "Recommended. Stronger text, lighter download.",
+            longDesc: "Gemma 3 1B (QAT 4-bit). Better reasoning than Fast; efficient for everyday chat.",
             tags: ["text", "recommended"]
         ),
         ModelTier(
             id: "powerful",
             name: "Powerful",
-            size: "4.5 GB",
-            desc: "Slower, stronger on long documents.",
-            longDesc: "Qwen2.5 7B Instruct (4-bit). Best grounded reasoning over long documents; warmer battery draw.",
-            tags: ["text"]
+            size: "3.0 GB",
+            desc: "Reads screenshots and photos.",
+            longDesc: "Gemma 3 4B (QAT 4-bit). Vision model for screenshots, photos, and long documents.",
+            tags: ["text", "images"]
         )
     ]
 }

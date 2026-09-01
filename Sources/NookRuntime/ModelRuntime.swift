@@ -24,6 +24,11 @@ public protocol ModelRuntime: Sendable {
 
     func cancelGeneration()
     func releaseLoadedModel() async
+    func ensureModelReady() async throws
+}
+
+public extension ModelRuntime {
+    func ensureModelReady() async throws {}
 }
 
 public final class ScriptedModelRuntime: ModelRuntime, @unchecked Sendable {

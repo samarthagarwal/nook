@@ -1,4 +1,5 @@
 import Foundation
+import HuggingFace
 
 enum HubDownloadPrep {
     /// Removes partial blob files so the Hub client can start a clean resume.
@@ -23,6 +24,82 @@ enum HubDownloadPrep {
         if removed > 0 {
             print("[Download] \(repoId) — cleared \(removed) incomplete blob(s) before download")
         }
+    }
+
+    static func resolvedCommit(
+        cache: HubCache,
+        repoID: Repo.ID,
+        revision: String
+    ) -> String {
+        cache.resolveRevision(repo: repoID, kind: .model, ref: revision) ?? revision
+    }
+
+    /// Returns the snapshot directory when every required file is present for one commit.
+    static func snapshotDirectory(
+        cache: HubCache,
+        repoID: Repo.ID,
+        commitHash: String,
+        requiredFiles: [String]
+    ) -> URL? {
+        for file in requiredFiles {
+            guard cache.cachedFilePath(
+                repo: repoID,
+                kind: .model,
+                revision: commitHash,
+                filename: file
+            ) != nil else {
+                return nil
+            }
+        }
+        return try? cache.snapshotPath(repo: repoID, kind: .model, commitHash: commitHash)
+    }
+
+    static func missingCachedFiles(
+        cache: HubCache,
+        repoID: Repo.ID,
+        commitHash: String,
+        requiredFiles: [HubRepoFileEntry]
+    ) -> [HubRepoFileEntry] {
+        requiredFiles.filter { file in
+            cache.cachedFilePath(
+                repo: repoID,
+                kind: .model,
+                revision: commitHash,
+                filename: file.path
+            ) == nil
+        }
+    }
+
+    static func modelSnapshotDirectory(repoId: String) -> URL? {
+        guard let repoDirectory = repoCacheDirectory(repoId: repoId) else { return nil }
+        let snapshotsRoot = repoDirectory.appendingPathComponent("snapshots", isDirectory: true)
+        guard let snapshotURLs = try? FileManager.default.contentsOfDirectory(
+            at: snapshotsRoot,
+            includingPropertiesForKeys: [.contentModificationDateKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return nil
+        }
+
+        let sorted = snapshotURLs.sorted { lhs, rhs in
+            let lDate = (try? lhs.resourceValues(forKeys: [.contentModificationDateKey]))?
+                .contentModificationDate ?? .distantPast
+            let rDate = (try? rhs.resourceValues(forKeys: [.contentModificationDateKey]))?
+                .contentModificationDate ?? .distantPast
+            return lDate > rDate
+        }
+
+        for snapshot in sorted where isValidModelSnapshot(snapshot) {
+            return snapshot
+        }
+        return nil
+    }
+
+    private static func isValidModelSnapshot(_ url: URL) -> Bool {
+        let config = url.appendingPathComponent("config.json")
+        guard FileManager.default.fileExists(atPath: config.path) else { return false }
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: url.path)) ?? []
+        return names.contains { $0.hasSuffix(".safetensors") }
     }
 
     static func cachedBytes(repoId: String) -> Int64 {

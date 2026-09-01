@@ -99,7 +99,7 @@ enum NookDirectHubFileDownloader {
             revision: commitHash,
             filename: file.path,
             etag: responseEtag,
-            ref: revision != commitHash ? revision : nil
+            ref: nil
         )
 
         try? FileManager.default.removeItem(at: incompletePath)

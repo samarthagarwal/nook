@@ -42,8 +42,8 @@ public struct NookTabBar: View {
             }
         }
         .padding(.top, 8)
-        .padding(.bottom, 24)
-        .background(
+        .padding(.bottom, 8)
+        .background {
             Color(red: 247/255.0, green: 244/255.0, blue: 238/255.0, opacity: 0.94)
                 .background(.ultraThinMaterial)
                 .overlay(
@@ -52,6 +52,7 @@ public struct NookTabBar: View {
                         .foregroundColor(NookColors.hairline),
                     alignment: .top
                 )
-        )
+                .ignoresSafeArea(edges: .bottom)
+        }
     }
 }

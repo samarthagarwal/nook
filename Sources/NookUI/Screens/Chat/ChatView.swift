@@ -35,7 +35,6 @@ public struct ChatView: View {
             // Header
             chatHeaderView
             
-            // Transcript
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(spacing: 14) {
@@ -46,7 +45,7 @@ public struct ChatView: View {
                                 messageRow(message)
                                     .id(message.id)
                             }
-                            
+
                             if session.isThinking {
                                 HStack {
                                     ThinkingDotsView()
@@ -60,6 +59,7 @@ public struct ChatView: View {
                     .padding(.top, 16)
                     .padding(.bottom, 20)
                 }
+                .frame(maxHeight: .infinity)
                 .onChange(of: session.messages.count) { _, _ in
                     if let last = session.messages.last {
                         withAnimation {
@@ -71,111 +71,115 @@ public struct ChatView: View {
                     guard !isStreaming, let last = session.messages.last else { return }
                     proxy.scrollTo(last.id, anchor: .bottom)
                 }
+            }
 
-            }
-            
-            // Scope Line & Composer
-            VStack(spacing: 6) {
-                // Scope Line
-                HStack(spacing: 6) {
-                    PrivacyDot(accessibilityText: "Searching locally")
-                    Text("Searching \(session.conversation.activeKnowledgeScope.joined(separator: ", ")) · on device")
-                        .font(.system(size: 11, weight: .regular, design: .monospaced))
-                        .foregroundColor(NookColors.ink55)
-                    Spacer()
-                }
-                .padding(.horizontal, 20)
-                
-                // Attached Image Pill if active
-                if let img = attachedImage {
-                    HStack {
-                        ImagePlaceholderView(fileName: img)
-                            .frame(width: 44, height: 44)
-                        Text(img)
-                            .font(NookTypography.fileName)
-                            .foregroundColor(NookColors.ink70)
-                        Spacer()
-                        Button(action: {
-                            attachedImage = nil
-                        }) {
-                            Image(systemName: "xmark")
-                                .font(.system(size: 11, weight: .bold))
-                                .foregroundColor(NookColors.ink45)
-                        }
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-                    .background(NookColors.surface)
-                    .cornerRadius(NookRadius.chip)
-                    .padding(.horizontal, 18)
-                }
-                
-                // Composer Row
-                HStack(spacing: 8) {
-                    // Attach Button
-                    Button(action: {
-                        onOpenAttach()
-                    }) {
-                        Image(systemName: "plus")
-                            .font(.system(size: 15, weight: .medium))
-                            .foregroundColor(NookColors.ink)
-                            .frame(width: 38, height: 38)
-                            .background(Circle().fill(NookColors.fill))
-                    }
-                    .buttonStyle(.plain)
-                    
-                    // Input Text Field
-                    HStack {
-                        TextField("Ask anything", text: $inputText)
-                            .font(NookTypography.userBubble)
-                            .foregroundColor(NookColors.ink)
-                            .textFieldStyle(.plain)
-                    }
-                    .padding(.horizontal, 15)
-                    .frame(height: 38)
-                    .background(
-                        RoundedRectangle(cornerRadius: NookRadius.pill)
-                            .fill(NookColors.surface)
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: NookRadius.pill)
-                            .strokeBorder(NookColors.hairlineStrong, lineWidth: 1)
-                    )
-                    
-                    // Send / Stop
-                    Button(action: {
-                        if session.isStreaming || session.isThinking {
-                            session.cancelGeneration()
-                            runtimeStore.cancelGeneration()
-                        } else {
-                            sendCurrentMessage()
-                        }
-                    }) {
-                        Image(systemName: (session.isStreaming || session.isThinking) ? "stop.fill" : "arrow.up")
-                            .font(.system(size: 14, weight: .bold))
-                            .foregroundColor(NookColors.inkOnDark)
-                            .frame(width: 38, height: 38)
-                            .background(
-                                Circle()
-                                    .fill(
-                                        (session.isStreaming || session.isThinking)
-                                            ? NookColors.external
-                                            : (inputText.isEmpty ? NookColors.ink40 : NookColors.ink)
-                                    )
-                            )
-                    }
-                    .disabled(
-                        !(session.isStreaming || session.isThinking)
-                            && inputText.trimmingCharacters(in: .whitespaces).isEmpty
-                    )
-                    .buttonStyle(.plain)
-                }
-                .padding(.horizontal, 18)
-                .padding(.bottom, 12)
-            }
-            .background(NookColors.paper)
+            composerView
         }
         .background(NookColors.paper.ignoresSafeArea())
+    }
+    
+    private var composerView: some View {
+        VStack(spacing: 6) {
+            HStack(spacing: 6) {
+                PrivacyDot(accessibilityText: "Searching locally")
+                Text("Searching \(session.conversation.activeKnowledgeScope.joined(separator: ", ")) · on device")
+                    .font(.system(size: 11, weight: .regular, design: .monospaced))
+                    .foregroundColor(NookColors.ink55)
+                Spacer()
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 10)
+
+            if let img = attachedImage {
+                HStack {
+                    ImagePlaceholderView(fileName: img)
+                        .frame(width: 44, height: 44)
+                    Text(img)
+                        .font(NookTypography.fileName)
+                        .foregroundColor(NookColors.ink70)
+                    Spacer()
+                    Button(action: {
+                        attachedImage = nil
+                    }) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundColor(NookColors.ink45)
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(NookColors.surface)
+                .cornerRadius(NookRadius.chip)
+                .padding(.horizontal, 18)
+            }
+
+            HStack(spacing: 8) {
+                Button(action: {
+                    onOpenAttach()
+                }) {
+                    Image(systemName: "plus")
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundColor(NookColors.ink)
+                        .frame(width: 38, height: 38)
+                        .background(Circle().fill(NookColors.fill))
+                }
+                .buttonStyle(.plain)
+
+                HStack {
+                    TextField(
+                        "",
+                        text: $inputText,
+                        prompt: Text("Ask anything")
+                            .font(NookTypography.userBubble)
+                            .foregroundColor(NookColors.ink40)
+                    )
+                        .font(NookTypography.userBubble)
+                        .foregroundColor(NookColors.ink)
+                        .textFieldStyle(.plain)
+                }
+                .padding(.horizontal, 15)
+                .frame(height: 38)
+                .background(
+                    RoundedRectangle(cornerRadius: NookRadius.pill)
+                        .fill(NookColors.surface)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: NookRadius.pill)
+                        .strokeBorder(NookColors.hairlineStrong, lineWidth: 1)
+                )
+
+                Button(action: {
+                    if session.isStreaming || session.isThinking {
+                        session.cancelGeneration()
+                        runtimeStore.cancelGeneration()
+                    } else {
+                        sendCurrentMessage()
+                    }
+                }) {
+                    Image(systemName: (session.isStreaming || session.isThinking) ? "stop.fill" : "arrow.up")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundColor(NookColors.inkOnDark)
+                        .frame(width: 38, height: 38)
+                        .background(
+                            Circle()
+                                .fill(
+                                    (session.isStreaming || session.isThinking)
+                                        ? NookColors.external
+                                        : (inputText.isEmpty ? NookColors.ink40 : NookColors.ink)
+                                )
+                        )
+                }
+                .disabled(
+                    !(session.isStreaming || session.isThinking)
+                        && inputText.trimmingCharacters(in: .whitespaces).isEmpty
+                )
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 18)
+            .padding(.bottom, 14)
+        }
+        .padding(.bottom, 4)
+        .background(NookColors.paper)
     }
     
     // MARK: - Header
@@ -400,22 +404,35 @@ public struct ChatView: View {
     private func sendCurrentMessage() {
         let text = inputText.trimmingCharacters(in: .whitespaces)
         guard !text.isEmpty else { return }
+
+        if case .downloading = runtimeStore.downloadState {
+            runtimeStore.presentStatus(
+                "Still downloading \(runtimeStore.displayTierName). You can keep browsing — we'll let you know when it's ready."
+            )
+            return
+        }
+
         let img = attachedImage
         inputText = ""
         attachedImage = nil
-        
+
         Task {
-            await session.sendMessage(
-                text: text,
-                attachedImageName: img,
-                runtime: runtimeStore.runtime,
-                streamHandler: { promptContext, tokenCallback in
-                    try await runtimeStore.runtime.generateStreaming(
-                        promptContext: promptContext,
-                        onToken: tokenCallback
-                    )
-                }
-            )
+            do {
+                try await runtimeStore.prepareForGenerationIfNeeded()
+                await session.sendMessage(
+                    text: text,
+                    attachedImageName: img,
+                    runtime: runtimeStore.runtime,
+                    streamHandler: { promptContext, tokenCallback in
+                        try await runtimeStore.runtime.generateStreaming(
+                            promptContext: promptContext,
+                            onToken: tokenCallback
+                        )
+                    }
+                )
+            } catch {
+                runtimeStore.presentStatus(runtimeStore.userFacingErrorMessage(for: error))
+            }
         }
     }
 }

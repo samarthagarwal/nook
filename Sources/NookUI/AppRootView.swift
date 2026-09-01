@@ -89,7 +89,7 @@ public struct AppRootView: View {
             }
         }
         .onAppear {
-            setupInitialConversations()
+            loadConversations()
             print("[AppRootView] App launched. Runtime: \(type(of: runtimeStore.runtime)) (\(MLXPlatformSupport.runtimeLabel)). DownloadState: \(runtimeStore.downloadState)")
             if isOnboardingComplete {
                 Task {
@@ -104,10 +104,22 @@ public struct AppRootView: View {
                 : "This iPhone is warming up. Responses may be slower."
             showToast(message)
         }
+        .onReceive(NotificationCenter.default.publisher(for: .nookModelUnloadedDueToMemory)) { _ in
+            activeSession?.trimDisplayedMessages(keepingLast: 40)
+        }
     }
     
     private var mainContentView: some View {
         VStack(spacing: 0) {
+            if case .downloading(let progress, let transfer) = runtimeStore.downloadState {
+                DownloadBannerView(
+                    tierName: runtimeStore.displayTierName,
+                    progress: progress,
+                    transfer: transfer
+                )
+                .transition(.move(edge: .top).combined(with: .opacity))
+            }
+
             ZStack {
                 // Tab 1: Chat Root or Active Chat Detail
                 if selectedTab == .chat {
@@ -116,7 +128,12 @@ public struct AppRootView: View {
                             session: session,
                             runtimeStore: runtimeStore,
                             onBack: {
+                                self.activeSession?.persistConversationMetadata()
+                                self.activeSession?.trimDisplayedMessages()
                                 self.activeSession = nil
+                                self.runtimeStore.releaseModelWhenIdle()
+                                self.runtimeStore.resetMemoryPressureState()
+                                loadConversations()
                             },
                             onOpenScope: {
                                 self.isScopeSheetOpen = true
@@ -245,8 +262,9 @@ public struct AppRootView: View {
                     )
                 }
             }
-            
-            // Tab Bar: Hidden on Chat Detail view
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
             if activeSession == nil {
                 NookTabBar(selectedTab: $selectedTab)
             }
@@ -321,7 +339,10 @@ public struct AppRootView: View {
                 ScopeSheet(
                     activeScope: Binding(
                         get: { session.conversation.activeKnowledgeScope },
-                        set: { session.conversation.activeKnowledgeScope = $0 }
+                        set: { newScope in
+                            session.conversation.activeKnowledgeScope = newScope
+                            session.persistConversationMetadata()
+                        }
                     ),
                     onClose: {
                         self.isScopeSheetOpen = false
@@ -339,45 +360,28 @@ public struct AppRootView: View {
             }
             .presentationDetents([.fraction(0.65)])
         }
+        .onChange(of: runtimeStore.downloadState) { oldState, newState in
+            if case .downloading = oldState, case .ready = newState {
+                showToast("\(runtimeStore.activeTier.name) is ready.")
+            }
+        }
     }
     
-    private func setupInitialConversations() {
-        conversations = [
-            Conversation(
-                id: "c1",
-                title: "Project Alpha review",
-                whenString: "now",
-                snippet: "Three risks come up repeatedly across your project…",
-                tags: ["Project Alpha"],
-                activeKnowledgeScope: ["Project Alpha"]
-            ),
-            Conversation(
-                id: "c2",
-                title: "London trip debrief",
-                whenString: "25 Aug",
-                snippet: "Sarah recommended DuckDB for the local analytics layer.",
-                tags: []
-            ),
-            Conversation(
-                id: "c3",
-                title: "Dinner planning",
-                whenString: "24 Aug",
-                snippet: "The bánh mì place on Exmouth Market, apparently worth the queue.",
-                tags: []
-            ),
-            Conversation(
-                id: "c4",
-                title: "Receipts, July",
-                whenString: "12 Aug",
-                snippet: "Filed eleven receipts into Personal. Two need a category.",
-                tags: ["Personal"]
-            )
-        ]
+    private func loadConversations() {
+        conversations = (try? ChatStore.shared.fetchConversations()) ?? []
     }
     
     private func openConversation(_ convo: Conversation) {
+        let messages = (
+            try? ChatStore.shared.fetchRecentMessages(
+                conversationId: convo.id,
+                limit: AgentSession.maxMessagesInMemory
+            )
+        ) ?? []
+        runtimeStore.resetMemoryPressureState()
         let session = AgentSession(
             conversation: convo,
+            messages: messages,
             knowledgeEngine: knowledgeEngine,
             memoryEngine: memoryEngine,
             skillManager: skillManager,
@@ -395,6 +399,7 @@ public struct AppRootView: View {
             tags: scopedTo,
             activeKnowledgeScope: scopedTo
         )
+        try? ChatStore.shared.saveConversation(newConvo)
         conversations.insert(newConvo, at: 0)
         openConversation(newConvo)
     }

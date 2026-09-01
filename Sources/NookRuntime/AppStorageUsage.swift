@@ -1,4 +1,5 @@
 import Foundation
+import NookCore
 
 /// On-device storage used by Nook, measured from real directories.
 public struct StorageBreakdown: Sendable, Equatable {
@@ -27,7 +28,7 @@ public enum AppStorageUsage {
         return StorageBreakdown(
             modelsBytes: measureModelsBytes(),
             knowledgeBytes: measureDirectoryIfExists(knowledgeDirectory),
-            chatsBytes: measureDirectoryIfExists(chatsDirectory),
+            chatsBytes: NookDatabase.fileBytesOnDisk(),
             deviceFreeBytes: volumes.free,
             deviceTotalBytes: volumes.total
         )
@@ -76,21 +77,13 @@ public enum AppStorageUsage {
         return FileManager.default.fileExists(atPath: path.path) ? path : nil
     }
 
-    // MARK: - Placeholders until Knowledge / chat persistence ships
+    // MARK: - Placeholders until Knowledge persistence ships
 
     private static var knowledgeDirectory: URL? {
         guard let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
             return nil
         }
         let path = support.appendingPathComponent("Nook/Knowledge", isDirectory: true)
-        return FileManager.default.fileExists(atPath: path.path) ? path : nil
-    }
-
-    private static var chatsDirectory: URL? {
-        guard let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
-            return nil
-        }
-        let path = support.appendingPathComponent("Nook/Chats", isDirectory: true)
         return FileManager.default.fileExists(atPath: path.path) ? path : nil
     }
 

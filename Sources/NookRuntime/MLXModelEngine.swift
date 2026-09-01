@@ -4,16 +4,28 @@ import MLX
 import MLXHuggingFace
 import MLXLLM
 import MLXLMCommon
+import MLXVLM
 import NookCore
 import Tokenizers
 
 actor MLXModelEngine {
     private var container: ModelContainer?
     private var loadedModelKey: String?
+    private var loadedBackend: ModelCatalog.Backend?
     private var shouldCancelGeneration = false
+    private var inFlightLoad: Task<Void, Error>?
 
     init() {
-        MLX.Memory.cacheLimit = 512 * 1024 * 1024
+        MLX.Memory.cacheLimit = 128 * 1024 * 1024
+    }
+
+    func restoreDefaultCacheLimit() {
+        MLX.Memory.cacheLimit = 256 * 1024 * 1024
+    }
+
+    func reduceMemoryFootprint() {
+        MLX.Memory.cacheLimit = 128 * 1024 * 1024
+        MLX.Memory.clearCache()
     }
 
     var isModelLoaded: Bool {
@@ -22,32 +34,55 @@ actor MLXModelEngine {
 
     func load(
         source: ModelLoadSource,
+        backend: ModelCatalog.Backend,
         progressHandler: @escaping @Sendable (Double, DownloadTransferProgress?) -> Void
     ) async throws {
-        let modelKey: String
-        switch source {
-        case .bundled(let url):
-            modelKey = "bundled:\(url.path)"
-        case .remote(let repoId):
-            modelKey = "remote:\(repoId)"
-        }
+        let modelKey = Self.modelKey(for: source)
 
-        if loadedModelKey == modelKey, container != nil {
+        if loadedModelKey == modelKey, loadedBackend == backend, container != nil {
             reportProgress(1.0, transfer: nil, to: progressHandler)
             return
         }
 
+        if let inFlightLoad {
+            try await inFlightLoad.value
+            if loadedModelKey == modelKey, loadedBackend == backend, container != nil {
+                reportProgress(1.0, transfer: nil, to: progressHandler)
+                return
+            }
+        }
+
+        let task = Task<Void, Error> {
+            try await self.performLoad(
+                source: source,
+                backend: backend,
+                modelKey: modelKey,
+                progressHandler: progressHandler
+            )
+        }
+        inFlightLoad = task
+        defer { inFlightLoad = nil }
+        try await task.value
+    }
+
+    private func performLoad(
+        source: ModelLoadSource,
+        backend: ModelCatalog.Backend,
+        modelKey: String,
+        progressHandler: @escaping @Sendable (Double, DownloadTransferProgress?) -> Void
+    ) async throws {
         container = nil
         loadedModelKey = nil
+        loadedBackend = nil
 
         let modelContainer: ModelContainer
         switch source {
         case .bundled(let directory):
             reportProgress(0.1, transfer: nil, to: progressHandler)
-            print("[MLXModelEngine] Loading bundled model from \(directory.path)")
-            modelContainer = try await LLMModelFactory.shared.loadContainer(
-                from: directory,
-                using: #huggingFaceTokenizerLoader()
+            print("[MLXModelEngine] Loading bundled model from \(directory.path) (\(backend))")
+            modelContainer = try await loadContainer(
+                backend: backend,
+                from: directory
             )
             reportProgress(1.0, transfer: nil, to: progressHandler)
 
@@ -76,9 +111,9 @@ actor MLXModelEngine {
                 progressHandler(uiFraction, merged)
             }
 
-            modelContainer = try await LLMModelFactory.shared.loadContainer(
+            modelContainer = try await loadContainer(
+                backend: backend,
                 from: downloader,
-                using: #huggingFaceTokenizerLoader(),
                 configuration: configuration,
                 progressHandler: { progress in
                     let hubMapped = ModelDownloadProgressMapper.mapHubProgress(progress)
@@ -101,6 +136,59 @@ actor MLXModelEngine {
 
         container = modelContainer
         loadedModelKey = modelKey
+        loadedBackend = backend
+        restoreDefaultCacheLimit()
+    }
+
+    private func loadContainer(
+        backend: ModelCatalog.Backend,
+        from directory: URL
+    ) async throws -> ModelContainer {
+        switch backend {
+        case .llm:
+            return try await LLMModelFactory.shared.loadContainer(
+                from: directory,
+                using: #huggingFaceTokenizerLoader()
+            )
+        case .vlm:
+            return try await VLMModelFactory.shared.loadContainer(
+                from: directory,
+                using: #huggingFaceTokenizerLoader()
+            )
+        }
+    }
+
+    private func loadContainer(
+        backend: ModelCatalog.Backend,
+        from downloader: NookHubDownloader,
+        configuration: ModelConfiguration,
+        progressHandler: @escaping @Sendable (Progress) -> Void
+    ) async throws -> ModelContainer {
+        switch backend {
+        case .llm:
+            return try await LLMModelFactory.shared.loadContainer(
+                from: downloader,
+                using: #huggingFaceTokenizerLoader(),
+                configuration: configuration,
+                progressHandler: progressHandler
+            )
+        case .vlm:
+            return try await VLMModelFactory.shared.loadContainer(
+                from: downloader,
+                using: #huggingFaceTokenizerLoader(),
+                configuration: configuration,
+                progressHandler: progressHandler
+            )
+        }
+    }
+
+    private static func modelKey(for source: ModelLoadSource) -> String {
+        switch source {
+        case .bundled(let url):
+            return "bundled:\(url.path)"
+        case .remote(let repoId):
+            return "remote:\(repoId)"
+        }
     }
 
     private func reportProgress(
@@ -115,6 +203,10 @@ actor MLXModelEngine {
     func unload() {
         container = nil
         loadedModelKey = nil
+        loadedBackend = nil
+        inFlightLoad?.cancel()
+        inFlightLoad = nil
+        reduceMemoryFootprint()
     }
 
     func cancelGeneration() {
@@ -140,8 +232,9 @@ actor MLXModelEngine {
         resetCancellation()
 
         let messages = MLXPromptBuilder.chatMessages(from: promptContext)
+        let maxTokens = loadedBackend == .vlm ? 512 : 768
         let parameters = GenerateParameters(
-            maxTokens: 1024,
+            maxTokens: maxTokens,
             temperature: 0.3
         )
 

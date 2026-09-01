@@ -22,8 +22,8 @@ struct NookHubDownloader: Downloader {
             throw HuggingFaceDownloaderError.invalidRepositoryID(id)
         }
 
-        let resolvedRevision = revision ?? "main"
-        let files = try await HubRepoFileLister.listModelFiles(repoId: id, revision: resolvedRevision)
+        let branchRevision = revision ?? "main"
+        let files = try await HubRepoFileLister.listModelFiles(repoId: id, revision: branchRevision)
         let matched = HubRepoFileLister.filter(files, matching: patterns)
             .sorted { $0.size < $1.size }
 
@@ -31,7 +31,7 @@ struct NookHubDownloader: Downloader {
             print("[Download] \(id) — no matching files, falling back to snapshot download")
             return try await hub.downloadSnapshot(
                 of: repoID,
-                revision: resolvedRevision,
+                revision: branchRevision,
                 matching: patterns,
                 progressHandler: { @MainActor progress in
                     progressHandler(progress)
@@ -39,17 +39,107 @@ struct NookHubDownloader: Downloader {
             )
         }
 
+        guard let cache = hub.cache else {
+            return try await hub.downloadSnapshot(
+                of: repoID,
+                revision: branchRevision,
+                matching: patterns,
+                progressHandler: { @MainActor progress in
+                    progressHandler(progress)
+                }
+            )
+        }
+
+        let commitHash = HubDownloadPrep.resolvedCommit(
+            cache: cache,
+            repoID: repoID,
+            revision: branchRevision
+        )
+        let requiredPaths = matched.map(\.path)
         let totalBytes = matched.reduce(Int64(0)) { $0 + $1.size }
         let overall = Progress(totalUnitCount: max(totalBytes, 1))
-        var completedBytes: Int64 = 0
 
         print(
-            "[Download] \(id) — staged download of \(matched.count) file(s), \(AppStorageUsage.format(totalBytes)) total"
+            "[Download] \(id) — staged download of \(matched.count) file(s) @ \(commitHash.prefix(8))…, \(AppStorageUsage.format(totalBytes)) total"
         )
 
-        for (index, file) in matched.enumerated() {
+        try await downloadFiles(
+            matched,
+            repoID: repoID,
+            repoId: id,
+            commitHash: commitHash,
+            overall: overall,
+            progressHandler: progressHandler
+        )
+
+        if let snapshot = HubDownloadPrep.snapshotDirectory(
+            cache: cache,
+            repoID: repoID,
+            commitHash: commitHash,
+            requiredFiles: requiredPaths
+        ) {
+            overall.completedUnitCount = totalBytes
+            progressHandler(overall)
+            print("[Download] \(id) — staged download complete, snapshot ready at \(snapshot.path)")
+            return snapshot
+        }
+
+        let missing = HubDownloadPrep.missingCachedFiles(
+            cache: cache,
+            repoID: repoID,
+            commitHash: commitHash,
+            requiredFiles: matched
+        )
+        if !missing.isEmpty {
+            print(
+                "[Download] \(id) — fetching \(missing.count) missing file(s) into commit \(commitHash.prefix(8))…"
+            )
+            try await downloadFiles(
+                missing,
+                repoID: repoID,
+                repoId: id,
+                commitHash: commitHash,
+                overall: overall,
+                progressHandler: progressHandler
+            )
+        }
+
+        if let snapshot = HubDownloadPrep.snapshotDirectory(
+            cache: cache,
+            repoID: repoID,
+            commitHash: commitHash,
+            requiredFiles: requiredPaths
+        ) {
+            overall.completedUnitCount = totalBytes
+            progressHandler(overall)
+            print("[Download] \(id) — snapshot ready after topping up missing files")
+            return snapshot
+        }
+
+        print("[Download] \(id) — warning: falling back to full snapshot download")
+        return try await hub.downloadSnapshot(
+            of: repoID,
+            revision: commitHash,
+            matching: patterns,
+            progressHandler: { @MainActor progress in
+                progressHandler(progress)
+            }
+        )
+    }
+
+    private func downloadFiles(
+        _ files: [HubRepoFileEntry],
+        repoID: Repo.ID,
+        repoId: String,
+        commitHash: String,
+        overall: Progress,
+        progressHandler: @escaping @Sendable (Progress) -> Void
+    ) async throws {
+        var completedBytes = overall.completedUnitCount
+
+        for (index, file) in files.enumerated() {
             let label = AppStorageUsage.format(file.size)
-            print("[Download] \(id) — file \(index + 1)/\(matched.count): \(file.path) (\(label))")
+            print("[Download] \(repoId) — file \(index + 1)/\(files.count): \(file.path) (\(label))")
 
             let baseCompleted = completedBytes
 
@@ -57,8 +147,8 @@ struct NookHubDownloader: Downloader {
                 try await NookDirectHubFileDownloader.downloadIfNeeded(
                     hub: hub,
                     repoID: repoID,
-                    repoId: id,
-                    revision: resolvedRevision,
+                    repoId: repoId,
+                    revision: commitHash,
                     file: file
                 ) { fileCompleted, _ in
                     overall.completedUnitCount = baseCompleted + min(file.size, fileCompleted)
@@ -67,7 +157,7 @@ struct NookHubDownloader: Downloader {
             } else {
                 _ = try await hub.downloadSnapshot(
                     of: repoID,
-                    revision: resolvedRevision,
+                    revision: commitHash,
                     matching: [file.path],
                     maxConcurrentDownloads: 1,
                     progressHandler: { @MainActor fileProgress in
@@ -78,20 +168,11 @@ struct NookHubDownloader: Downloader {
                 )
             }
 
-            completedBytes += file.size
+            completedBytes = baseCompleted + file.size
             overall.completedUnitCount = completedBytes
             await MainActor.run {
                 progressHandler(overall)
             }
         }
-
-        return try await hub.downloadSnapshot(
-            of: repoID,
-            revision: resolvedRevision,
-            matching: patterns,
-            progressHandler: { @MainActor progress in
-                progressHandler(progress)
-            }
-        )
     }
 }

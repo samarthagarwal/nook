@@ -2,23 +2,26 @@ import Foundation
 import NookCore
 import MLX
 
+#if canImport(UIKit)
+import UIKit
+#endif
+
 /// Hardware-accelerated local model runtime powered by MLX Swift on Apple Silicon.
 public final class MLXModelRuntime: ModelRuntime, @unchecked Sendable {
     public private(set) var activeTier: ModelTier
     public private(set) var downloadState: ModelDownloadState = .notDownloaded
 
-    /// Map model tiers to curated Hugging Face MLX text-model repositories.
-    /// Vision tiers (Qwen3-VL, Gemma 3 4B multimodal) require VLMModelFactory — not wired yet.
-    public static let modelHubMap: [String: String] = [
-        "Fast": BundledModelCatalog.repoId,
-        "Balanced": "mlx-community/Llama-3.2-3B-Instruct-4bit",
-        "Powerful": "mlx-community/Qwen2.5-7B-Instruct-4bit"
-    ]
+    /// Map model tiers to curated Hugging Face MLX repositories.
+    public static let modelHubMap: [String: String] = ModelCatalog.hubMap
 
     private let engine = MLXModelEngine()
     private let stateLock = NSLock()
     private var downloadedRepos: Set<String> = []
     private var activeGenerationTask: Task<String, Error>?
+    private var activeDownloadTask: Task<Void, Error>?
+    private var isGenerating = false
+    private var pendingUnloadAfterGeneration = false
+    private var idleUnloadTask: Task<Void, Never>?
 
     public init(activeTier: ModelTier = ModelTier.standardTiers[0]) {
         self.activeTier = activeTier
@@ -40,12 +43,11 @@ public final class MLXModelRuntime: ModelRuntime, @unchecked Sendable {
 
         activeTier = tier
 
+        await engine.unload()
         if alreadyAvailable {
-            try await ensureModelLoaded()
             setDownloadState(.ready)
         } else {
             setDownloadState(.notDownloaded)
-            await engine.unload()
         }
     }
 
@@ -53,9 +55,29 @@ public final class MLXModelRuntime: ModelRuntime, @unchecked Sendable {
         tier: ModelTier,
         progressHandler: @escaping @Sendable (Double, DownloadTransferProgress?) -> Void
     ) async throws {
+        if let activeDownloadTask {
+            try await activeDownloadTask.value
+            if activeTier.id == tier.id, case .ready = downloadState {
+                progressHandler(1.0, nil)
+                return
+            }
+        }
+
+        let task = Task<Void, Error> {
+            try await self.performDownload(tier: tier, progressHandler: progressHandler)
+        }
+        setActiveDownloadTask(task)
+        defer { setActiveDownloadTask(nil) }
+        try await task.value
+    }
+
+    private func performDownload(
+        tier: ModelTier,
+        progressHandler: @escaping @Sendable (Double, DownloadTransferProgress?) -> Void
+    ) async throws {
+        let spec = ModelCatalog.spec(for: tier)
         let source = Self.loadSource(for: tier)
-        let repoId = Self.repoId(for: tier)
-        let logger = DownloadProgressLogger(label: "\(tier.name) (\(repoId))")
+        let logger = DownloadProgressLogger(label: "\(tier.name) (\(spec.repoId))")
         activeTier = tier
         setDownloadState(.downloading(progressPct: 0.01))
         logger.phase("download started")
@@ -66,19 +88,21 @@ public final class MLXModelRuntime: ModelRuntime, @unchecked Sendable {
         for attempt in 1...maxAttempts {
             if attempt > 1 {
                 logger.phase("retrying (attempt \(attempt)/\(maxAttempts))")
-                HubDownloadPrep.clearIncompleteBlobs(repoId: repoId)
+                HubDownloadPrep.clearIncompleteBlobs(repoId: spec.repoId)
             }
             do {
-                try await engine.load(source: source) { progress, transfer in
+                try await engine.load(source: source, backend: spec.backend) { progress, transfer in
                     progressHandler(progress, transfer)
                     self.setDownloadState(.downloading(progressPct: progress, transfer: transfer))
                 }
 
-                _ = withLock { downloadedRepos.insert(repoId) }
+                _ = withLock { downloadedRepos.insert(spec.repoId) }
                 AppPreferences.markTierDownloaded(tier.id)
                 setDownloadState(.ready)
                 progressHandler(1.0, nil)
                 logger.phase("marked ready")
+                await engine.unload()
+                MLX.Memory.clearCache()
                 return
             } catch {
                 lastError = error
@@ -129,14 +153,31 @@ public final class MLXModelRuntime: ModelRuntime, @unchecked Sendable {
             throw MLXModelRuntimeError.deviceTooHot
         }
 
+        guard case .ready = downloadState else {
+            throw MLXModelRuntimeError.modelNotReady(underlying: nil)
+        }
+
+        if !Self.isBundledTier(activeTier),
+           MemoryPressureState.shared.recentWarningCount > 0 {
+            throw MLXModelRuntimeError.memoryConstrained
+        }
+
+        idleUnloadTask?.cancel()
+        isGenerating = true
+        defer {
+            isGenerating = false
+            if pendingUnloadAfterGeneration {
+                pendingUnloadAfterGeneration = false
+                Task { await self.unloadModelWeights(reason: .memoryPressure) }
+            } else {
+                idleUnloadTask = Task { await self.scheduleIdleUnload() }
+            }
+        }
+
         do {
             try await ensureModelLoaded()
         } catch {
             throw MLXModelRuntimeError.modelNotReady(underlying: error)
-        }
-
-        guard case .ready = downloadState else {
-            throw MLXModelRuntimeError.modelNotReady(underlying: nil)
         }
 
         cancelGeneration()
@@ -180,12 +221,26 @@ public final class MLXModelRuntime: ModelRuntime, @unchecked Sendable {
         await engine.unload()
     }
 
+    public func ensureModelReady() async throws {
+        try await ensureModelLoaded()
+    }
+
     /// Loads weights into memory if they are not loaded yet.
     public func ensureModelLoaded() async throws {
+        if case .downloading = downloadState {
+            throw MLXModelRuntimeError.modelNotReady(underlying: nil)
+        }
+
+        if !Self.isBundledTier(activeTier),
+           MemoryPressureState.shared.recentWarningCount > 0 {
+            throw MLXModelRuntimeError.memoryConstrained
+        }
+
+        MLX.Memory.clearCache()
+        let spec = ModelCatalog.spec(for: activeTier)
         let source = Self.loadSource(for: activeTier)
-        let repoId = Self.repoId(for: activeTier)
-        try await engine.load(source: source) { _, _ in }
-        _ = withLock { downloadedRepos.insert(repoId) }
+        try await engine.load(source: source, backend: spec.backend) { _, _ in }
+        _ = withLock { downloadedRepos.insert(spec.repoId) }
         AppPreferences.markTierDownloaded(activeTier.id)
         setDownloadState(.ready)
     }
@@ -194,16 +249,64 @@ public final class MLXModelRuntime: ModelRuntime, @unchecked Sendable {
         MemoryPressureMonitor.shared.setHandler { [weak self] in
             guard let self else { return }
             Task {
-                await self.handleMemoryPressure()
+                await self.performMemoryUnload()
             }
         }
+
+        #if canImport(UIKit)
+        NotificationCenter.default.addObserver(
+            forName: UIApplication.didEnterBackgroundNotification,
+            object: nil,
+            queue: nil
+        ) { [weak self] _ in
+            guard let self else { return }
+            Task {
+                await self.unloadModelWeights(reason: .idle)
+            }
+        }
+        #endif
     }
 
-    private func handleMemoryPressure() async {
-        cancelGeneration()
+    private func performMemoryUnload() async {
+        MemoryPressureState.shared.recordWarning()
+        if withLock({ isGenerating }) {
+            pendingUnloadAfterGeneration = true
+            return
+        }
+        await unloadModelWeights(reason: .memoryPressure)
+    }
+
+    private func scheduleIdleUnload() async {
+        let delayNanoseconds: UInt64 = Self.isBundledTier(activeTier) ? 2_000_000_000 : 0
+        if delayNanoseconds > 0 {
+            try? await Task.sleep(nanoseconds: delayNanoseconds)
+        }
+        guard !Task.isCancelled else { return }
+        guard !withLock({ isGenerating }) else { return }
+        guard await engine.isModelLoaded else { return }
+        await unloadModelWeights(reason: .idle)
+    }
+
+    private func unloadModelWeights(reason: ModelUnloadReason) async {
+        idleUnloadTask?.cancel()
+        if withLock({ isGenerating }) {
+            if reason == .memoryPressure {
+                pendingUnloadAfterGeneration = true
+            }
+            return
+        }
+
+        if reason == .memoryPressure {
+            cancelGeneration()
+        }
+
         await engine.unload()
         MLX.Memory.clearCache()
-        NotificationCenter.default.post(name: .nookModelUnloadedDueToMemory, object: nil)
+        NotificationCenter.default.post(
+            name: .nookModelUnloadedDueToMemory,
+            object: nil,
+            userInfo: ["reason": reason.rawValue]
+        )
     }
 
     private static func restoredDownloadedRepos() -> Set<String> {
@@ -219,7 +322,7 @@ public final class MLXModelRuntime: ModelRuntime, @unchecked Sendable {
     }
 
     private static func repoId(for tier: ModelTier) -> String {
-        modelHubMap[tier.name] ?? modelHubMap["Balanced"]!
+        ModelCatalog.repoId(for: tier)
     }
 
     private static func loadSource(for tier: ModelTier) -> ModelLoadSource {
@@ -247,6 +350,12 @@ public final class MLXModelRuntime: ModelRuntime, @unchecked Sendable {
         return task
     }
 
+    private func setActiveDownloadTask(_ task: Task<Void, Error>?) {
+        stateLock.lock()
+        activeDownloadTask = task
+        stateLock.unlock()
+    }
+
     private func setDownloadState(_ state: ModelDownloadState) {
         stateLock.lock()
         downloadState = state
@@ -265,6 +374,7 @@ public enum MLXModelRuntimeError: LocalizedError, Sendable {
     case downloadFailed(underlying: Error)
     case generationFailed(underlying: Error)
     case deviceTooHot
+    case memoryConstrained
 
     public var errorDescription: String? {
         switch self {
@@ -282,6 +392,8 @@ public enum MLXModelRuntimeError: LocalizedError, Sendable {
             return "Something went wrong while generating on device. (\(underlying.localizedDescription))"
         case .deviceTooHot:
             return "This iPhone is running hot. Wait a moment, then try again."
+        case .memoryConstrained:
+            return "This model needs more memory than is available right now. Switch to the Fast tier in Settings → Models, or restart Nook."
         }
     }
 

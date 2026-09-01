@@ -2,6 +2,8 @@ import Foundation
 
 @MainActor
 public final class AgentSession: ObservableObject {
+    public static let maxMessagesInMemory = 80
+
     @Published public var conversation: Conversation
     @Published public var messages: [Message] = []
     @Published public var isStreaming: Bool = false
@@ -18,9 +20,12 @@ public final class AgentSession: ObservableObject {
     
     private var pendingStreamHandler: (@Sendable (AssembledPromptContext, @escaping @Sendable (String) -> Void) async throws -> String)? = nil
     private var activeGenerationTask: Task<Void, Never>?
+    private let chatStore: ChatStore
     
     public init(
         conversation: Conversation,
+        messages: [Message] = [],
+        chatStore: ChatStore = .shared,
         knowledgeEngine: KnowledgeEngine,
         memoryEngine: MemoryEngine,
         skillManager: SkillManager,
@@ -29,6 +34,8 @@ public final class AgentSession: ObservableObject {
         contextAssembler: ContextAssembler = ContextAssembler()
     ) {
         self.conversation = conversation
+        self.messages = messages
+        self.chatStore = chatStore
         self.knowledgeEngine = knowledgeEngine
         self.memoryEngine = memoryEngine
         self.skillManager = skillManager
@@ -37,6 +44,12 @@ public final class AgentSession: ObservableObject {
         self.contextAssembler = contextAssembler
     }
     
+    /// Drops older in-memory messages to reduce RAM use in long chats. History remains in SQLite.
+    public func trimDisplayedMessages(keepingLast count: Int = maxMessagesInMemory) {
+        guard messages.count > count else { return }
+        messages.removeFirst(messages.count - count)
+    }
+
     public func showToast(_ text: String) {
         self.toastMessage = text
         Task {
@@ -69,6 +82,8 @@ public final class AgentSession: ObservableObject {
             attachedImageName: attachedImageName
         )
         messages.append(userMsg)
+        trimDisplayedMessages()
+        persist(message: userMsg, userTextForMetadata: text)
         
         let lower = text.lowercased()
         
@@ -81,6 +96,7 @@ public final class AgentSession: ObservableObject {
                 localToolText: "documents.search · Project Alpha · 5 passages"
             )
             messages.append(localPill)
+            persist(message: localPill)
             
             let (chunks, citations) = await knowledgeEngine.search(
                 query: text,
@@ -104,6 +120,7 @@ public final class AgentSession: ObservableObject {
                 localToolText: "reading image · 1 page of alpha-spec-v4.pdf"
             )
             messages.append(localPill)
+            persist(message: localPill)
             
             await performAssistantStream(
                 evidenceChunks: [],
@@ -173,6 +190,7 @@ public final class AgentSession: ObservableObject {
             )
         )
         self.messages.append(toolMsg)
+        persist(message: toolMsg)
         
         await self.performAssistantStream(
             evidenceChunks: [],
@@ -231,12 +249,21 @@ public final class AgentSession: ObservableObject {
                 await MainActor.run {
                     if let index = self.messages.firstIndex(where: { $0.id == assistantMsgId }) {
                         self.messages[index].citations = citationsToAttachOnCompletion
+                        self.persist(message: self.messages[index])
                     }
+                    self.trimDisplayedMessages()
                     self.isStreaming = false
                     self.activeGenerationTask = nil
                 }
             } catch is CancellationError {
                 await MainActor.run {
+                    if let index = self.messages.firstIndex(where: { $0.id == assistantMsgId }),
+                       self.messages[index].content.isEmpty {
+                        self.showToast("Generation was interrupted. Try sending again.")
+                    }
+                    if let index = self.messages.firstIndex(where: { $0.id == assistantMsgId }) {
+                        self.persist(message: self.messages[index])
+                    }
                     self.isStreaming = false
                     self.activeGenerationTask = nil
                 }
@@ -245,6 +272,9 @@ public final class AgentSession: ObservableObject {
                     if let index = self.messages.firstIndex(where: { $0.id == assistantMsgId }),
                        self.messages[index].content.isEmpty {
                         self.messages[index].content = "An error occurred during local generation."
+                    }
+                    if let index = self.messages.firstIndex(where: { $0.id == assistantMsgId }) {
+                        self.persist(message: self.messages[index])
                     }
                     self.isStreaming = false
                     self.activeGenerationTask = nil
@@ -258,6 +288,48 @@ public final class AgentSession: ObservableObject {
 
         activeGenerationTask = task
         await task.value
+    }
+
+    public func persistConversationMetadata() {
+        conversation.updatedAt = Date()
+        conversation.whenString = ChatStore.formatWhenString(conversation.updatedAt)
+        do {
+            try chatStore.saveConversation(conversation)
+        } catch {
+            print("[AgentSession] Failed to save conversation: \(error)")
+        }
+    }
+
+    private func persist(message: Message, userTextForMetadata: String? = nil) {
+        do {
+            try chatStore.saveMessage(message)
+
+            if let userTextForMetadata {
+                let title = conversation.title == "New chat"
+                    ? ChatStore.snippet(from: userTextForMetadata, maxLength: 48)
+                    : conversation.title
+                let snippet = ChatStore.snippet(from: userTextForMetadata)
+                try chatStore.touchConversation(
+                    id: conversation.id,
+                    title: title,
+                    snippet: snippet,
+                    knowledgeScope: conversation.activeKnowledgeScope,
+                    tags: conversation.tags
+                )
+                conversation.title = title
+                conversation.snippet = snippet
+                conversation.updatedAt = Date()
+                conversation.whenString = ChatStore.formatWhenString(conversation.updatedAt)
+            } else if message.role == .assistant {
+                let snippet = ChatStore.snippet(from: message.content)
+                try chatStore.touchConversation(id: conversation.id, snippet: snippet)
+                conversation.snippet = snippet
+                conversation.updatedAt = Date()
+                conversation.whenString = ChatStore.formatWhenString(conversation.updatedAt)
+            }
+        } catch {
+            print("[AgentSession] Failed to persist message: \(error)")
+        }
     }
 }
 
