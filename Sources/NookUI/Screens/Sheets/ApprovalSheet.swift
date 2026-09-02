@@ -40,13 +40,17 @@ public struct ApprovalSheet: View {
                 Divider()
                     .background(NookColors.hairline)
                 
-                HStack(alignment: .top, spacing: 8) {
+                Divider()
+                    .background(NookColors.hairline)
+
+                VStack(alignment: .leading, spacing: 4) {
                     Text("not sent")
                         .font(NookTypography.code)
                         .foregroundColor(NookColors.external)
                     Text(payload.notSentDescription)
                         .font(NookTypography.code)
                         .foregroundColor(NookColors.ink55)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
             .padding(14)

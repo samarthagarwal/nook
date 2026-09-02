@@ -105,17 +105,23 @@ public struct ToolExecutionResult: Sendable {
     public let displayText: String
     public let citations: [Citation]
     public let chunks: [DocumentChunk]
+    public let isExternal: Bool
+    public let externalFooter: String?
 
     public init(
         textForModel: String,
         displayText: String,
         citations: [Citation] = [],
-        chunks: [DocumentChunk] = []
+        chunks: [DocumentChunk] = [],
+        isExternal: Bool = false,
+        externalFooter: String? = nil
     ) {
         self.textForModel = textForModel
         self.displayText = displayText
         self.citations = citations
         self.chunks = chunks
+        self.isExternal = isExternal
+        self.externalFooter = externalFooter
     }
 }
 
@@ -165,25 +171,32 @@ public struct AgentGenerationResult: Sendable {
     }
 }
 
-public struct OutgoingApprovalPayload: Equatable, Sendable {
+public struct OutgoingApprovalPayload: Equatable, Sendable, Identifiable {
+    public let id: String
     public let serverName: String
     public let serverUrl: String
     public let toolName: String
     public let formattedPayload: String
     public let notSentDescription: String
+    /// JSON object of tool arguments awaiting approval (empty object when none).
+    public let argumentsJSON: String
 
     public init(
+        id: String = UUID().uuidString,
         serverName: String,
         serverUrl: String,
         toolName: String,
         formattedPayload: String,
-        notSentDescription: String = "your documents, this\n          chat, your memory"
+        notSentDescription: String = "your documents, this chat, your memory",
+        argumentsJSON: String = "{}"
     ) {
+        self.id = id
         self.serverName = serverName
         self.serverUrl = serverUrl
         self.toolName = toolName
         self.formattedPayload = formattedPayload
         self.notSentDescription = notSentDescription
+        self.argumentsJSON = argumentsJSON
     }
 }
 
@@ -274,14 +287,37 @@ public actor ToolRegistry {
     }
 
     public func execute(toolName: String, arguments: ToolArguments) async throws -> ToolExecutionResult {
+        try await execute(toolName: toolName, arguments: arguments, bypassApproval: false)
+    }
+
+    /// Runs a tool after the user has already approved (or for local tools).
+    public func executeApproved(toolName: String, arguments: ToolArguments) async throws -> ToolExecutionResult {
+        try await execute(toolName: toolName, arguments: arguments, bypassApproval: true)
+    }
+
+    private func execute(
+        toolName: String,
+        arguments: ToolArguments,
+        bypassApproval: Bool
+    ) async throws -> ToolExecutionResult {
         guard let tool = registeredTools[toolName] else {
             throw ToolRegistryError.unknownTool(toolName)
         }
-        if requiresApproval(toolName: toolName) {
+        if !bypassApproval, requiresApproval(toolName: toolName) {
             throw ToolRegistryError.approvalRequired(toolName: toolName)
         }
-        // Copy before crossing into nonisolated tool code.
         let args = arguments
-        return try await tool.execute(arguments: args)
+        var result = try await tool.execute(arguments: args)
+        if result.isExternal != tool.isExternal {
+            result = ToolExecutionResult(
+                textForModel: result.textForModel,
+                displayText: result.displayText,
+                citations: result.citations,
+                chunks: result.chunks,
+                isExternal: tool.isExternal,
+                externalFooter: result.externalFooter
+            )
+        }
+        return result
     }
 }

@@ -60,6 +60,15 @@ public struct ChatView: View {
                     .padding(.bottom, 20)
                 }
                 .frame(maxHeight: .infinity)
+                .onAppear {
+                    scrollChatToBottom(proxy: proxy, animated: false)
+                }
+                .task(id: session.conversation.id) {
+                    // LazyVStack needs a layout pass before scroll targets exist.
+                    scrollChatToBottom(proxy: proxy, animated: false)
+                    try? await Task.sleep(nanoseconds: 50_000_000)
+                    scrollChatToBottom(proxy: proxy, animated: false)
+                }
                 .onChange(of: session.messages.count) { _, _ in
                     scrollChatToBottom(proxy: proxy)
                 }
@@ -87,19 +96,38 @@ public struct ChatView: View {
             composerView
         }
         .background(NookColors.paper.ignoresSafeArea())
+        .sheet(item: Binding(
+            get: { session.pendingApproval },
+            set: { newValue in
+                if newValue == nil, session.pendingApproval != nil {
+                    session.resolveApproval(action: .dont)
+                } else {
+                    session.pendingApproval = newValue
+                }
+            }
+        )) { payload in
+            ApprovalSheet(payload: payload) { action in
+                session.resolveApproval(action: action)
+            }
+            .presentationDetents([.fraction(0.65)])
+            .presentationDragIndicator(.visible)
+            .presentationBackground(NookColors.surface)
+            .interactiveDismissDisabled()
+        }
     }
 
-    private func scrollChatToBottom(proxy: ScrollViewProxy) {
-        if session.isThinking {
-            withAnimation {
+    private func scrollChatToBottom(proxy: ScrollViewProxy, animated: Bool = true) {
+        let scroll = {
+            if session.isThinking {
                 proxy.scrollTo("thinking-indicator", anchor: .bottom)
-            }
-            return
-        }
-        if let last = session.messages.last {
-            withAnimation {
+            } else if let last = session.messages.last {
                 proxy.scrollTo(last.id, anchor: .bottom)
             }
+        }
+        if animated {
+            withAnimation { scroll() }
+        } else {
+            scroll()
         }
     }
 
@@ -313,38 +341,7 @@ public struct ChatView: View {
             
         case .externalTool:
             if let ext = message.externalToolData {
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack(spacing: 6) {
-                        PrivacyRing(accessibilityText: "External MCP tool executed")
-                        Text(ext.toolName)
-                            .font(.system(size: 11, weight: .medium, design: .monospaced))
-                            .foregroundColor(NookColors.external)
-                    }
-                    
-                    VStack(alignment: .leading, spacing: 4) {
-                        ForEach(ext.lines, id: \.self) { line in
-                            Text(line)
-                                .font(.system(size: 12.5, weight: .regular))
-                                .foregroundColor(NookColors.ink70)
-                                .lineSpacing(4)
-                        }
-                    }
-                    
-                    Text(ext.footer)
-                        .font(.system(size: 10.5, weight: .regular, design: .monospaced))
-                        .foregroundColor(NookColors.external.opacity(0.75))
-                        .padding(.top, 2)
-                }
-                .padding(13)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(
-                    RoundedRectangle(cornerRadius: NookRadius.card)
-                        .fill(NookColors.externalSoft)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: NookRadius.card)
-                        .strokeBorder(NookColors.externalHairline, lineWidth: 1)
-                )
+                ExternalToolResultCard(execution: ext)
             }
             
         case .assistant:

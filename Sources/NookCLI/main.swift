@@ -66,41 +66,8 @@ struct NookCLIMain {
             }
         }
         
-        print("\n[Step 2] Asking: 'Check GitHub for open issues about these.'")
-        await session.sendMessage(
-            text: "Check GitHub for open issues about these.",
-            runtime: runtime,
-            streamHandler: { promptContext, request, toolExecutor, tokenCallback, toolEventCallback in
-                try await runtime.generateStreaming(
-                    promptContext: promptContext,
-                    request: request,
-                    toolExecutor: toolExecutor,
-                    onToken: tokenCallback,
-                    onToolEvent: toolEventCallback
-                )
-            }
-        )
-        
-        if let pending = session.pendingApproval {
-            print("  -> [Approval Boundary Triggered]:")
-            print("     Leaving Device To: \(pending.serverUrl)")
-            print("     Tool: \(pending.toolName)")
-            print("     Payload:\n\(pending.formattedPayload)")
-            print("  -> User selects: Always allow this tool")
-            session.resolveApproval(action: .alwaysAllow)
-            
-            // Wait for resolution
-            try? await Task.sleep(nanoseconds: 200_000_000)
-            
-            let msgs2 = session.messages
-            if let extMsg = msgs2.first(where: { $0.role == .externalTool }) {
-                print("  -> [External Tool Result Card]: \(extMsg.externalToolData?.toolName ?? "")")
-                for l in extMsg.externalToolData?.lines ?? [] {
-                    print("     \(l)")
-                }
-            }
-        }
-
+        print("\n[Step 2] MCP tools are model-driven via ToolRegistry (no keyword stub).")
+        print("  -> Connect tab: Add server → enable tools → ask in chat → approve when prompted.")
         
         print("\n[Step 3] Checking Memory Engine Recall:")
         let memories = await memoryEngine.searchMemories(query: "London")

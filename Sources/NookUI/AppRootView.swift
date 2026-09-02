@@ -43,6 +43,7 @@ public struct AppRootView: View {
     @State private var newCollectionDesc: String = ""
     @State private var collectionPendingDelete: KnowledgeCollection? = nil
     @State private var documentPendingDelete: KnowledgeDocument? = nil
+    @State private var isAddMCPServerOpen: Bool = false
     
     public init(
         knowledgeEngine: KnowledgeEngine = KnowledgeEngine(),
@@ -249,6 +250,16 @@ public struct AppRootView: View {
                             },
                             onSave: { updated in
                                 mcpState.updateServer(updated)
+                            },
+                            onReconnect: { server in
+                                let refreshed = try await mcpState.connect(serverId: server.id)
+                                selectedServer = refreshed
+                                return refreshed
+                            },
+                            onRemove: { server in
+                                await mcpState.removeServer(id: server.id)
+                                selectedServer = nil
+                                showToast("Removed \(server.name).")
                             }
                         )
                     } else {
@@ -258,7 +269,7 @@ public struct AppRootView: View {
                                 self.selectedServer = server
                             },
                             onAddServer: {
-                                showToast("Add MCP server configuration")
+                                isAddMCPServerOpen = true
                             }
                         )
                     }
@@ -323,6 +334,16 @@ public struct AppRootView: View {
                 }
             )
         }
+        .sheet(isPresented: $isAddMCPServerOpen) {
+            AddMCPServerSheet { name, url, auth in
+                try await mcpState.addAndConnect(
+                    name: name,
+                    url: url,
+                    authHeaderValue: auth
+                )
+                showToast("Connected. Enable tools you want Nook to use.")
+            }
+        }
         .sheet(isPresented: $isModelsOpen) {
             ModelsView(runtimeStore: runtimeStore) {
                 self.isModelsOpen = false
@@ -373,17 +394,6 @@ public struct AppRootView: View {
                 .presentationDragIndicator(.visible)
                 .presentationBackground(NookColors.surface)
             }
-        }
-        .sheet(item: Binding<OutgoingApprovalPayload?>(
-            get: { activeSession?.pendingApproval },
-            set: { activeSession?.pendingApproval = $0 }
-        )) { payload in
-            ApprovalSheet(payload: payload) { action in
-                activeSession?.resolveApproval(action: action)
-            }
-            .presentationDetents([.fraction(0.65)])
-            .presentationDragIndicator(.visible)
-            .presentationBackground(NookColors.surface)
         }
         .alert("New collection", isPresented: $isNewCollectionAlertPresented) {
             TextField("Name", text: $newCollectionName)
@@ -574,8 +584,4 @@ public struct AppRootView: View {
             }
         }
     }
-}
-
-extension OutgoingApprovalPayload: Identifiable {
-    public var id: String { toolName + serverUrl }
 }

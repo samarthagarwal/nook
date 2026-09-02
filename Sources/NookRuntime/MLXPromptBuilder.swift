@@ -30,13 +30,11 @@ enum MLXPromptBuilder {
             instructionParts.append("Tool results:\n\(tools)")
         }
 
-        var pendingToolNotes: [String] = []
         var turns: [Turn] = []
 
         for message in context.recentMessages {
             switch message.role {
             case .user:
-                flushPendingToolNotes(into: &pendingToolNotes, turns: &turns)
                 appendTurn(
                     role: .user,
                     content: message.content,
@@ -44,16 +42,13 @@ enum MLXPromptBuilder {
                     to: &turns
                 )
             case .assistant:
-                flushPendingToolNotes(into: &pendingToolNotes, turns: &turns)
                 guard !message.content.isEmpty else { continue }
                 appendTurn(role: .assistant, content: message.content, images: [], to: &turns)
             case .localTool, .externalTool:
-                if let note = toolNote(for: message) {
-                    pendingToolNotes.append(note)
-                }
+                // Prior-turn tool payloads stay in the UI only; see LiteRTPromptBuilder.
+                break
             }
         }
-        flushPendingToolNotes(into: &pendingToolNotes, turns: &turns)
 
         if turns.first?.role == .assistant {
             turns.insert(Turn(role: .user, content: "Continue from here.", images: []), at: 0)
@@ -110,28 +105,6 @@ enum MLXPromptBuilder {
         }
 
         turns.append(Turn(role: role, content: trimmed, images: images))
-    }
-
-    private static func flushPendingToolNotes(into pending: inout [String], turns: inout [Turn]) {
-        guard !pending.isEmpty else { return }
-        let noteBlock = pending.joined(separator: "\n")
-        pending.removeAll()
-        if turns.last?.role == .user {
-            turns[turns.count - 1].content += "\n\n" + noteBlock
-        } else {
-            appendTurn(role: .user, content: noteBlock, images: [], to: &turns)
-        }
-    }
-
-    private static func toolNote(for message: NookCore.Message) -> String? {
-        if let text = message.localToolText, !text.isEmpty {
-            return text
-        }
-        if let external = message.externalToolData {
-            let body = external.lines.joined(separator: "\n")
-            return "\(external.toolName)\n\(body)"
-        }
-        return nil
     }
 
     private static func imageInputs(for message: NookCore.Message) -> [UserInput.Image] {

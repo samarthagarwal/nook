@@ -67,10 +67,6 @@ public final class LiteRTModelRuntime: ModelRuntime, @unchecked Sendable {
         onToken: @escaping @Sendable (String) -> Void,
         onToolEvent: (@Sendable (AgentToolEvent) -> Void)?
     ) async throws -> AgentGenerationResult {
-        _ = toolExecutor
-        _ = onToolEvent
-        _ = request
-
         if ThermalStateMonitor.shared.currentAdvice == .throttled {
             throw LiteRTModelRuntimeError.deviceTooHot
         }
@@ -84,11 +80,13 @@ public final class LiteRTModelRuntime: ModelRuntime, @unchecked Sendable {
         try await ensureModelLoaded()
 
         let task = Task<AgentGenerationResult, Error> {
-            let text = try await self.engine.generateStreaming(
+            try await self.engine.generateStreaming(
                 promptContext: promptContext,
-                onToken: onToken
+                request: request,
+                toolExecutor: toolExecutor,
+                onToken: onToken,
+                onToolEvent: onToolEvent
             )
-            return AgentGenerationResult(text: text, citations: [])
         }
         setActiveGenerationTask(task)
         defer { setActiveGenerationTask(nil) }
@@ -164,6 +162,25 @@ public final class LiteRTModelRuntime: ModelRuntime, @unchecked Sendable {
         activeTier = tier
         setDownloadState(.downloading(progressPct: 0.01))
 
+        // Bundled LiteRT weights ship in the IPA — materialize locally, no network.
+        if tier.id == "bundled", LiteRTBundledCatalog.isAvailable {
+            do {
+                progressHandler(0.4, nil)
+                setDownloadState(.downloading(progressPct: 0.4))
+                _ = try LiteRTBundledCatalog.materializeIntoApplicationSupport()
+                progressHandler(0.85, nil)
+                setDownloadState(.downloading(progressPct: 0.85))
+                AppPreferences.markTierDownloaded(tier.id)
+                setDownloadState(.ready)
+                progressHandler(1.0, nil)
+                print("[LiteRT] Bundled tier ready from app resources")
+                return
+            } catch {
+                setDownloadState(.notDownloaded)
+                throw LiteRTModelRuntimeError.downloadFailed(underlying: error)
+            }
+        }
+
         do {
             let url = try await LiteRTModelDownloader.download(
                 repoId: spec.repoId,
@@ -192,7 +209,7 @@ public final class LiteRTModelRuntime: ModelRuntime, @unchecked Sendable {
 
     private func ensureModelLoaded() async throws {
         let spec = ModelCatalog.spec(for: activeTier)
-        guard let filename = spec.litertFilename else {
+        guard spec.litertFilename != nil else {
             throw LiteRTModelRuntimeError.unsupportedTier(activeTier.name)
         }
         guard isLocallyReady(tier: activeTier) else {
@@ -204,7 +221,12 @@ public final class LiteRTModelRuntime: ModelRuntime, @unchecked Sendable {
         ) {
             throw LiteRTModelRuntimeError.insufficientMemory(detail: block)
         }
-        let path = LiteRTModelPaths.localFileURL(repoId: spec.repoId, filename: filename).path
+        let path: String
+        do {
+            path = try LiteRTModelPaths.loadableFileURL(for: activeTier).path
+        } catch {
+            throw LiteRTModelRuntimeError.modelNotReady(underlying: error)
+        }
         if engine.isModelLoaded {
             return
         }
@@ -236,14 +258,12 @@ public final class LiteRTModelRuntime: ModelRuntime, @unchecked Sendable {
         }
     }
 
-    private func forceCPUPreferred(for tier: ModelTier) -> Bool {
-        tier.id == "balanced" && DeviceMemoryBudget.availableBytes < 2_000_000_000
+    private func isLocallyReady(tier: ModelTier) -> Bool {
+        LiteRTModelPaths.isReady(for: tier)
     }
 
-    private func isLocallyReady(tier: ModelTier) -> Bool {
-        let spec = ModelCatalog.spec(for: tier)
-        guard let filename = spec.litertFilename else { return false }
-        return LiteRTModelPaths.isDownloaded(repoId: spec.repoId, filename: filename)
+    private func forceCPUPreferred(for tier: ModelTier) -> Bool {
+        tier.id == "balanced" && DeviceMemoryBudget.availableBytes < 2_000_000_000
     }
 
     private func installBackgroundUnload() {

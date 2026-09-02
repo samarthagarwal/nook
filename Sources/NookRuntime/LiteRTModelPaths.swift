@@ -39,7 +39,26 @@ enum LiteRTModelPaths {
     static func isReady(for tier: ModelTier) -> Bool {
         let spec = ModelCatalog.spec(for: tier)
         guard spec.engine == .litert, let filename = spec.litertFilename else { return false }
+        if tier.id == "bundled", LiteRTBundledCatalog.isAvailable {
+            return true
+        }
         return isDownloaded(repoId: spec.repoId, filename: filename)
+    }
+
+    /// Resolves the on-disk path to load for a tier (bundled materialization or download).
+    static func loadableFileURL(for tier: ModelTier) throws -> URL {
+        let spec = ModelCatalog.spec(for: tier)
+        guard let filename = spec.litertFilename else {
+            throw LiteRTModelRuntimeError.unsupportedTier(tier.name)
+        }
+        if tier.id == "bundled", LiteRTBundledCatalog.isAvailable {
+            return try LiteRTBundledCatalog.materializeIntoApplicationSupport()
+        }
+        let url = localFileURL(repoId: spec.repoId, filename: filename)
+        guard isDownloaded(repoId: spec.repoId, filename: filename) else {
+            throw LiteRTModelRuntimeError.modelNotReady(underlying: nil)
+        }
+        return url
     }
 
     static var measuredBytes: Int64 {

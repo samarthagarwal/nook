@@ -24,10 +24,12 @@ public final class AgentSession: ObservableObject {
     public let skillManager: SkillManager
     public let toolRegistry: ToolRegistry
     public let mcpClient: MCPClient
+    public let mcpToolRegistrar: MCPToolRegistrar
     public let contextAssembler: ContextAssembler
 
-    private var pendingStreamHandler: AgentStreamHandler?
     private var activeGenerationTask: Task<Void, Never>?
+    private var approvalContinuation: CheckedContinuation<Bool, Never>?
+    private var approvalContinuationToolName: String?
     private let chatStore: ChatStore
 
     public init(
@@ -49,6 +51,7 @@ public final class AgentSession: ObservableObject {
         self.skillManager = skillManager
         self.toolRegistry = toolRegistry
         self.mcpClient = mcpClient
+        self.mcpToolRegistrar = MCPToolRegistrar(client: mcpClient, registry: toolRegistry)
         self.contextAssembler = contextAssembler
     }
 
@@ -71,6 +74,9 @@ public final class AgentSession: ObservableObject {
     public func cancelGeneration() {
         activeGenerationTask?.cancel()
         activeGenerationTask = nil
+        approvalContinuation?.resume(returning: false)
+        approvalContinuation = nil
+        pendingApproval = nil
         isThinking = false
         isStreaming = false
     }
@@ -93,42 +99,22 @@ public final class AgentSession: ObservableObject {
         trimDisplayedMessages()
         persist(message: userMsg, userTextForMetadata: text)
 
-        // Show thinking immediately — covers Knowledge search + model load before tokens.
         isThinking = true
         isStreaming = false
 
-        let lower = text.lowercased()
         let knowledgeScope = conversation.activeKnowledgeScope
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
 
         await toolRegistry.setDocumentsSearchScope(knowledgeScope)
+        await mcpToolRegistrar.sync()
 
-        // Temporary MCP path until external tools are registered in ToolRegistry.
-        if lower.contains("github") || lower.contains("issue") {
-            let isAlwaysAllowed = await toolRegistry.isAlwaysAllowed(toolName: "github.search_issues")
-
-            if !isAlwaysAllowed {
-                isThinking = false
-                let payload = await mcpClient.buildApprovalPayload(toolName: "github.search_issues", parameters: [:])
-                self.pendingApproval = payload
-                self.pendingStreamHandler = streamHandler
-                return
-            } else {
-                await executeApprovedMCP(streamHandler: streamHandler)
-                return
-            }
-        }
-
-        // Knowledge policy:
-        // - Scoped → app always runs documents_search (deterministic; not left to the model).
-        // - Unscoped → normal chat; prompt may ask user to scope or try Balanced.
         if knowledgeScope.isEmpty {
             #if DEBUG
             print("[AgentSession] No Knowledge scope — chat without documents_search")
             #endif
             await performAssistantStream(
-                request: .textOnly,
+                request: await externalToolsRequest(),
                 systemPrompt: NookSystemPrompt.standard,
                 streamHandler: streamHandler
             )
@@ -138,7 +124,7 @@ public final class AgentSession: ObservableObject {
         let registered = await toolRegistry.allToolNames()
         guard registered.contains(DocumentsSearchTool.toolName) else {
             await performAssistantStream(
-                request: .textOnly,
+                request: await externalToolsRequest(),
                 systemPrompt: NookSystemPrompt.standard,
                 streamHandler: streamHandler
             )
@@ -158,19 +144,6 @@ public final class AgentSession: ObservableObject {
             )
             messages.append(toolChip)
             persist(message: toolChip)
-            #if DEBUG
-            print("[AgentSession] Scoped search \(DocumentsSearchTool.toolName) · \(searchResult.displayText)")
-            if searchResult.chunks.isEmpty {
-                print("[AgentSession] No passages survived retrieval — model will see empty evidence")
-            } else {
-                for (index, chunk) in searchResult.chunks.enumerated() {
-                    print(
-                        "[AgentSession] evidence[\(index + 1)] \(chunk.documentId) · \(chunk.pageOrSection) " +
-                        "(\(chunk.text.count) chars)"
-                    )
-                }
-            }
-            #endif
 
             let evidenceNote: String
             if searchResult.chunks.isEmpty {
@@ -184,7 +157,7 @@ public final class AgentSession: ObservableObject {
             }
 
             await performAssistantStream(
-                request: .textOnly,
+                request: await externalToolsRequest(),
                 evidenceChunks: searchResult.chunks,
                 toolResults: [evidenceNote],
                 forcedCitations: searchResult.citations,
@@ -206,47 +179,72 @@ public final class AgentSession: ObservableObject {
     }
 
     public func resolveApproval(action: ApprovalAction) {
-        guard let payload = pendingApproval else { return }
-        self.pendingApproval = nil
-        guard let streamHandler = self.pendingStreamHandler else { return }
-        self.pendingStreamHandler = nil
+        guard pendingApproval != nil else { return }
+        pendingApproval = nil
+        let toolName = approvalContinuationToolName
+        approvalContinuationToolName = nil
 
-        Task { @MainActor in
-            switch action {
-            case .sendOnce:
-                await self.executeApprovedMCP(streamHandler: streamHandler)
-            case .alwaysAllow:
-                await self.toolRegistry.setAlwaysAllow(toolName: payload.toolName, allowed: true)
-                self.showToast("\(payload.toolName) is now always allowed.")
-                await self.executeApprovedMCP(streamHandler: streamHandler)
-            case .dont:
-                break
+        let allowed: Bool
+        switch action {
+        case .sendOnce:
+            allowed = true
+        case .alwaysAllow:
+            if let toolName {
+                Task { await toolRegistry.setAlwaysAllow(toolName: toolName, allowed: true) }
+                showToast("\(toolName) is now always allowed.")
             }
+            allowed = true
+        case .dont:
+            allowed = false
+        }
+
+        approvalContinuation?.resume(returning: allowed)
+        approvalContinuation = nil
+        if allowed {
+            isThinking = true
         }
     }
 
-    private func executeApprovedMCP(streamHandler: @escaping AgentStreamHandler) async {
-        let toolMsg = Message(
-            conversationId: self.conversation.id,
-            role: .externalTool,
-            content: "",
-            externalToolData: ExternalToolExecution(
-                toolName: "github.search_issues",
-                lines: [
-                    "#418 Identity provider fallback — open, unassigned",
-                    "#402 Analytics scope — open, needs-estimate",
-                ],
-                footer: "mcp.github-bridge.dev · 0.9s"
-            )
-        )
-        self.messages.append(toolMsg)
-        persist(message: toolMsg)
+    private func externalToolsRequest() async -> AgentGenerationRequest {
+        let names = await toolRegistry.allToolNames()
+        var allowed = Set<String>()
+        for name in names {
+            guard let tool = await toolRegistry.getTool(named: name), tool.isExternal else { continue }
+            allowed.insert(name)
+        }
+        guard !allowed.isEmpty else { return .textOnly }
+        let schemas = await toolRegistry.schemas(forAllowedNames: allowed)
+        return AgentGenerationRequest(toolSchemas: schemas, maxToolRounds: 2)
+    }
 
-        await self.performAssistantStream(
-            request: AgentGenerationRequest.textOnly,
-            toolResults: ["github.search_issues returned #418 (Identity provider fallback) and #402 (Analytics scope)"],
-            streamHandler: streamHandler
-        )
+    private func requestExternalToolApproval(toolName: String, arguments: ToolArguments) async -> Bool {
+        let bindings = await mcpClient.enabledToolBindings()
+        let serverId = bindings.first { $0.tool.name == toolName }?.server.id
+        let payload: OutgoingApprovalPayload
+        if let serverId {
+            payload = await mcpClient.buildApprovalPayload(
+                serverId: serverId,
+                toolName: toolName,
+                arguments: arguments
+            )
+        } else {
+            payload = OutgoingApprovalPayload(
+                serverName: "External",
+                serverUrl: "local",
+                toolName: toolName,
+                formattedPayload: "tool  \(toolName)\n\(MCPClient.encodeArgumentsJSON(arguments))",
+                argumentsJSON: MCPClient.encodeArgumentsJSON(arguments)
+            )
+        }
+
+        return await withCheckedContinuation { continuation in
+            self.approvalContinuation?.resume(returning: false)
+            self.approvalContinuation = continuation
+            self.approvalContinuationToolName = toolName
+            self.pendingApproval = payload
+            self.isThinking = false
+            self.isStreaming = false
+        }
     }
 
     private func performAssistantStream(
@@ -257,8 +255,6 @@ public final class AgentSession: ObservableObject {
         systemPrompt: String = NookSystemPrompt.standard,
         streamHandler: @escaping AgentStreamHandler
     ) async {
-        // Keep thinking until the first token arrives. Do not attach citations yet —
-        // an empty assistant bubble with pills looks like a premature answer.
         isThinking = true
 
         let assistantMsg = Message(
@@ -282,7 +278,18 @@ public final class AgentSession: ObservableObject {
 
         let registry = toolRegistry
         let toolExecutor: @Sendable (String, ToolArguments) async throws -> ToolExecutionResult = { name, arguments in
-            try await registry.execute(toolName: name, arguments: arguments)
+            print("[AgentSession] Tool requested: \(name)")
+            if await registry.requiresApproval(toolName: name) {
+                print("[AgentSession] Waiting for approval: \(name)")
+                let allowed = await self.requestExternalToolApproval(toolName: name, arguments: arguments)
+                guard allowed else {
+                    print("[AgentSession] Tool denied: \(name)")
+                    throw CancellationError()
+                }
+                print("[AgentSession] Tool approved: \(name)")
+                return try await registry.executeApproved(toolName: name, arguments: arguments)
+            }
+            return try await registry.execute(toolName: name, arguments: arguments)
         }
 
         let task = Task {
@@ -316,13 +323,16 @@ public final class AgentSession: ObservableObject {
                 await MainActor.run {
                     if let index = self.messages.firstIndex(where: { $0.id == assistantMsgId }) {
                         var updated = self.messages[index]
-                        if !result.text.isEmpty, updated.content != result.text {
-                            updated.content = result.text
+                        let merged = result.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                            ? updated.content
+                            : result.text
+                        let trimmed = merged.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if trimmed.isEmpty {
+                            updated.content = "I couldn't generate a reply. Please try again."
+                        } else if updated.content != merged {
+                            updated.content = merged
                         }
                         let citations = result.citations.isEmpty ? forcedCitations : result.citations
-                        // Only show citation pills when the reply has substance and we actually
-                        // retrieved passages intended as sources (forcedCitations empty when search
-                        // found nothing relevant).
                         if !updated.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                             updated.citations = citations
                         }
@@ -337,10 +347,11 @@ public final class AgentSession: ObservableObject {
             } catch is CancellationError {
                 await MainActor.run {
                     if let index = self.messages.firstIndex(where: { $0.id == assistantMsgId }),
-                       self.messages[index].content.isEmpty {
-                        self.showToast("Generation was interrupted. Try sending again.")
-                    }
-                    if let index = self.messages.firstIndex(where: { $0.id == assistantMsgId }) {
+                       self.messages[index].content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        self.messages[index].content = "Cancelled — nothing was sent."
+                        self.persist(message: self.messages[index])
+                        self.showToast("Cancelled.")
+                    } else if let index = self.messages.firstIndex(where: { $0.id == assistantMsgId }) {
                         self.persist(message: self.messages[index])
                     }
                     self.isThinking = false
@@ -352,7 +363,7 @@ public final class AgentSession: ObservableObject {
                     let message = (error as? LocalizedError)?.errorDescription
                         ?? "Something went wrong while generating on device."
                     if let index = self.messages.firstIndex(where: { $0.id == assistantMsgId }),
-                       self.messages[index].content.isEmpty {
+                       self.messages[index].content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         self.messages[index].content = message
                     }
                     if let index = self.messages.firstIndex(where: { $0.id == assistantMsgId }) {
@@ -382,7 +393,7 @@ public final class AgentSession: ObservableObject {
                 externalToolData: ExternalToolExecution(
                     toolName: event.toolName,
                     lines: event.displayText.components(separatedBy: "\n"),
-                    footer: "on device"
+                    footer: "external"
                 )
             )
             messages.insert(toolMsg, at: insertIndex)

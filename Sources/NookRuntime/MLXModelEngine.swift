@@ -353,7 +353,7 @@ actor MLXModelEngine {
                         displayText: result.displayText,
                         citations: result.citations,
                         chunks: result.chunks,
-                        isExternal: false
+                        isExternal: result.isExternal
                     )
                 )
                 resultBlocks.append("\(call.function.name):\n\(result.textForModel)")

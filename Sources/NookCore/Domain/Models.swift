@@ -277,6 +277,8 @@ public struct MCPServer: Identifiable, Codable, Equatable, Sendable {
     public let id: String
     public var name: String
     public var url: String
+    /// Optional auth header value (e.g. Bearer token). Stored locally.
+    public var authHeaderValue: String
     public var isConnected: Bool
     public var toolsCountDescription: String
     public var approvalPolicy: MCPApprovalPolicy
@@ -286,6 +288,7 @@ public struct MCPServer: Identifiable, Codable, Equatable, Sendable {
         id: String = UUID().uuidString,
         name: String,
         url: String,
+        authHeaderValue: String = "",
         isConnected: Bool,
         toolsCountDescription: String = "",
         approvalPolicy: MCPApprovalPolicy = .consequential,
@@ -294,6 +297,7 @@ public struct MCPServer: Identifiable, Codable, Equatable, Sendable {
         self.id = id
         self.name = name
         self.url = url
+        self.authHeaderValue = authHeaderValue
         self.isConnected = isConnected
         self.toolsCountDescription = toolsCountDescription
         self.approvalPolicy = approvalPolicy
@@ -358,9 +362,9 @@ public struct ModelTier: Identifiable, Codable, Equatable, Sendable {
     }
 
     /// True when model weights ship inside the app bundle (no network download).
-    /// LiteRT "Bundled" is a light downloadable tier (Qwen3 0.6B), not an IPA resource.
     public var shipsBundled: Bool {
-        id == "bundled" && NookInferenceConfig.usesMLX
+        // Only LiteRT Bundled ships weights in the IPA; MLX always downloads.
+        id == "bundled" && NookInferenceConfig.usesLiteRT
     }
     
     /// Tier recommended for first-time download (chat + vision).
@@ -372,9 +376,9 @@ public struct ModelTier: Identifiable, Codable, Equatable, Sendable {
         ModelTier(
             id: "bundled",
             name: "Bundled",
-            size: "330 MB",
-            desc: "Lightest chat. Fast to download, always handy.",
-            longDesc: "Qwen3 0.6B (INT4, LiteRT-LM). Compact on-device chat.",
+            size: "331 MB",
+            desc: "Ships with the app. Lightest chat, no download.",
+            longDesc: "Qwen3 0.6B (INT4, LiteRT-LM) included in the app package.",
             tags: ["text", "bundled"],
             isDefault: true
         ),

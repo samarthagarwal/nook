@@ -85,6 +85,7 @@ enum ModelCatalog {
     private static func mlxSpec(for tier: ModelTier) -> TierSpec {
         switch tier.id {
         case "bundled":
+            // Not packaged in the IPA; downloads from Hugging Face when MLX backend is selected.
             return TierSpec(
                 engine: .mlx,
                 repoId: BundledModelCatalog.repoId,

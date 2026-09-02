@@ -1,11 +1,14 @@
 import Foundation
 
-/// Smallest curated MLX instruct model that produces coherent chat, shipped for the Bundled tier.
+/// Optional on-disk MLX weights for the Bundled tier (download / local discovery only).
+/// MLX no longer ships inside the IPA — LiteRT Bundled uses `LiteRTBundledCatalog` instead.
 enum BundledModelCatalog {
     static let tierName = "Bundled"
     static let repoId = "mlx-community/Qwen2.5-0.5B-Instruct-4bit"
     static let resourceDirectoryName = "Qwen2.5-0.5B-Instruct-4bit"
 
+    /// Always `nil` in current packaging; kept so MLX load paths can still resolve a
+    /// developer-dropped folder under `Resources/BundledModels/` if present.
     static var bundledDirectoryURL: URL? {
         guard let url = Bundle.module.url(
             forResource: resourceDirectoryName,

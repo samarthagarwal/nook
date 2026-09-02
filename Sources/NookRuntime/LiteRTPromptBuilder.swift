@@ -10,7 +10,10 @@ enum LiteRTPromptBuilder {
         let latestUser: LiteRTLM.Message
     }
 
-    static func build(from context: AssembledPromptContext) -> BuiltPrompt {
+    static func build(
+        from context: AssembledPromptContext,
+        toolSchemas: [AgentToolSpec] = []
+    ) -> BuiltPrompt {
         var instructionParts: [String] = [context.systemPrompt]
         if let skill = context.activeSkillInstructions, !skill.isEmpty {
             instructionParts.append("Active skill instructions:\n\(skill)")
@@ -29,22 +32,22 @@ enum LiteRTPromptBuilder {
             let tools = context.toolResultSummaries.joined(separator: "\n")
             instructionParts.append("Tool results:\n\(tools)")
         }
+        if let toolsBlock = toolsInstruction(from: toolSchemas) {
+            instructionParts.append(toolsBlock)
+        }
 
         var history: [LiteRTLM.Message] = []
         var latestUser: LiteRTLM.Message?
-        var pendingToolNotes: [String] = []
 
         for message in context.recentMessages {
             switch message.role {
             case .user:
-                flushToolNotes(&pendingToolNotes, into: &history)
                 let litert = makeUserMessage(from: message)
                 if let previous = latestUser {
                     history.append(previous)
                 }
                 latestUser = litert
             case .assistant:
-                flushToolNotes(&pendingToolNotes, into: &history)
                 guard !message.content.isEmpty else { continue }
                 if let previous = latestUser {
                     history.append(previous)
@@ -52,12 +55,13 @@ enum LiteRTPromptBuilder {
                 }
                 history.append(LiteRTLM.Message(message.content, role: .model))
             case .localTool, .externalTool:
-                if let note = toolNote(for: message) {
-                    pendingToolNotes.append(note)
-                }
+                // Prior-turn tool payloads are shown in the UI but omitted from model
+                // context — they blow the on-device window, and the assistant reply
+                // already summarized what mattered. Current-turn results still arrive
+                // via `toolResultSummaries`.
+                break
             }
         }
-        flushToolNotes(&pendingToolNotes, into: &history)
 
         let userMessage = latestUser ?? LiteRTLM.Message("Hello")
         return BuiltPrompt(
@@ -65,6 +69,61 @@ enum LiteRTPromptBuilder {
             history: history,
             latestUser: userMessage
         )
+    }
+
+    private static func toolsInstruction(from schemas: [AgentToolSpec]) -> String? {
+        guard !schemas.isEmpty else { return nil }
+        var lines: [String] = []
+        for schema in schemas {
+            guard let summary = compactToolSummary(schema) else { continue }
+            lines.append("- \(summary)")
+        }
+        guard !lines.isEmpty else { return nil }
+        let exampleName = compactToolSummary(schemas[0])?.split(separator: ":").first.map(String.init)
+            ?? "TOOL_NAME"
+        return """
+        You can call tools when needed. Available tools:
+        \(lines.joined(separator: "\n"))
+
+        To call a tool, reply with ONLY a tool call (no markdown, no prose). Prefer Gemma format:
+        <|tool_call>call:\(exampleName){query:"..."}<tool_call|>
+
+        JSON is also accepted:
+        {"name":"\(exampleName)","arguments":{"query":"..."}}
+
+        Use the exact tool name from the list. Keep arguments minimal. After tool results are provided, answer normally.
+        """
+    }
+
+    /// Short, model-friendly tool line: `name: description. Params: a, b`
+    private static func compactToolSummary(_ schema: AgentToolSpec) -> String? {
+        let function = schema["function"] as? [String: any Sendable]
+        let name = (function?["name"] as? String) ?? (schema["name"] as? String)
+        guard let name, !name.isEmpty else { return nil }
+
+        let description = ((function?["description"] as? String) ?? (schema["description"] as? String) ?? "")
+            .replacingOccurrences(of: "\n", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let shortDescription: String
+        if description.count > 140 {
+            shortDescription = String(description.prefix(137)) + "..."
+        } else {
+            shortDescription = description
+        }
+
+        var paramNames: [String] = []
+        if let parameters = function?["parameters"] as? [String: any Sendable],
+           let properties = parameters["properties"] as? [String: any Sendable] {
+            paramNames = properties.keys.sorted()
+        }
+        var line = name
+        if !shortDescription.isEmpty {
+            line += ": \(shortDescription)"
+        }
+        if !paramNames.isEmpty {
+            line += " Params: \(paramNames.joined(separator: ", "))"
+        }
+        return line
     }
 
     private static func makeUserMessage(from message: NookCore.Message) -> LiteRTLM.Message {
@@ -91,26 +150,5 @@ enum LiteRTPromptBuilder {
             .appendingPathComponent("Nook", isDirectory: true)
             .appendingPathComponent("ChatImages", isDirectory: true)
             .appendingPathComponent(name)
-    }
-
-    private static func toolNote(for message: NookCore.Message) -> String? {
-        if let local = message.localToolText, !local.isEmpty {
-            return local
-        }
-        if let external = message.externalToolData {
-            let body = external.lines.joined(separator: "\n")
-            return "\(external.toolName):\n\(body)\n\(external.footer)"
-        }
-        return message.content.isEmpty ? nil : message.content
-    }
-
-    private static func flushToolNotes(
-        _ notes: inout [String],
-        into history: inout [LiteRTLM.Message]
-    ) {
-        guard !notes.isEmpty else { return }
-        let text = "Tool results:\n" + notes.joined(separator: "\n\n")
-        history.append(LiteRTLM.Message(text, role: .user))
-        notes.removeAll()
     }
 }

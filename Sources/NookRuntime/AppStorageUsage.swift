@@ -64,10 +64,15 @@ public enum AppStorageUsage {
         var total: Int64 = 0
         total += measureDirectoryIfExists(huggingFaceHubCacheDirectory)
         total += LiteRTModelPaths.measuredBytes
-        if let bundled = BundledModelCatalog.bundledDirectoryURL {
-            total += measureDirectoryIfExists(bundled)
+        // IPA ships LiteRT Bundled only (not MLX).
+        if let litertBundled = LiteRTBundledCatalog.bundledFileURL {
+            total += measureFileIfExists(litertBundled)
         }
         return total
+    }
+
+    private static func measureFileIfExists(_ url: URL) -> Int64 {
+        (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int64) ?? 0
     }
 
     private static var huggingFaceHubCacheDirectory: URL? {
