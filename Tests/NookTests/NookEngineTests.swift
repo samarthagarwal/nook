@@ -112,15 +112,54 @@ final class NookEngineTests: XCTestCase {
         }
     }
     
+    func testDocumentsSearchToolIsRegistered() async throws {
+        let store = try KnowledgeStore.makeForTests()
+        let engine = KnowledgeEngine(store: store)
+        let registry = ToolRegistry(knowledgeEngine: engine)
+
+        let names = await registry.allToolNames()
+        XCTAssertTrue(names.contains(DocumentsSearchTool.toolName))
+
+        let result = await registry.documentsSearch(
+            query: "vendor delay schedule risk",
+            scopedToCollections: ["Project Alpha"]
+        )
+        XCTAssertNotNil(result)
+        XCTAssertFalse(result?.chunks.isEmpty ?? true)
+    }
+
+    func testDocumentsSearchToolSchemaAndExecute() async throws {
+        let store = try KnowledgeStore.makeForTests()
+        let engine = KnowledgeEngine(store: store)
+        let registry = ToolRegistry(knowledgeEngine: engine)
+        await registry.setDocumentsSearchScope(["Project Alpha"])
+
+        let schemas = await registry.schemas(forAllowedNames: [DocumentsSearchTool.toolName])
+        XCTAssertEqual(schemas.count, 1)
+        let function = schemas[0]["function"] as? [String: any Sendable]
+        XCTAssertEqual(function?["name"] as? String, DocumentsSearchTool.toolName)
+
+        let result = try await registry.execute(
+            toolName: DocumentsSearchTool.toolName,
+            arguments: ["query": .string("vendor delay schedule risk")]
+        )
+        XCTAssertFalse(result.chunks.isEmpty)
+        XCTAssertTrue(result.displayText.contains(DocumentsSearchTool.toolName))
+        XCTAssertTrue(result.textForModel.contains("passage"))
+    }
+
     func testToolRegistryPrivacyBoundary() async {
-        let registry = ToolRegistry()
+        let registry = ToolRegistry(knowledgeEngine: KnowledgeEngine())
         
         struct DummyLocalTool: AgentTool {
             let name = "calendar.search"
             let description = "Search calendar"
             let isExternal = false
             let requiresApprovalByDefault = false
-            func execute(arguments: [String : Any]) async throws -> String { "[]" }
+            let parameters: [AgentToolParameterSchema] = []
+            func execute(arguments: ToolArguments) async throws -> ToolExecutionResult {
+                ToolExecutionResult(textForModel: "[]", displayText: name)
+            }
         }
         
         struct DummyExternalTool: AgentTool {
@@ -128,7 +167,10 @@ final class NookEngineTests: XCTestCase {
             let description = "Search github"
             let isExternal = true
             let requiresApprovalByDefault = true
-            func execute(arguments: [String : Any]) async throws -> String { "[]" }
+            let parameters: [AgentToolParameterSchema] = []
+            func execute(arguments: ToolArguments) async throws -> ToolExecutionResult {
+                ToolExecutionResult(textForModel: "[]", displayText: name)
+            }
         }
         
         await registry.register(tool: DummyLocalTool())

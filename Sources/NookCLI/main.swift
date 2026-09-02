@@ -16,11 +16,11 @@ struct NookCLIMain {
         print("=======================================================")
         
         let knowledgeEngine = KnowledgeEngine()
+        let toolRegistry = ToolRegistry(knowledgeEngine: knowledgeEngine)
         let memoryEngine = MemoryEngine()
         let skillManager = SkillManager()
-        let toolRegistry = ToolRegistry()
         let mcpClient = MCPClient()
-        let runtime = ScriptedModelRuntime(activeTier: ModelTier.standardTiers[1])
+        let runtime = ScriptedModelRuntime(activeTier: ModelTier.recommended)
         
         let convo = Conversation(
             title: "Project Alpha review",
@@ -42,8 +42,14 @@ struct NookCLIMain {
         await session.sendMessage(
             text: "What are the biggest risks in this project?",
             runtime: runtime,
-            streamHandler: { promptContext, tokenCallback in
-                try await runtime.generateStreaming(promptContext: promptContext, onToken: tokenCallback)
+            streamHandler: { promptContext, request, toolExecutor, tokenCallback, toolEventCallback in
+                try await runtime.generateStreaming(
+                    promptContext: promptContext,
+                    request: request,
+                    toolExecutor: toolExecutor,
+                    onToken: tokenCallback,
+                    onToolEvent: toolEventCallback
+                )
             }
         )
         
@@ -64,8 +70,14 @@ struct NookCLIMain {
         await session.sendMessage(
             text: "Check GitHub for open issues about these.",
             runtime: runtime,
-            streamHandler: { promptContext, tokenCallback in
-                try await runtime.generateStreaming(promptContext: promptContext, onToken: tokenCallback)
+            streamHandler: { promptContext, request, toolExecutor, tokenCallback, toolEventCallback in
+                try await runtime.generateStreaming(
+                    promptContext: promptContext,
+                    request: request,
+                    toolExecutor: toolExecutor,
+                    onToken: tokenCallback,
+                    onToolEvent: toolEventCallback
+                )
             }
         )
         

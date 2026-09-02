@@ -49,7 +49,7 @@ public final class ModelRuntimeStore: ObservableObject {
                 if reason == ModelUnloadReason.memoryPressure.rawValue {
                     self.modelNeedsReload = true
                     self.presentStatus(
-                        "Freed model memory. It reloads automatically when you send your next message."
+                        "Freed model memory to keep Nook running. Sending again will reload the model if memory allows."
                     )
                 }
             }
@@ -64,10 +64,8 @@ public final class ModelRuntimeStore: ObservableObject {
     public func prepareForGenerationIfNeeded() async throws {
         guard modelNeedsReload else { return }
 
-        if activeTier.id != "fast",
-           MemoryPressureState.shared.recentWarningCount > 0 {
-            modelNeedsReload = false
-            throw MLXModelRuntimeError.memoryConstrained
+        if let blockReason = DeviceMemoryBudget.loadBlockReason(for: activeTier) {
+            throw MLXModelRuntimeError.memoryConstrained(message: blockReason)
         }
 
         presentStatus("Reloading on-device model…")
@@ -78,6 +76,7 @@ public final class ModelRuntimeStore: ObservableObject {
         }
         try await runtime.ensureModelReady()
         modelNeedsReload = false
+        MemoryPressureState.shared.reset()
     }
 
     public func presentStatus(_ message: String) {

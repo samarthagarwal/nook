@@ -43,14 +43,14 @@ public struct AppRootView: View {
         knowledgeEngine: KnowledgeEngine = KnowledgeEngine(),
         memoryEngine: MemoryEngine = MemoryEngine(),
         skillManager: SkillManager = SkillManager(),
-        toolRegistry: ToolRegistry = ToolRegistry(),
+        toolRegistry: ToolRegistry? = nil,
         mcpClient: MCPClient = MCPClient(),
         runtime: ModelRuntime? = nil
     ) {
         self.knowledgeEngine = knowledgeEngine
         self.memoryEngine = memoryEngine
         self.skillManager = skillManager
-        self.toolRegistry = toolRegistry
+        self.toolRegistry = toolRegistry ?? ToolRegistry(knowledgeEngine: knowledgeEngine)
         self.mcpClient = mcpClient
         _runtimeStore = StateObject(wrappedValue: ModelRuntimeStore(runtime: runtime))
         

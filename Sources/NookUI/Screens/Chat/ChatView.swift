@@ -77,18 +77,30 @@ public struct ChatView: View {
         }
         .background(NookColors.paper.ignoresSafeArea())
     }
+
+    private var knowledgeScopeCaption: String {
+        let scope = session.conversation.activeKnowledgeScope
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        if scope.isEmpty {
+            return "No Knowledge scoped · tap to enable · on device"
+        }
+        return "Searching \(scope.joined(separator: ", ")) · on device"
+    }
     
     private var composerView: some View {
         VStack(spacing: 6) {
             HStack(spacing: 6) {
                 PrivacyDot(accessibilityText: "Searching locally")
-                Text("Searching \(session.conversation.activeKnowledgeScope.joined(separator: ", ")) · on device")
+                Text(knowledgeScopeCaption)
                     .font(.system(size: 11, weight: .regular, design: .monospaced))
                     .foregroundColor(NookColors.ink55)
                 Spacer()
             }
             .padding(.horizontal, 20)
             .padding(.top, 10)
+            .contentShape(Rectangle())
+            .onTapGesture(perform: onOpenScope)
 
             if let img = attachedImage {
                 HStack {
@@ -417,20 +429,27 @@ public struct ChatView: View {
         attachedImage = nil
 
         Task {
+            let textToSend = text
+            let imageToSend = img
             do {
                 try await runtimeStore.prepareForGenerationIfNeeded()
                 await session.sendMessage(
-                    text: text,
-                    attachedImageName: img,
+                    text: textToSend,
+                    attachedImageName: imageToSend,
                     runtime: runtimeStore.runtime,
-                    streamHandler: { promptContext, tokenCallback in
+                    streamHandler: { promptContext, request, toolExecutor, tokenCallback, toolEventCallback in
                         try await runtimeStore.runtime.generateStreaming(
                             promptContext: promptContext,
-                            onToken: tokenCallback
+                            request: request,
+                            toolExecutor: toolExecutor,
+                            onToken: tokenCallback,
+                            onToolEvent: toolEventCallback
                         )
                     }
                 )
             } catch {
+                inputText = textToSend
+                attachedImage = imageToSend
                 runtimeStore.presentStatus(runtimeStore.userFacingErrorMessage(for: error))
             }
         }

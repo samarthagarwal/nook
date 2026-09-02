@@ -4,24 +4,32 @@ import Foundation
 public final class AgentSession: ObservableObject {
     public static let maxMessagesInMemory = 80
 
+    public typealias AgentStreamHandler = @Sendable (
+        _ promptContext: AssembledPromptContext,
+        _ request: AgentGenerationRequest,
+        _ toolExecutor: @escaping @Sendable (String, ToolArguments) async throws -> ToolExecutionResult,
+        _ onToken: @escaping @Sendable (String) -> Void,
+        _ onToolEvent: @escaping @Sendable (AgentToolEvent) -> Void
+    ) async throws -> AgentGenerationResult
+
     @Published public var conversation: Conversation
     @Published public var messages: [Message] = []
     @Published public var isStreaming: Bool = false
     @Published public var isThinking: Bool = false
     @Published public var pendingApproval: OutgoingApprovalPayload? = nil
     @Published public var toastMessage: String? = nil
-    
+
     public let knowledgeEngine: KnowledgeEngine
     public let memoryEngine: MemoryEngine
     public let skillManager: SkillManager
     public let toolRegistry: ToolRegistry
     public let mcpClient: MCPClient
     public let contextAssembler: ContextAssembler
-    
-    private var pendingStreamHandler: (@Sendable (AssembledPromptContext, @escaping @Sendable (String) -> Void) async throws -> String)? = nil
+
+    private var pendingStreamHandler: AgentStreamHandler?
     private var activeGenerationTask: Task<Void, Never>?
     private let chatStore: ChatStore
-    
+
     public init(
         conversation: Conversation,
         messages: [Message] = [],
@@ -43,7 +51,7 @@ public final class AgentSession: ObservableObject {
         self.mcpClient = mcpClient
         self.contextAssembler = contextAssembler
     }
-    
+
     /// Drops older in-memory messages to reduce RAM use in long chats. History remains in SQLite.
     public func trimDisplayedMessages(keepingLast count: Int = maxMessagesInMemory) {
         guard messages.count > count else { return }
@@ -59,22 +67,22 @@ public final class AgentSession: ObservableObject {
             }
         }
     }
-    
+
     public func cancelGeneration() {
         activeGenerationTask?.cancel()
         activeGenerationTask = nil
         isThinking = false
         isStreaming = false
     }
-    
+
     public func sendMessage(
         text: String,
         attachedImageName: String? = nil,
         runtime: any Sendable,
-        streamHandler: @escaping @Sendable (AssembledPromptContext, @escaping @Sendable (String) -> Void) async throws -> String
+        streamHandler: @escaping AgentStreamHandler
     ) async {
         activeGenerationTask?.cancel()
-        
+
         let userMsg = Message(
             conversationId: conversation.id,
             role: .user,
@@ -84,16 +92,18 @@ public final class AgentSession: ObservableObject {
         messages.append(userMsg)
         trimDisplayedMessages()
         persist(message: userMsg, userTextForMetadata: text)
-        
+
         let lower = text.lowercased()
         let knowledgeScope = conversation.activeKnowledgeScope
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
 
-        // Scenario 1: MCP / External GitHub inquiry
+        await toolRegistry.setDocumentsSearchScope(knowledgeScope)
+
+        // Temporary MCP path until external tools are registered in ToolRegistry.
         if lower.contains("github") || lower.contains("issue") {
             let isAlwaysAllowed = await toolRegistry.isAlwaysAllowed(toolName: "github.search_issues")
-            
+
             if !isAlwaysAllowed {
                 let payload = await mcpClient.buildApprovalPayload(toolName: "github.search_issues", parameters: [:])
                 self.pendingApproval = payload
@@ -105,66 +115,70 @@ public final class AgentSession: ObservableObject {
             }
         }
 
-        // Scenario 2: Vision inquiry (placeholder until attachments ship)
-        if attachedImageName != nil || lower.contains("spec") || lower.contains("match") {
-            let localPill = Message(
-                conversationId: conversation.id,
-                role: .localTool,
-                content: "",
-                localToolText: "reading image · 1 page of alpha-spec-v4.pdf"
-            )
-            messages.append(localPill)
-            persist(message: localPill)
-            
+        // Knowledge policy:
+        // - Scoped → app always runs documents_search (deterministic; not left to the model).
+        // - Unscoped → normal chat; prompt may ask user to scope or try Balanced.
+        if knowledgeScope.isEmpty {
+            print("[AgentSession] No Knowledge scope — chat without documents_search")
             await performAssistantStream(
-                evidenceChunks: [],
-                citationsToAttachOnCompletion: [],
+                request: .textOnly,
+                systemPrompt: NookSystemPrompt.standard,
                 streamHandler: streamHandler
             )
             return
         }
 
-        // Scenario 3: Knowledge RAG when chat scope includes collections
-        if !knowledgeScope.isEmpty {
-            let (chunks, citations) = await knowledgeEngine.search(
-                query: text,
-                scopedToCollections: knowledgeScope
+        let registered = await toolRegistry.allToolNames()
+        guard registered.contains(DocumentsSearchTool.toolName) else {
+            await performAssistantStream(
+                request: .textOnly,
+                systemPrompt: NookSystemPrompt.standard,
+                streamHandler: streamHandler
             )
-
-            if !chunks.isEmpty {
-                let scopeLabel = knowledgeScope.joined(separator: ", ")
-                let localPill = Message(
-                    conversationId: conversation.id,
-                    role: .localTool,
-                    content: "",
-                    localToolText: "documents.search · \(scopeLabel) · \(chunks.count) passages"
-                )
-                messages.append(localPill)
-                persist(message: localPill)
-
-                await performAssistantStream(
-                    evidenceChunks: chunks,
-                    citationsToAttachOnCompletion: citations,
-                    streamHandler: streamHandler
-                )
-                return
-            }
+            return
         }
-        
-        // Default general query
-        await performAssistantStream(
-            evidenceChunks: [],
-            citationsToAttachOnCompletion: [],
-            streamHandler: streamHandler
-        )
+
+        do {
+            let searchResult = try await toolRegistry.execute(
+                toolName: DocumentsSearchTool.toolName,
+                arguments: ["query": .string(text)]
+            )
+            let toolChip = Message(
+                conversationId: conversation.id,
+                role: .localTool,
+                content: "",
+                localToolText: searchResult.displayText
+            )
+            messages.append(toolChip)
+            persist(message: toolChip)
+            print("[AgentSession] Scoped search \(DocumentsSearchTool.toolName) · \(searchResult.displayText)")
+
+            await performAssistantStream(
+                request: .textOnly,
+                toolResults: [searchResult.textForModel],
+                forcedCitations: searchResult.citations,
+                systemPrompt: NookSystemPrompt.withRetrievedKnowledge,
+                streamHandler: streamHandler
+            )
+        } catch {
+            print("[AgentSession] documents_search failed: \(error)")
+            showToast("Couldn’t search Knowledge. Try again.")
+            let reply = Message(
+                conversationId: conversation.id,
+                role: .assistant,
+                content: "I couldn’t search your Knowledge collections. Try again in a moment."
+            )
+            messages.append(reply)
+            persist(message: reply)
+        }
     }
-    
+
     public func resolveApproval(action: ApprovalAction) {
         guard let payload = pendingApproval else { return }
         self.pendingApproval = nil
         guard let streamHandler = self.pendingStreamHandler else { return }
         self.pendingStreamHandler = nil
-        
+
         Task { @MainActor in
             switch action {
             case .sendOnce:
@@ -178,10 +192,8 @@ public final class AgentSession: ObservableObject {
             }
         }
     }
-    
-    private func executeApprovedMCP(
-        streamHandler: @escaping @Sendable (AssembledPromptContext, @escaping @Sendable (String) -> Void) async throws -> String
-    ) async {
+
+    private func executeApprovedMCP(streamHandler: @escaping AgentStreamHandler) async {
         let toolMsg = Message(
             conversationId: self.conversation.id,
             role: .externalTool,
@@ -190,27 +202,27 @@ public final class AgentSession: ObservableObject {
                 toolName: "github.search_issues",
                 lines: [
                     "#418 Identity provider fallback — open, unassigned",
-                    "#402 Analytics scope — open, needs-estimate"
+                    "#402 Analytics scope — open, needs-estimate",
                 ],
                 footer: "mcp.github-bridge.dev · 0.9s"
             )
         )
         self.messages.append(toolMsg)
         persist(message: toolMsg)
-        
+
         await self.performAssistantStream(
-            evidenceChunks: [],
-            citationsToAttachOnCompletion: [],
+            request: AgentGenerationRequest.textOnly,
             toolResults: ["github.search_issues returned #418 (Identity provider fallback) and #402 (Analytics scope)"],
             streamHandler: streamHandler
         )
     }
-    
+
     private func performAssistantStream(
-        evidenceChunks: [DocumentChunk] = [],
-        citationsToAttachOnCompletion: [Citation] = [],
+        request: AgentGenerationRequest,
         toolResults: [String] = [],
-        streamHandler: @escaping @Sendable (AssembledPromptContext, @escaping @Sendable (String) -> Void) async throws -> String
+        forcedCitations: [Citation] = [],
+        systemPrompt: String = NookSystemPrompt.standard,
+        streamHandler: @escaping AgentStreamHandler
     ) async {
         self.isThinking = true
         try? await Task.sleep(nanoseconds: 350_000_000)
@@ -219,42 +231,63 @@ public final class AgentSession: ObservableObject {
             return
         }
         self.isThinking = false
-        
+
         let assistantMsg = Message(
             conversationId: conversation.id,
             role: .assistant,
             content: "",
-            citations: []
+            citations: forcedCitations
         )
         let assistantMsgId = assistantMsg.id
         messages.append(assistantMsg)
-        
+
         self.isStreaming = true
-        
+
         let promptContext = contextAssembler.assemble(
-            baseSystemPrompt: NookSystemPrompt.standard,
+            baseSystemPrompt: systemPrompt,
             activeSkill: nil,
-            evidenceChunks: evidenceChunks,
+            evidenceChunks: [],
             chatHistory: messages.filter { $0.id != assistantMsgId },
             toolResults: toolResults
         )
-        
+
+        let registry = toolRegistry
+        let toolExecutor: @Sendable (String, ToolArguments) async throws -> ToolExecutionResult = { name, arguments in
+            try await registry.execute(toolName: name, arguments: arguments)
+        }
+
         let task = Task {
             do {
-                _ = try await streamHandler(promptContext) { token in
-                    guard !Task.isCancelled else { return }
-                    Task { @MainActor in
-                        if let index = self.messages.firstIndex(where: { $0.id == assistantMsgId }) {
-                            self.messages[index].content += token
+                let result = try await streamHandler(
+                    promptContext,
+                    request,
+                    toolExecutor,
+                    { token in
+                        guard !Task.isCancelled else { return }
+                        Task { @MainActor in
+                            if let index = self.messages.firstIndex(where: { $0.id == assistantMsgId }) {
+                                self.messages[index].content += token
+                            }
+                        }
+                    },
+                    { event in
+                        Task { @MainActor in
+                            self.handleToolEvent(event, beforeAssistantId: assistantMsgId)
                         }
                     }
-                }
+                )
 
                 guard !Task.isCancelled else { return }
 
                 await MainActor.run {
                     if let index = self.messages.firstIndex(where: { $0.id == assistantMsgId }) {
-                        self.messages[index].citations = citationsToAttachOnCompletion
+                        if !result.citations.isEmpty {
+                            self.messages[index].citations = result.citations
+                        }
+                        NookTextDebug.log(
+                            "AgentSession final assistant",
+                            text: self.messages[index].content
+                        )
                         self.persist(message: self.messages[index])
                     }
                     self.trimDisplayedMessages()
@@ -294,6 +327,39 @@ public final class AgentSession: ObservableObject {
 
         activeGenerationTask = task
         await task.value
+    }
+
+    private func handleToolEvent(_ event: AgentToolEvent, beforeAssistantId: String) {
+        let insertIndex = messages.firstIndex(where: { $0.id == beforeAssistantId }) ?? messages.endIndex
+
+        if event.isExternal {
+            let toolMsg = Message(
+                conversationId: conversation.id,
+                role: .externalTool,
+                content: "",
+                externalToolData: ExternalToolExecution(
+                    toolName: event.toolName,
+                    lines: event.displayText.components(separatedBy: "\n"),
+                    footer: "on device"
+                )
+            )
+            messages.insert(toolMsg, at: insertIndex)
+            persist(message: toolMsg)
+        } else {
+            let localPill = Message(
+                conversationId: conversation.id,
+                role: .localTool,
+                content: "",
+                localToolText: event.displayText
+            )
+            messages.insert(localPill, at: insertIndex)
+            persist(message: localPill)
+        }
+
+        if !event.citations.isEmpty,
+           let index = messages.firstIndex(where: { $0.id == beforeAssistantId }) {
+            messages[index].citations = event.citations
+        }
     }
 
     public func persistConversationMetadata() {
@@ -344,4 +410,3 @@ public enum ApprovalAction: Sendable {
     case alwaysAllow
     case dont
 }
-

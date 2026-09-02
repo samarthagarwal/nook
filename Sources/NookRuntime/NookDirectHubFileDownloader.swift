@@ -13,6 +13,7 @@ enum NookDirectHubFileDownloader {
         repoID: Repo.ID,
         repoId: String,
         revision: String,
+        branchRef: String?,
         file: HubRepoFileEntry,
         onProgress: @escaping @Sendable (Int64, Int64) -> Void
     ) async throws {
@@ -29,6 +30,7 @@ enum NookDirectHubFileDownloader {
             throw URLError(.cannotCreateFile)
         }
 
+        // Always fetch via the resolved commit SHA so cache paths stay consistent.
         let resolveURL = HubClient.defaultHost
             .appending(path: repoID.namespace)
             .appending(path: repoID.name)
@@ -49,7 +51,15 @@ enum NookDirectHubFileDownloader {
 
         let rawEtag = httpHead.value(forHTTPHeaderField: "X-Linked-Etag")
             ?? httpHead.value(forHTTPHeaderField: "ETag")
-        let commitHash = httpHead.value(forHTTPHeaderField: "X-Repo-Commit") ?? revision
+        let headerCommit = httpHead.value(forHTTPHeaderField: "X-Repo-Commit")
+        let storeRevision: String
+        if let headerCommit, HubDownloadPrep.isCommitHash(headerCommit) {
+            storeRevision = headerCommit
+        } else if HubDownloadPrep.isCommitHash(revision) {
+            storeRevision = revision
+        } else {
+            throw URLError(.cannotParseResponse)
+        }
 
         guard let rawEtag else {
             throw URLError(.resourceUnavailable)
@@ -96,15 +106,15 @@ enum NookDirectHubFileDownloader {
             at: tempURL,
             repo: repoID,
             kind: .model,
-            revision: commitHash,
+            revision: storeRevision,
             filename: file.path,
             etag: responseEtag,
-            ref: nil
+            ref: branchRef
         )
 
         try? FileManager.default.removeItem(at: incompletePath)
 
         onProgress(file.size, file.size)
-        print("[Download] \(repoId) — direct download finished for \(file.path)")
+        print("[Download] \(repoId) — direct download finished for \(file.path) @ \(storeRevision.prefix(8))")
     }
 }

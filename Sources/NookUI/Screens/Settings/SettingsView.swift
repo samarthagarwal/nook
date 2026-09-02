@@ -118,7 +118,7 @@ public struct SettingsView: View {
                         VStack(spacing: 8) {
                             navRow(
                                 title: "Models and storage",
-                                sub: "\(activeTier.name) in use · 9.5 GB total",
+                                sub: "\(activeTier.name) in use · ~4.5 GB catalog",
                                 action: onOpenModels
                             )
                             navRow(

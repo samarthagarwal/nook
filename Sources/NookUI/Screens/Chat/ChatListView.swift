@@ -11,7 +11,7 @@ public struct ChatListView: View {
     
     public init(
         conversations: Binding<[Conversation]>,
-        activeTier: ModelTier = ModelTier.standardTiers[1],
+        activeTier: ModelTier = ModelTier.recommended,
         onSelectConversation: @escaping (Conversation) -> Void,
         onNewChat: @escaping () -> Void,
         onOpenSettings: @escaping () -> Void

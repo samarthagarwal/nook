@@ -26,12 +26,37 @@ enum HubDownloadPrep {
         }
     }
 
-    static func resolvedCommit(
-        cache: HubCache,
+    /// Resolves a branch/tag to a commit SHA. Never returns a branch name for snapshot paths.
+    static func resolveCommitHash(
+        repoId: String,
         repoID: Repo.ID,
-        revision: String
-    ) -> String {
-        cache.resolveRevision(repo: repoID, kind: .model, ref: revision) ?? revision
+        revision: String,
+        cache: HubCache?
+    ) async throws -> String {
+        if isCommitHash(revision) {
+            return revision
+        }
+
+        if let cache, let local = cache.resolveRevision(repo: repoID, kind: .model, ref: revision),
+           isCommitHash(local) {
+            return local
+        }
+
+        if let sha = try await fetchCommitSHAFromAPI(repoId: repoId, revision: revision) {
+            if let cache {
+                try? cache.updateRef(repo: repoID, kind: .model, ref: revision, commit: sha)
+            }
+            return sha
+        }
+
+        if let sha = try await fetchCommitSHAFromResolveHead(repoId: repoId, revision: revision) {
+            if let cache {
+                try? cache.updateRef(repo: repoID, kind: .model, ref: revision, commit: sha)
+            }
+            return sha
+        }
+
+        throw URLError(.cannotParseResponse)
     }
 
     /// Returns the snapshot directory when every required file is present for one commit.
@@ -95,6 +120,20 @@ enum HubDownloadPrep {
         return nil
     }
 
+    static func cachedBytes(repoId: String) -> Int64 {
+        guard let repoDirectory = repoCacheDirectory(repoId: repoId) else { return 0 }
+        guard FileManager.default.fileExists(atPath: repoDirectory.path) else { return 0 }
+        return directorySize(at: repoDirectory)
+    }
+
+    static func isCommitHash(_ value: String) -> Bool {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.count == 40 else { return false }
+        return trimmed.unicodeScalars.allSatisfy {
+            CharacterSet(charactersIn: "0123456789abcdefABCDEF").contains($0)
+        }
+    }
+
     private static func isValidModelSnapshot(_ url: URL) -> Bool {
         let config = url.appendingPathComponent("config.json")
         guard FileManager.default.fileExists(atPath: config.path) else { return false }
@@ -102,10 +141,50 @@ enum HubDownloadPrep {
         return names.contains { $0.hasSuffix(".safetensors") }
     }
 
-    static func cachedBytes(repoId: String) -> Int64 {
-        guard let repoDirectory = repoCacheDirectory(repoId: repoId) else { return 0 }
-        guard FileManager.default.fileExists(atPath: repoDirectory.path) else { return 0 }
-        return directorySize(at: repoDirectory)
+    private static func fetchCommitSHAFromAPI(repoId: String, revision: String) async throws -> String? {
+        guard let encodedRevision = revision.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
+              let url = URL(string: "https://huggingface.co/api/models/\(repoId)/revision/\(encodedRevision)")
+        else {
+            return nil
+        }
+
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 60
+        let (data, response) = try await NookHubClient.makeSession().data(for: request)
+        guard let http = response as? HTTPURLResponse, (200 ..< 300).contains(http.statusCode) else {
+            return nil
+        }
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let sha = json["sha"] as? String,
+              isCommitHash(sha)
+        else {
+            return nil
+        }
+        return sha
+    }
+
+    private static func fetchCommitSHAFromResolveHead(repoId: String, revision: String) async throws -> String? {
+        let parts = repoId.split(separator: "/", maxSplits: 1).map(String.init)
+        guard parts.count == 2 else { return nil }
+
+        let url = HubClient.defaultHost
+            .appending(path: parts[0])
+            .appending(path: parts[1])
+            .appending(path: "resolve")
+            .appending(component: revision)
+            .appending(path: "config.json")
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "HEAD"
+        request.timeoutInterval = 60
+        let (_, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse,
+              let sha = http.value(forHTTPHeaderField: "X-Repo-Commit"),
+              isCommitHash(sha)
+        else {
+            return nil
+        }
+        return sha
     }
 
     private static func repoCacheDirectory(repoId: String) -> URL? {

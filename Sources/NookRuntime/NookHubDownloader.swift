@@ -50,11 +50,19 @@ struct NookHubDownloader: Downloader {
             )
         }
 
-        let commitHash = HubDownloadPrep.resolvedCommit(
-            cache: cache,
-            repoID: repoID,
-            revision: branchRevision
-        )
+        let commitHash: String
+        do {
+            commitHash = try await HubDownloadPrep.resolveCommitHash(
+                repoId: id,
+                repoID: repoID,
+                revision: branchRevision,
+                cache: cache
+            )
+        } catch {
+            print("[Download] \(id) — failed to resolve commit for \(branchRevision): \(error)")
+            throw error
+        }
+
         let requiredPaths = matched.map(\.path)
         let totalBytes = matched.reduce(Int64(0)) { $0 + $1.size }
         let overall = Progress(totalUnitCount: max(totalBytes, 1))
@@ -68,9 +76,13 @@ struct NookHubDownloader: Downloader {
             repoID: repoID,
             repoId: id,
             commitHash: commitHash,
+            branchRevision: branchRevision,
             overall: overall,
             progressHandler: progressHandler
         )
+
+        // Ensure branch ref points at the SHA we downloaded into.
+        try? cache.updateRef(repo: repoID, kind: .model, ref: branchRevision, commit: commitHash)
 
         if let snapshot = HubDownloadPrep.snapshotDirectory(
             cache: cache,
@@ -99,9 +111,11 @@ struct NookHubDownloader: Downloader {
                 repoID: repoID,
                 repoId: id,
                 commitHash: commitHash,
+                branchRevision: branchRevision,
                 overall: overall,
                 progressHandler: progressHandler
             )
+            try? cache.updateRef(repo: repoID, kind: .model, ref: branchRevision, commit: commitHash)
         }
 
         if let snapshot = HubDownloadPrep.snapshotDirectory(
@@ -116,7 +130,7 @@ struct NookHubDownloader: Downloader {
             return snapshot
         }
 
-        print("[Download] \(id) — warning: falling back to full snapshot download")
+        print("[Download] \(id) — warning: falling back to full snapshot download @ \(commitHash.prefix(8))")
         return try await hub.downloadSnapshot(
             of: repoID,
             revision: commitHash,
@@ -132,6 +146,7 @@ struct NookHubDownloader: Downloader {
         repoID: Repo.ID,
         repoId: String,
         commitHash: String,
+        branchRevision: String,
         overall: Progress,
         progressHandler: @escaping @Sendable (Progress) -> Void
     ) async throws {
@@ -149,6 +164,7 @@ struct NookHubDownloader: Downloader {
                     repoID: repoID,
                     repoId: repoId,
                     revision: commitHash,
+                    branchRef: branchRevision,
                     file: file
                 ) { fileCompleted, _ in
                     overall.completedUnitCount = baseCompleted + min(file.size, fileCompleted)

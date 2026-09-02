@@ -36,7 +36,7 @@ public actor SkillManager {
                 Generate a weekly digest across selected knowledge collections and chat transcripts.
                 """,
                 permissions: [
-                    SkillPermission(tool: "documents.search", what: "Search collections you tick", isGranted: false),
+                    SkillPermission(tool: "documents_search", what: "Search collections you tick", isGranted: false),
                     SkillPermission(tool: "memory.search", what: "Search prior chat history", isGranted: false)
                 ]
             ),
@@ -55,7 +55,7 @@ public actor SkillManager {
                 - Highlight gaps and strategic differentiators.
                 """,
                 permissions: [
-                    SkillPermission(tool: "documents.search", what: "Search collections you tick below", isGranted: false),
+                    SkillPermission(tool: "documents_search", what: "Search collections you tick below", isGranted: false),
                     SkillPermission(tool: "calendar.search", what: "Read your calendar", isGranted: false),
                     SkillPermission(tool: "calendar.create_event", what: "Create events", isGranted: false)
                 ]

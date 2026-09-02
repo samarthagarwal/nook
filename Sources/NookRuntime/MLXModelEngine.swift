@@ -12,6 +12,7 @@ actor MLXModelEngine {
     private var container: ModelContainer?
     private var loadedModelKey: String?
     private var loadedBackend: ModelCatalog.Backend?
+    private var loadedToolCallFormat: ToolCallFormat?
     private var shouldCancelGeneration = false
     private var inFlightLoad: Task<Void, Error>?
 
@@ -35,6 +36,7 @@ actor MLXModelEngine {
     func load(
         source: ModelLoadSource,
         backend: ModelCatalog.Backend,
+        toolCallFormat: ToolCallFormat,
         progressHandler: @escaping @Sendable (Double, DownloadTransferProgress?) -> Void
     ) async throws {
         let modelKey = Self.modelKey(for: source)
@@ -56,6 +58,7 @@ actor MLXModelEngine {
             try await self.performLoad(
                 source: source,
                 backend: backend,
+                toolCallFormat: toolCallFormat,
                 modelKey: modelKey,
                 progressHandler: progressHandler
             )
@@ -68,26 +71,35 @@ actor MLXModelEngine {
     private func performLoad(
         source: ModelLoadSource,
         backend: ModelCatalog.Backend,
+        toolCallFormat: ToolCallFormat,
         modelKey: String,
         progressHandler: @escaping @Sendable (Double, DownloadTransferProgress?) -> Void
     ) async throws {
         container = nil
         loadedModelKey = nil
         loadedBackend = nil
+        loadedToolCallFormat = nil
 
         let modelContainer: ModelContainer
         switch source {
         case .bundled(let directory):
             reportProgress(0.1, transfer: nil, to: progressHandler)
-            print("[MLXModelEngine] Loading bundled model from \(directory.path) (\(backend))")
+            print("[MLXModelEngine] Loading bundled model from \(directory.path) (\(backend), tools=\(toolCallFormat.rawValue))")
             modelContainer = try await loadContainer(
                 backend: backend,
-                from: directory
+                configuration: ModelConfiguration(
+                    directory: directory,
+                    toolCallFormat: toolCallFormat
+                )
             )
             reportProgress(1.0, transfer: nil, to: progressHandler)
 
         case .remote(let repoId):
-            let configuration = ModelConfiguration(id: repoId)
+            let configuration = ModelConfiguration(
+                id: repoId,
+                toolCallFormat: toolCallFormat
+            )
+            print("[MLXModelEngine] Loading \(repoId) (\(backend), tools=\(toolCallFormat.rawValue))")
             let logger = DownloadProgressLogger(label: repoId)
             let diskMonitor = HubDownloadDiskMonitor(repoId: repoId)
             let downloader = NookHubDownloader()
@@ -137,25 +149,25 @@ actor MLXModelEngine {
         container = modelContainer
         loadedModelKey = modelKey
         loadedBackend = backend
-        restoreDefaultCacheLimit()
+        loadedToolCallFormat = toolCallFormat
+        if backend == .vlm {
+            reduceMemoryFootprint()
+        } else {
+            restoreDefaultCacheLimit()
+        }
     }
 
     private func loadContainer(
         backend: ModelCatalog.Backend,
-        from directory: URL
+        configuration: ModelConfiguration
     ) async throws -> ModelContainer {
-        switch backend {
-        case .llm:
-            return try await LLMModelFactory.shared.loadContainer(
-                from: directory,
-                using: #huggingFaceTokenizerLoader()
-            )
-        case .vlm:
-            return try await VLMModelFactory.shared.loadContainer(
-                from: directory,
-                using: #huggingFaceTokenizerLoader()
-            )
-        }
+        // Directory configs don't download; NookHubDownloader is unused for local paths.
+        try await loadContainer(
+            backend: backend,
+            from: NookHubDownloader(),
+            configuration: configuration,
+            progressHandler: { _ in }
+        )
     }
 
     private func loadContainer(
@@ -204,6 +216,7 @@ actor MLXModelEngine {
         container = nil
         loadedModelKey = nil
         loadedBackend = nil
+        loadedToolCallFormat = nil
         inFlightLoad?.cancel()
         inFlightLoad = nil
         reduceMemoryFootprint()
@@ -223,40 +236,155 @@ actor MLXModelEngine {
 
     func generate(
         promptContext: AssembledPromptContext,
-        onToken: @escaping @Sendable (String) -> Void
-    ) async throws -> String {
+        request: AgentGenerationRequest = .textOnly,
+        toolExecutor: (@Sendable (String, ToolArguments) async throws -> ToolExecutionResult)? = nil,
+        onToken: @escaping @Sendable (String) -> Void,
+        onToolEvent: (@Sendable (AgentToolEvent) -> Void)? = nil
+    ) async throws -> AgentGenerationResult {
         guard let container else {
             throw MLXModelEngineError.modelNotLoaded
         }
 
         resetCancellation()
 
-        let messages = MLXPromptBuilder.chatMessages(from: promptContext)
-        let maxTokens = loadedBackend == .vlm ? 512 : 768
+        let safeContext = MLXContextTrimmer.trimmed(promptContext, for: loadedBackend ?? .llm)
+        let built = MLXPromptBuilder.build(from: safeContext)
+        let maxTokens = loadedBackend == .vlm ? 256 : 768
+        let offeringTools = toolExecutor != nil && !request.toolSchemas.isEmpty
+        // Greedy decoding when native tools are offered — more reliable tool-call formatting.
         let parameters = GenerateParameters(
             maxTokens: maxTokens,
-            temperature: 0.3
+            temperature: offeringTools ? 0.0 : 0.3
         )
 
-        let session = ChatSession(
-            container,
-            generateParameters: parameters
-        )
+        MLX.Memory.clearCache()
 
+        let toolSpecs: [ToolSpec]? = request.toolSchemas.isEmpty ? nil : request.toolSchemas
+        let maxRounds = max(0, request.maxToolRounds)
+        var citations: [Citation] = []
+        var conversation = built.messages
         var fullText = ""
-        for try await chunk in session.streamResponse(to: messages) {
+        var round = 0
+        var allowTools = offeringTools
+
+        print(
+            "[MLXModelEngine] Generate backend=\(loadedBackend.map { "\($0)" } ?? "?") toolsFormat=\(loadedToolCallFormat?.rawValue ?? "?") offeringTools=\(offeringTools) schemas=\(request.toolSchemas.count)"
+        )
+
+        // Manual tool loop — do not use ChatSession.toolDispatch.
+        // Some chat templates (e.g. Gemma) require tool messages to include `name`, which
+        // MLX's `.tool(content, id:)` does not set, so auto-dispatch can fail on the
+        // continuation turn. Inject results as a user turn instead (template-safe).
+        while true {
+            let offerTools = allowTools && round < maxRounds
+            let session = ChatSession(
+                container,
+                instructions: built.instructions,
+                generateParameters: parameters,
+                tools: offerTools ? toolSpecs : nil,
+                toolDispatch: nil
+            )
+
+            var pendingCalls: [ToolCall] = []
+            var roundText = ""
+            // streamDetails(to:) is consuming — copy so we can continue the conversation.
+            let turnMessages = conversation
+
+            for try await item in session.streamDetails(to: turnMessages) {
+                if isCancellationRequested() || Task.isCancelled {
+                    break
+                }
+                switch item {
+                case .chunk(let chunk):
+                    roundText += chunk
+                case .toolCall(let call):
+                    pendingCalls.append(call)
+                    print("[MLXModelEngine] Tool call: \(call.function.name) args=\(call.function.arguments)")
+                case .info:
+                    break
+                @unknown default:
+                    break
+                }
+            }
+
             if isCancellationRequested() || Task.isCancelled {
+                throw CancellationError()
+            }
+
+            guard let toolExecutor, !pendingCalls.isEmpty else {
+                if pendingCalls.isEmpty {
+                    print("[MLXModelEngine] No tool calls this round (round \(round)); text length=\(roundText.count)")
+                }
+
+                let visible = Self.visibleAssistantText(roundText)
+                if visible != roundText {
+                    print("[MLXModelEngine] Suppressed leaked/incomplete tool markup (\(roundText.count) chars)")
+                    NookTextDebug.log("MLXModelEngine raw before sanitize", text: roundText)
+                }
+                NookTextDebug.log("MLXModelEngine emit to UI", text: visible)
+                if !visible.isEmpty {
+                    onToken(visible)
+                }
+                fullText += visible
                 break
             }
-            fullText += chunk
-            onToken(chunk)
+
+            var resultBlocks: [String] = []
+            for call in pendingCalls {
+                let arguments: ToolArguments = call.function.arguments.mapValues { value in
+                    ToolJSONValue.from(value.anyValue)
+                }
+                let result = try await toolExecutor(call.function.name, arguments)
+                citations.append(contentsOf: result.citations)
+                onToolEvent?(
+                    AgentToolEvent(
+                        toolName: call.function.name,
+                        displayText: result.displayText,
+                        citations: result.citations,
+                        chunks: result.chunks,
+                        isExternal: false
+                    )
+                )
+                resultBlocks.append("\(call.function.name):\n\(result.textForModel)")
+            }
+
+            conversation.append(
+                .user(
+                    """
+                    Tool results:
+                    \(resultBlocks.joined(separator: "\n\n"))
+
+                    Answer the user's question using only these results. Be concise and factual.
+                    """
+                )
+            )
+            // Force a final answer turn — avoid re-offering tools after results are injected.
+            allowTools = false
+            round += 1
+            print("[MLXModelEngine] Injected \(pendingCalls.count) tool result(s); requesting final answer")
         }
 
-        if isCancellationRequested() || Task.isCancelled {
-            throw CancellationError()
-        }
+        return AgentGenerationResult(text: fullText, citations: citations)
+    }
 
-        return fullText
+    /// Never show raw tool-call markup in the chat bubble.
+    private static func visibleAssistantText(_ text: String) -> String {
+        let markers = [
+            "<start_function_call>",
+            "<end_function_call>",
+            "<start_function_declaration>",
+            "<end_function_declaration>",
+            "<start_function_response>",
+            "<end_function_response>",
+            "<|tool_call>",
+            "<tool_call|>",
+            "<tool_call>",
+            "</tool_call>",
+        ]
+        guard markers.contains(where: { text.contains($0) }) else {
+            return text
+        }
+        return "The model started a tool call but didn’t finish it cleanly. Try asking again, or switch to Balanced for document questions."
     }
 }
 

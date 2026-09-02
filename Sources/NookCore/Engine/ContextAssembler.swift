@@ -35,6 +35,22 @@ public struct AssembledPromptContext: Sendable {
     public let recentMessages: [Message]
     public let toolResultSummaries: [String]
     public let totalEstimatedTokens: Int
+
+    public init(
+        systemPrompt: String,
+        activeSkillInstructions: String?,
+        retrievedEvidence: [String],
+        recentMessages: [Message],
+        toolResultSummaries: [String],
+        totalEstimatedTokens: Int
+    ) {
+        self.systemPrompt = systemPrompt
+        self.activeSkillInstructions = activeSkillInstructions
+        self.retrievedEvidence = retrievedEvidence
+        self.recentMessages = recentMessages
+        self.toolResultSummaries = toolResultSummaries
+        self.totalEstimatedTokens = totalEstimatedTokens
+    }
 }
 
 public struct ContextAssembler: Sendable {

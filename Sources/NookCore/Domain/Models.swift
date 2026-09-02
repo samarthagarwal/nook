@@ -359,34 +359,39 @@ public struct ModelTier: Identifiable, Codable, Equatable, Sendable {
 
     /// True when model weights ship inside the app bundle (no network download).
     public var shipsBundled: Bool {
-        id == "fast"
+        id == "bundled"
     }
     
+    /// Tier recommended for first-time download (chat + vision).
+    public static var recommended: ModelTier {
+        standardTiers.first { $0.tags.contains("recommended") } ?? standardTiers[0]
+    }
+
     public static let standardTiers: [ModelTier] = [
         ModelTier(
-            id: "fast",
-            name: "Fast",
+            id: "bundled",
+            name: "Bundled",
             size: "280 MB",
-            desc: "Bundled with the app. Quick answers, lighter reasoning.",
+            desc: "Ships with the app. Light chat, always available.",
             longDesc: "Qwen2.5 0.5B (4-bit). Bundled with the app — no download required.",
             tags: ["text", "bundled"],
             isDefault: true
         ),
         ModelTier(
-            id: "balanced",
-            name: "Balanced",
-            size: "750 MB",
-            desc: "Recommended. Stronger text, lighter download.",
-            longDesc: "Gemma 3 1B (QAT 4-bit). Better reasoning than Fast; efficient for everyday chat.",
-            tags: ["text", "recommended"]
+            id: "fast",
+            name: "Fast",
+            size: "660 MB",
+            desc: "Quick on-device chat. Stronger than Bundled.",
+            longDesc: "LFM2.5 1.2B Instruct (4-bit). Edge-optimized chat with native tool calling.",
+            tags: ["text", "tools"]
         ),
         ModelTier(
-            id: "powerful",
-            name: "Powerful",
-            size: "3.0 GB",
-            desc: "Reads screenshots and photos.",
-            longDesc: "Gemma 3 4B (QAT 4-bit). Vision model for screenshots, photos, and long documents.",
-            tags: ["text", "images"]
+            id: "balanced",
+            name: "Balanced",
+            size: "3.6 GB",
+            desc: "Recommended. Stronger reasoning, reads photos.",
+            longDesc: "Gemma 4 E2B (4-bit). Full chat with vision and native tool calling.",
+            tags: ["text", "images", "tools", "recommended"]
         )
     ]
 }

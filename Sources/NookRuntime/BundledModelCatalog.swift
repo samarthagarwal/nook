@@ -1,8 +1,8 @@
 import Foundation
 
-/// Smallest curated MLX instruct model that produces coherent chat, shipped for the Fast tier.
+/// Smallest curated MLX instruct model that produces coherent chat, shipped for the Bundled tier.
 enum BundledModelCatalog {
-    static let tierName = "Fast"
+    static let tierName = "Bundled"
     static let repoId = "mlx-community/Qwen2.5-0.5B-Instruct-4bit"
     static let resourceDirectoryName = "Qwen2.5-0.5B-Instruct-4bit"
 

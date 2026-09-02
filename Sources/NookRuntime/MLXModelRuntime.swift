@@ -91,7 +91,11 @@ public final class MLXModelRuntime: ModelRuntime, @unchecked Sendable {
                 HubDownloadPrep.clearIncompleteBlobs(repoId: spec.repoId)
             }
             do {
-                try await engine.load(source: source, backend: spec.backend) { progress, transfer in
+                try await engine.load(
+                    source: source,
+                    backend: spec.backend,
+                    toolCallFormat: spec.toolCallFormat
+                ) { progress, transfer in
                     progressHandler(progress, transfer)
                     self.setDownloadState(.downloading(progressPct: progress, transfer: transfer))
                 }
@@ -147,8 +151,11 @@ public final class MLXModelRuntime: ModelRuntime, @unchecked Sendable {
 
     public func generateStreaming(
         promptContext: AssembledPromptContext,
-        onToken: @escaping @Sendable (String) -> Void
-    ) async throws -> String {
+        request: AgentGenerationRequest,
+        toolExecutor: (@Sendable (String, ToolArguments) async throws -> ToolExecutionResult)?,
+        onToken: @escaping @Sendable (String) -> Void,
+        onToolEvent: (@Sendable (AgentToolEvent) -> Void)?
+    ) async throws -> AgentGenerationResult {
         if ThermalStateMonitor.shared.currentAdvice == .throttled {
             throw MLXModelRuntimeError.deviceTooHot
         }
@@ -157,9 +164,8 @@ public final class MLXModelRuntime: ModelRuntime, @unchecked Sendable {
             throw MLXModelRuntimeError.modelNotReady(underlying: nil)
         }
 
-        if !Self.isBundledTier(activeTier),
-           MemoryPressureState.shared.recentWarningCount > 0 {
-            throw MLXModelRuntimeError.memoryConstrained
+        if let blockReason = DeviceMemoryBudget.loadBlockReason(for: activeTier) {
+            throw MLXModelRuntimeError.memoryConstrained(message: blockReason)
         }
 
         idleUnloadTask?.cancel()
@@ -175,6 +181,7 @@ public final class MLXModelRuntime: ModelRuntime, @unchecked Sendable {
         }
 
         do {
+            print("[MLXModelRuntime] Loading \(activeTier.name); free memory: \(DeviceMemoryBudget.formattedAvailable())")
             try await ensureModelLoaded()
         } catch {
             throw MLXModelRuntimeError.modelNotReady(underlying: error)
@@ -183,9 +190,15 @@ public final class MLXModelRuntime: ModelRuntime, @unchecked Sendable {
         cancelGeneration()
 
         do {
-            return try await withThrowingTaskGroup(of: String.self) { group in
+            return try await withThrowingTaskGroup(of: AgentGenerationResult.self) { group in
                 group.addTask {
-                    try await self.engine.generate(promptContext: promptContext, onToken: onToken)
+                    try await self.engine.generate(
+                        promptContext: promptContext,
+                        request: request,
+                        toolExecutor: toolExecutor,
+                        onToken: onToken,
+                        onToolEvent: onToolEvent
+                    )
                 }
 
                 group.addTask {
@@ -231,15 +244,18 @@ public final class MLXModelRuntime: ModelRuntime, @unchecked Sendable {
             throw MLXModelRuntimeError.modelNotReady(underlying: nil)
         }
 
-        if !Self.isBundledTier(activeTier),
-           MemoryPressureState.shared.recentWarningCount > 0 {
-            throw MLXModelRuntimeError.memoryConstrained
+        if let blockReason = DeviceMemoryBudget.loadBlockReason(for: activeTier) {
+            throw MLXModelRuntimeError.memoryConstrained(message: blockReason)
         }
 
         MLX.Memory.clearCache()
         let spec = ModelCatalog.spec(for: activeTier)
         let source = Self.loadSource(for: activeTier)
-        try await engine.load(source: source, backend: spec.backend) { _, _ in }
+        try await engine.load(
+            source: source,
+            backend: spec.backend,
+            toolCallFormat: spec.toolCallFormat
+        ) { _, _ in }
         _ = withLock { downloadedRepos.insert(spec.repoId) }
         AppPreferences.markTierDownloaded(activeTier.id)
         setDownloadState(.ready)
@@ -277,7 +293,15 @@ public final class MLXModelRuntime: ModelRuntime, @unchecked Sendable {
     }
 
     private func scheduleIdleUnload() async {
-        let delayNanoseconds: UInt64 = Self.isBundledTier(activeTier) ? 2_000_000_000 : 0
+        let delayNanoseconds: UInt64
+        switch activeTier.id {
+        case "bundled", "fast":
+            delayNanoseconds = 2_000_000_000
+        default:
+            // Balanced VLM — keep warm a bit longer after use.
+            delayNanoseconds = 20_000_000_000
+        }
+
         if delayNanoseconds > 0 {
             try? await Task.sleep(nanoseconds: delayNanoseconds)
         }
@@ -302,11 +326,15 @@ public final class MLXModelRuntime: ModelRuntime, @unchecked Sendable {
 
         await engine.unload()
         MLX.Memory.clearCache()
-        NotificationCenter.default.post(
-            name: .nookModelUnloadedDueToMemory,
-            object: nil,
-            userInfo: ["reason": reason.rawValue]
-        )
+
+        if reason == .memoryPressure {
+            MemoryPressureState.shared.reset()
+            NotificationCenter.default.post(
+                name: .nookModelUnloadedDueToMemory,
+                object: nil,
+                userInfo: ["reason": reason.rawValue]
+            )
+        }
     }
 
     private static func restoredDownloadedRepos() -> Set<String> {
@@ -318,7 +346,7 @@ public final class MLXModelRuntime: ModelRuntime, @unchecked Sendable {
     }
 
     private static func isBundledTier(_ tier: ModelTier) -> Bool {
-        tier.name == BundledModelCatalog.tierName
+        tier.shipsBundled
     }
 
     private static func repoId(for tier: ModelTier) -> String {
@@ -374,7 +402,7 @@ public enum MLXModelRuntimeError: LocalizedError, Sendable {
     case downloadFailed(underlying: Error)
     case generationFailed(underlying: Error)
     case deviceTooHot
-    case memoryConstrained
+    case memoryConstrained(message: String?)
 
     public var errorDescription: String? {
         switch self {
@@ -392,8 +420,9 @@ public enum MLXModelRuntimeError: LocalizedError, Sendable {
             return "Something went wrong while generating on device. (\(underlying.localizedDescription))"
         case .deviceTooHot:
             return "This iPhone is running hot. Wait a moment, then try again."
-        case .memoryConstrained:
-            return "This model needs more memory than is available right now. Switch to the Fast tier in Settings → Models, or restart Nook."
+        case .memoryConstrained(let message):
+            return message
+                ?? "This model needs more memory than is available right now. Switch to the Fast tier in Settings → Models, or restart Nook."
         }
     }
 

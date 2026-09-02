@@ -3,20 +3,26 @@ import MLXLMCommon
 import NookCore
 
 enum MLXPromptBuilder {
-    static func chatMessages(from context: AssembledPromptContext) -> [Chat.Message] {
-        var systemParts: [String] = [context.systemPrompt]
+    struct BuiltPrompt {
+        let instructions: String
+        let messages: [Chat.Message]
+    }
+
+    /// Builds chat turns for native tool calling. System text becomes ChatSession `instructions`
+    /// so the tokenizer can place tools in the developer/system turn correctly.
+    static func build(from context: AssembledPromptContext) -> BuiltPrompt {
+        var instructionParts: [String] = [context.systemPrompt]
         if let skill = context.activeSkillInstructions, !skill.isEmpty {
-            systemParts.append("Active skill instructions:\n\(skill)")
+            instructionParts.append("Active skill instructions:\n\(skill)")
         }
         if !context.retrievedEvidence.isEmpty {
             let evidence = context.retrievedEvidence.joined(separator: "\n\n")
-            systemParts.append("Retrieved knowledge (cite sources when you use them):\n\(evidence)")
+            instructionParts.append("Retrieved knowledge (cite sources when you use them):\n\(evidence)")
         }
         if !context.toolResultSummaries.isEmpty {
             let tools = context.toolResultSummaries.joined(separator: "\n")
-            systemParts.append("Tool results:\n\(tools)")
+            instructionParts.append("Tool results:\n\(tools)")
         }
-        let systemText = systemParts.joined(separator: "\n\n")
 
         var pendingToolNotes: [String] = []
         var turns: [Turn] = []
@@ -47,17 +53,29 @@ enum MLXPromptBuilder {
             turns.insert(Turn(role: .user, content: "Continue from here.", images: []), at: 0)
         }
 
-        guard !turns.isEmpty else {
-            return [.init(role: .user, content: systemText)]
+        if turns.isEmpty {
+            turns.append(Turn(role: .user, content: "Hello", images: []))
         }
 
-        if turns[0].role == .user {
-            turns[0].content = systemText + "\n\n" + turns[0].content
-        } else {
-            turns.insert(Turn(role: .user, content: systemText, images: []), at: 0)
-        }
+        return BuiltPrompt(
+            instructions: instructionParts.joined(separator: "\n\n"),
+            messages: turns.map { Chat.Message(role: $0.role, content: $0.content, images: $0.images) }
+        )
+    }
 
-        return turns.map { Chat.Message(role: $0.role, content: $0.content, images: $0.images) }
+    /// Legacy helper used by tests / call sites that still want a flat message list.
+    static func chatMessages(from context: AssembledPromptContext) -> [Chat.Message] {
+        let built = build(from: context)
+        guard var first = built.messages.first else {
+            return [.user(built.instructions)]
+        }
+        if first.role == .user {
+            first = .user(built.instructions + "\n\n" + first.content, images: first.images)
+            var rest = built.messages
+            rest[0] = first
+            return rest
+        }
+        return [.user(built.instructions)] + built.messages
     }
 
     private struct Turn {
