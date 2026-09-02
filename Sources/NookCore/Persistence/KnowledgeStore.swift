@@ -272,12 +272,6 @@ public final class KnowledgeStore: @unchecked Sendable {
 
         let queryEmbedding = KnowledgeEmbedder.embed(trimmed)
         let ftsQuery = ftsMatchQuery(from: trimmed)
-        #if DEBUG
-        print(
-            "[KnowledgeStore] search query=\"\(trimmed)\" scope=\(scope) " +
-            "fts=\(ftsQuery ?? "nil") embed=\(queryEmbedding == nil ? "nil" : "ok")"
-        )
-        #endif
 
         return try dbQueue.read { db in
             let placeholders = Array(repeating: "?", count: scope.count).joined(separator: ", ")
@@ -299,9 +293,6 @@ public final class KnowledgeStore: @unchecked Sendable {
                     """,
                 arguments: scopeArgs
             )
-            #if DEBUG
-            print("[KnowledgeStore] candidates in scope: \(candidateRows.count)")
-            #endif
 
             var lexicalScores: [String: Double] = [:]
             if let ftsQuery {
@@ -321,13 +312,6 @@ public final class KnowledgeStore: @unchecked Sendable {
                     let rank: Double = row["rank"]
                     lexicalScores[chunkId] = max(0, -rank)
                 }
-                #if DEBUG
-                print("[KnowledgeStore] FTS hits: \(ftsRows.count) (raw bm25→score on \(lexicalScores.count) chunks)")
-                #endif
-            } else {
-                #if DEBUG
-                print("[KnowledgeStore] FTS skipped (no usable tokens)")
-                #endif
             }
 
             let maxLexical = lexicalScores.values.max() ?? 0
@@ -375,43 +359,7 @@ public final class KnowledgeStore: @unchecked Sendable {
                 )
             }
 
-            #if DEBUG
-            let sortedPreview = ranked.sorted { $0.combined > $1.combined }.prefix(8)
-            for (index, hit) in sortedPreview.enumerated() {
-                let preview = hit.chunk.text
-                    .replacingOccurrences(of: "\n", with: " ")
-                    .prefix(80)
-                print(
-                    String(
-                        format: "[KnowledgeStore] pre-filter #%d comb=%.3f lex=%.3f sem=%.3f %@ · %@ | %@…",
-                        index + 1,
-                        hit.combined,
-                        hit.normalizedLexical,
-                        hit.semanticScore,
-                        hit.documentName,
-                        hit.chunk.pageOrSection,
-                        String(preview)
-                    )
-                )
-            }
-            #endif
-
-            let kept = filterRelevantHits(ranked, limit: limit)
-            #if DEBUG
-            print("[KnowledgeStore] post-filter kept \(kept.count)/\(min(limit, ranked.count)) (of \(ranked.count) ranked)")
-            for (index, hit) in kept.enumerated() {
-                print(
-                    String(
-                        format: "[KnowledgeStore] kept #%d score=%.3f %@ · %@",
-                        index + 1,
-                        hit.score,
-                        hit.documentName,
-                        hit.chunk.pageOrSection
-                    )
-                )
-            }
-            #endif
-            return kept
+            return filterRelevantHits(ranked, limit: limit)
         }
     }
 
@@ -440,25 +388,7 @@ public final class KnowledgeStore: @unchecked Sendable {
             let passRelative = hit.combined >= top.combined * relativeToTopScore
             let passMixed = hit.normalizedLexical > 0.15 && hit.semanticScore >= 0.30
             let passSemantic = hit.semanticScore >= minSemanticWhenNoLexical
-            let keep = passAbsolute && passRelative && (passMixed || passSemantic)
-            #if DEBUG
-            if !keep, hit.combined >= top.combined * 0.4 || hit.normalizedLexical >= 0.3 {
-                print(
-                    String(
-                        format: "[KnowledgeStore] drop %@ · %@ comb=%.3f lex=%.3f (abs:%@ rel:%@ mix:%@ sem:%@)",
-                        hit.documentName,
-                        hit.chunk.pageOrSection,
-                        hit.combined,
-                        hit.normalizedLexical,
-                        passAbsolute ? "y" : "n",
-                        passRelative ? "y" : "n",
-                        passMixed ? "y" : "n",
-                        passSemantic ? "y" : "n"
-                    )
-                )
-            }
-            #endif
-            return keep
+            return passAbsolute && passRelative && (passMixed || passSemantic)
         }
 
         // Prefer lexical-strong hits when re-sorting for the prompt (exact section titles).
@@ -718,9 +648,6 @@ extension KnowledgeStore {
                 arguments: [id, ftsText, section]
             )
         }
-        #if DEBUG
-        print("[KnowledgeStore] Rebuilt FTS with indexed section titles (\(rows.count) chunks)")
-        #endif
     }
 
     static func ftsDocument(text: String, pageOrSection: String) -> String {
