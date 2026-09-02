@@ -225,4 +225,26 @@ final class NookEngineTests: XCTestCase {
         let remaining = await memoryEngine.getAllMemories()
         XCTAssertFalse(remaining.contains(where: { $0.id == first.id }), "Forgotten item must be excluded from memory search")
     }
+
+    func testDeleteDocumentAndCollection() throws {
+        let store = try makeStoreWithImportedNotes()
+        let docs = try store.fetchDocuments(collectionId: "project-alpha")
+        XCTAssertFalse(docs.isEmpty)
+
+        try store.deleteDocument(id: docs[0].id)
+        XCTAssertTrue(try store.fetchDocuments(collectionId: "project-alpha").isEmpty)
+
+        try store.deleteCollection(id: "project-alpha")
+        XCTAssertFalse(try store.fetchCollections().contains(where: { $0.id == "project-alpha" }))
+    }
+
+    func testCreateCollectionStoresSubtitle() throws {
+        let store = try KnowledgeStore.makeForTests()
+        let created = try store.createCollection(
+            name: "Research",
+            desc: "Papers and lab notes"
+        )
+        let fetched = try store.fetchCollections().first { $0.id == created.id }
+        XCTAssertEqual(fetched?.desc, "Papers and lab notes")
+    }
 }

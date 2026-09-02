@@ -40,6 +40,9 @@ public struct AppRootView: View {
     @State private var activeToast: String? = nil
     @State private var isNewCollectionAlertPresented: Bool = false
     @State private var newCollectionName: String = ""
+    @State private var newCollectionDesc: String = ""
+    @State private var collectionPendingDelete: KnowledgeCollection? = nil
+    @State private var documentPendingDelete: KnowledgeDocument? = nil
     
     public init(
         knowledgeEngine: KnowledgeEngine = KnowledgeEngine(),
@@ -185,6 +188,12 @@ public struct AppRootView: View {
                             onAddMarkdown: {
                                 markdownImportCollectionId = coll.id
                                 isMarkdownImporterPresented = true
+                            },
+                            onDeleteDocument: { document in
+                                documentPendingDelete = document
+                            },
+                            onDeleteCollection: {
+                                collectionPendingDelete = coll
                             }
                         )
                     } else {
@@ -195,7 +204,11 @@ public struct AppRootView: View {
                             },
                             onAddCollection: {
                                 newCollectionName = ""
+                                newCollectionDesc = ""
                                 isNewCollectionAlertPresented = true
+                            },
+                            onDeleteCollection: { coll in
+                                collectionPendingDelete = coll
                             }
                         )
                     }
@@ -374,13 +387,15 @@ public struct AppRootView: View {
         }
         .alert("New collection", isPresented: $isNewCollectionAlertPresented) {
             TextField("Name", text: $newCollectionName)
+            TextField("Subtitle", text: $newCollectionDesc)
             Button("Cancel", role: .cancel) {}
             Button("Create") {
                 let name = newCollectionName.trimmingCharacters(in: .whitespacesAndNewlines)
+                let desc = newCollectionDesc.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !name.isEmpty else { return }
                 Task {
                     do {
-                        try await knowledgeState.createCollection(name: name)
+                        try await knowledgeState.createCollection(name: name, desc: desc)
                         showToast("Created \(name)")
                     } catch {
                         showToast("Couldn’t create collection.")
@@ -388,7 +403,70 @@ public struct AppRootView: View {
                 }
             }
         } message: {
-            Text("Collections hold Markdown files you import on this iPhone.")
+            Text("Name is required. Subtitle appears under the title in your Knowledge list.")
+        }
+        .alert(
+            "Delete collection?",
+            isPresented: Binding(
+                get: { collectionPendingDelete != nil },
+                set: { if !$0 { collectionPendingDelete = nil } }
+            )
+        ) {
+            Button("Cancel", role: .cancel) {
+                collectionPendingDelete = nil
+            }
+            Button("Delete", role: .destructive) {
+                guard let collection = collectionPendingDelete else { return }
+                collectionPendingDelete = nil
+                Task {
+                    do {
+                        try await knowledgeState.deleteCollection(id: collection.id)
+                        if selectedCollection?.id == collection.id {
+                            selectedCollection = nil
+                        }
+                        showToast("Deleted \(collection.name)")
+                    } catch {
+                        showToast("Couldn’t delete collection.")
+                    }
+                }
+            }
+        } message: {
+            if let collection = collectionPendingDelete {
+                Text("“\(collection.name)” and all of its documents will be removed from this iPhone.")
+            }
+        }
+        .alert(
+            "Delete document?",
+            isPresented: Binding(
+                get: { documentPendingDelete != nil },
+                set: { if !$0 { documentPendingDelete = nil } }
+            )
+        ) {
+            Button("Cancel", role: .cancel) {
+                documentPendingDelete = nil
+            }
+            Button("Delete", role: .destructive) {
+                guard let document = documentPendingDelete else { return }
+                documentPendingDelete = nil
+                Task {
+                    do {
+                        try await knowledgeState.deleteDocument(
+                            id: document.id,
+                            collectionId: document.collectionId
+                        )
+                        if let updated = knowledgeState.collections.first(where: { $0.id == document.collectionId }) {
+                            selectedCollection = updated
+                        }
+                        showToast("Deleted \(document.name)")
+                    } catch {
+                        showToast("Couldn’t delete document.")
+                    }
+                }
+            }
+        } message: {
+            if let document = documentPendingDelete {
+                Text("“\(document.name)” will be removed from this collection and its index.")
+            }
         }
         .onChange(of: selectedCollection?.id) { _, collectionId in
             guard let collectionId else { return }

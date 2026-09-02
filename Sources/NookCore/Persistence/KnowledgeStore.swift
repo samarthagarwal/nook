@@ -41,6 +41,7 @@ public final class KnowledgeStore: @unchecked Sendable {
         desc: String = ""
     ) throws -> KnowledgeCollection {
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedDesc = desc.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedName.isEmpty else {
             throw KnowledgeImportError.emptyDocument
         }
@@ -51,17 +52,56 @@ public final class KnowledgeStore: @unchecked Sendable {
                     INSERT INTO knowledge_collections (id, name, desc, state, created_at)
                     VALUES (?, ?, ?, 'ready', ?)
                     """,
-                arguments: [id, trimmedName, desc, now]
+                arguments: [id, trimmedName, trimmedDesc, now]
             )
         }
         return KnowledgeCollection(
             id: id,
             name: trimmedName,
             count: "0 docs",
-            desc: desc,
+            desc: trimmedDesc,
             status: "Indexed · 0 passages",
             state: .ready
         )
+    }
+
+    public func deleteCollection(id: String) throws {
+        try dbQueue.write { db in
+            let documentIds = try String.fetchAll(
+                db,
+                sql: "SELECT id FROM knowledge_documents WHERE collection_id = ?",
+                arguments: [id]
+            )
+            for documentId in documentIds {
+                try deleteChunks(forDocumentId: documentId, in: db)
+            }
+            try db.execute(
+                sql: "DELETE FROM knowledge_documents WHERE collection_id = ?",
+                arguments: [id]
+            )
+            try db.execute(
+                sql: "DELETE FROM knowledge_collections WHERE id = ?",
+                arguments: [id]
+            )
+        }
+        KnowledgeFiles.removeCollectionDirectory(collectionId: id)
+    }
+
+    public func deleteDocument(id: String) throws {
+        let filePath: String? = try dbQueue.write { db in
+            let path = try String.fetchOne(
+                db,
+                sql: "SELECT file_path FROM knowledge_documents WHERE id = ?",
+                arguments: [id]
+            )
+            try deleteChunks(forDocumentId: id, in: db)
+            try db.execute(
+                sql: "DELETE FROM knowledge_documents WHERE id = ?",
+                arguments: [id]
+            )
+            return path
+        }
+        KnowledgeFiles.removeStoredFile(atPath: filePath)
     }
 
     public func fetchCollections() throws -> [KnowledgeCollection] {

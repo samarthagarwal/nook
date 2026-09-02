@@ -6,15 +6,18 @@ public struct KnowledgeView: View {
     @ObservedObject public var knowledgeEngineState: ObservableKnowledgeEngine
     public let onSelectCollection: (KnowledgeCollection) -> Void
     public let onAddCollection: () -> Void
+    public let onDeleteCollection: (KnowledgeCollection) -> Void
     
     public init(
         knowledgeEngineState: ObservableKnowledgeEngine,
         onSelectCollection: @escaping (KnowledgeCollection) -> Void,
-        onAddCollection: @escaping () -> Void
+        onAddCollection: @escaping () -> Void,
+        onDeleteCollection: @escaping (KnowledgeCollection) -> Void
     ) {
         self.knowledgeEngineState = knowledgeEngineState
         self.onSelectCollection = onSelectCollection
         self.onAddCollection = onAddCollection
+        self.onDeleteCollection = onDeleteCollection
     }
     
     public var body: some View {
@@ -66,9 +69,11 @@ public struct KnowledgeView: View {
                                         .foregroundColor(NookColors.ink45)
                                 }
                                 
-                                Text(coll.desc)
-                                    .font(NookTypography.cardSub)
-                                    .foregroundColor(NookColors.ink62)
+                                if !coll.desc.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                    Text(coll.desc)
+                                        .font(NookTypography.cardSub)
+                                        .foregroundColor(NookColors.ink62)
+                                }
                                 
                                 HStack(spacing: 6) {
                                     if coll.state == .ready {
@@ -97,6 +102,13 @@ public struct KnowledgeView: View {
                             .nookCardShadow()
                         }
                         .buttonStyle(.plain)
+                        .contextMenu {
+                            Button(role: .destructive) {
+                                onDeleteCollection(coll)
+                            } label: {
+                                Label("Delete collection", systemImage: "trash")
+                            }
+                        }
                     }
                 }
                 .padding(.horizontal, 20)
@@ -114,6 +126,8 @@ public struct CollectionDetailView: View {
     public let onBack: () -> Void
     public let onStartChat: () -> Void
     public let onAddMarkdown: () -> Void
+    public let onDeleteDocument: (KnowledgeDocument) -> Void
+    public let onDeleteCollection: () -> Void
 
     public init(
         collection: KnowledgeCollection,
@@ -121,7 +135,9 @@ public struct CollectionDetailView: View {
         isImporting: Bool = false,
         onBack: @escaping () -> Void,
         onStartChat: @escaping () -> Void,
-        onAddMarkdown: @escaping () -> Void
+        onAddMarkdown: @escaping () -> Void,
+        onDeleteDocument: @escaping (KnowledgeDocument) -> Void,
+        onDeleteCollection: @escaping () -> Void
     ) {
         self.collection = collection
         self.documents = documents
@@ -129,27 +145,49 @@ public struct CollectionDetailView: View {
         self.onBack = onBack
         self.onStartChat = onStartChat
         self.onAddMarkdown = onAddMarkdown
+        self.onDeleteDocument = onDeleteDocument
+        self.onDeleteCollection = onDeleteCollection
     }
     
     public var body: some View {
         VStack(spacing: 0) {
             // Header
             VStack(alignment: .leading, spacing: 6) {
-                Button(action: onBack) {
-                    HStack(spacing: 4) {
-                        Image(systemName: "chevron.left")
-                            .font(.system(size: 14, weight: .medium))
-                        Text("Knowledge")
-                            .font(NookTypography.body)
+                HStack {
+                    Button(action: onBack) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "chevron.left")
+                                .font(.system(size: 14, weight: .medium))
+                            Text("Knowledge")
+                                .font(NookTypography.body)
+                        }
+                        .foregroundColor(NookColors.ink45)
                     }
-                    .foregroundColor(NookColors.ink45)
+                    .buttonStyle(.plain)
+                    
+                    Spacer()
+                    
+                    Button(role: .destructive, action: onDeleteCollection) {
+                        Image(systemName: "trash")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(NookColors.external)
+                            .frame(width: 32, height: 32)
+                            .background(Circle().fill(NookColors.externalSoft))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Delete collection")
                 }
-                .buttonStyle(.plain)
                 
                 Text(collection.name)
                     .font(NookTypography.detailTitle)
                     .foregroundColor(NookColors.ink)
                     .padding(.top, 4)
+                
+                if !collection.desc.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Text(collection.desc)
+                        .font(NookTypography.body)
+                        .foregroundColor(NookColors.ink62)
+                }
                 
                 Text("\(collection.count) · \(collection.status)")
                     .font(NookTypography.meta)
@@ -235,6 +273,13 @@ public struct CollectionDetailView: View {
                                 .strokeBorder(NookColors.hairline, lineWidth: 1)
                         )
                         .nookCardShadow()
+                        .contextMenu {
+                            Button(role: .destructive) {
+                                onDeleteDocument(doc)
+                            } label: {
+                                Label("Delete document", systemImage: "trash")
+                            }
+                        }
                     }
                     
                     // Shortcut dashed row
@@ -286,6 +331,18 @@ public final class ObservableKnowledgeEngine: ObservableObject {
 
     public func createCollection(name: String, desc: String = "") async throws {
         _ = try await engine.createCollection(name: name, desc: desc)
+        await refreshCollections()
+    }
+
+    public func deleteCollection(id: String) async throws {
+        try await engine.deleteCollection(id: id)
+        documents = []
+        await refreshCollections()
+    }
+
+    public func deleteDocument(id: String, collectionId: String) async throws {
+        try await engine.deleteDocument(id: id)
+        await loadDocuments(collectionId: collectionId)
         await refreshCollections()
     }
 

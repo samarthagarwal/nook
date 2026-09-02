@@ -25,4 +25,17 @@ enum KnowledgeFiles {
         try FileManager.default.copyItem(at: sourceURL, to: destinationURL)
         return destinationURL
     }
+
+    static func removeStoredFile(atPath path: String?) {
+        guard let path, !path.isEmpty else { return }
+        let url = URL(fileURLWithPath: path)
+        guard FileManager.default.fileExists(atPath: url.path) else { return }
+        try? FileManager.default.removeItem(at: url)
+    }
+
+    static func removeCollectionDirectory(collectionId: String) {
+        let directory = rootURL.appendingPathComponent(collectionId, isDirectory: true)
+        guard FileManager.default.fileExists(atPath: directory.path) else { return }
+        try? FileManager.default.removeItem(at: directory)
+    }
 }

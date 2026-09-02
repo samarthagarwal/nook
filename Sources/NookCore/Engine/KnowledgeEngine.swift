@@ -19,6 +19,14 @@ public actor KnowledgeEngine {
         try store.createCollection(id: id, name: name, desc: desc)
     }
 
+    public func deleteCollection(id: String) throws {
+        try store.deleteCollection(id: id)
+    }
+
+    public func deleteDocument(id: String) throws {
+        try store.deleteDocument(id: id)
+    }
+
     public func getDocuments(forCollectionId collectionId: String) -> [KnowledgeDocument] {
         (try? store.fetchDocuments(collectionId: collectionId)) ?? []
     }
