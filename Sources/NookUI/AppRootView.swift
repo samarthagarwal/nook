@@ -43,6 +43,7 @@ public struct AppRootView: View {
     @State private var newCollectionDesc: String = ""
     @State private var collectionPendingDelete: KnowledgeCollection? = nil
     @State private var documentPendingDelete: KnowledgeDocument? = nil
+    @State private var conversationPendingDelete: Conversation? = nil
     @State private var isAddMCPServerOpen: Bool = false
     
     public init(
@@ -76,11 +77,14 @@ public struct AppRootView: View {
                     downloadModel: { tier, progress in
                         try await self.runtimeStore.downloadModel(tier: tier, progressHandler: progress)
                     },
-                    onComplete: { chosenTier in
+                    onComplete: { chosenTier, tab in
                         AppPreferences.markOnboardingComplete(chosenTier: chosenTier)
                         self.isOnboardingComplete = true
                         self.runtimeStore.syncFromRuntime()
-                        startNewChat()
+                        self.selectedTab = tab
+                        if tab == .chat {
+                            startNewChat()
+                        }
                     }
                 )
             } else {
@@ -137,8 +141,13 @@ public struct AppRootView: View {
                             session: session,
                             runtimeStore: runtimeStore,
                             onBack: {
-                                self.activeSession?.persistConversationMetadata()
-                                self.activeSession?.trimDisplayedMessages()
+                                // Empty drafts were never written; delete is a no-op cleanup.
+                                if let session = self.activeSession, session.messages.isEmpty {
+                                    try? ChatStore.shared.deleteConversation(id: session.conversation.id)
+                                } else {
+                                    self.activeSession?.persistConversationMetadata()
+                                    self.activeSession?.trimDisplayedMessages()
+                                }
                                 self.activeSession = nil
                                 self.runtimeStore.releaseModelWhenIdle()
                                 self.runtimeStore.resetMemoryPressureState()
@@ -166,6 +175,9 @@ public struct AppRootView: View {
                             },
                             onOpenSettings: {
                                 self.isSettingsOpen = true
+                            },
+                            onDeleteConversation: { convo in
+                                conversationPendingDelete = convo
                             }
                         )
                     }
@@ -416,6 +428,36 @@ public struct AppRootView: View {
             Text("Name is required. Subtitle appears under the title in your Knowledge list.")
         }
         .alert(
+            "Delete chat?",
+            isPresented: Binding(
+                get: { conversationPendingDelete != nil },
+                set: { if !$0 { conversationPendingDelete = nil } }
+            )
+        ) {
+            Button("Cancel", role: .cancel) {
+                conversationPendingDelete = nil
+            }
+            Button("Delete", role: .destructive) {
+                guard let conversation = conversationPendingDelete else { return }
+                conversationPendingDelete = nil
+                do {
+                    try ChatStore.shared.deleteConversation(id: conversation.id)
+                    conversations.removeAll { $0.id == conversation.id }
+                    if activeSession?.conversation.id == conversation.id {
+                        activeSession = nil
+                    }
+                    showToast("Deleted chat")
+                } catch {
+                    showToast("Couldn’t delete chat.")
+                }
+            }
+        } message: {
+            if let conversation = conversationPendingDelete {
+                let title = ChatStore.plainText(from: conversation.title)
+                Text("“\(title)” will be removed from this iPhone. Memory items from it are unchanged.")
+            }
+        }
+        .alert(
             "Delete collection?",
             isPresented: Binding(
                 get: { collectionPendingDelete != nil },
@@ -521,6 +563,7 @@ public struct AppRootView: View {
     }
 
     private func loadConversations() {
+        try? ChatStore.shared.deleteEmptyConversations()
         conversations = (try? ChatStore.shared.fetchConversations()) ?? []
     }
     
@@ -545,6 +588,7 @@ public struct AppRootView: View {
     }
     
     private func startNewChat(scopedTo: [String] = []) {
+        // Keep drafts in memory only until the first message is sent.
         let newConvo = Conversation(
             title: "New chat",
             whenString: "now",
@@ -552,8 +596,6 @@ public struct AppRootView: View {
             tags: scopedTo,
             activeKnowledgeScope: scopedTo
         )
-        try? ChatStore.shared.saveConversation(newConvo)
-        conversations.insert(newConvo, at: 0)
         openConversation(newConvo)
     }
     

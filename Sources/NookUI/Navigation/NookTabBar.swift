@@ -9,6 +9,17 @@ public enum NookTab: String, CaseIterable, Identifiable {
     case memory = "Memory"
     
     public var id: String { rawValue }
+
+    /// Small SF Symbol shown above the tab label.
+    public var systemImage: String {
+        switch self {
+        case .chat: return "bubble.left.and.bubble.right"
+        case .knowledge: return "book.closed"
+        case .skills: return "sparkles"
+        case .connect: return "link"
+        case .memory: return "brain.head.profile"
+        }
+    }
 }
 
 public struct NookTabBar: View {
@@ -21,18 +32,19 @@ public struct NookTabBar: View {
     public var body: some View {
         HStack(spacing: 0) {
             ForEach(NookTab.allCases) { tab in
+                let isSelected = selectedTab == tab
                 Button(action: {
                     selectedTab = tab
                 }) {
-                    VStack(spacing: 4) {
-                        // 5pt active ink dot above label
-                        Circle()
-                            .fill(selectedTab == tab ? NookColors.ink : Color.clear)
-                            .frame(width: 5, height: 5)
-                        
+                    VStack(spacing: 3) {
+                        Image(systemName: tab.systemImage)
+                            .font(.system(size: 13, weight: isSelected ? .semibold : .regular))
+                            .foregroundColor(isSelected ? NookColors.ink : NookColors.ink40)
+                            .frame(height: 16)
+
                         Text(tab.rawValue)
-                            .font(selectedTab == tab ? NookTypography.tabLabelActive : NookTypography.tabLabel)
-                            .foregroundColor(selectedTab == tab ? NookColors.ink : NookColors.ink40)
+                            .font(isSelected ? NookTypography.tabLabelActive : NookTypography.tabLabel)
+                            .foregroundColor(isSelected ? NookColors.ink : NookColors.ink40)
                     }
                     .frame(maxWidth: .infinity)
                     .frame(height: 44) // 44pt minimum hit target

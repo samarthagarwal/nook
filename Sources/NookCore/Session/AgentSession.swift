@@ -416,6 +416,9 @@ public final class AgentSession: ObservableObject {
     }
 
     public func persistConversationMetadata() {
+        // Don't write empty draft chats to disk — they would clutter the list/DB
+        // if the user backs out without sending.
+        guard !messages.isEmpty else { return }
         conversation.updatedAt = Date()
         conversation.whenString = ChatStore.formatWhenString(conversation.updatedAt)
         do {
@@ -427,31 +430,25 @@ public final class AgentSession: ObservableObject {
 
     private func persist(message: Message, userTextForMetadata: String? = nil) {
         do {
-            try chatStore.saveMessage(message)
-
             if let userTextForMetadata {
                 let title = conversation.title == "New chat"
                     ? ChatStore.snippet(from: userTextForMetadata, maxLength: 48)
                     : conversation.title
                 let snippet = ChatStore.snippet(from: userTextForMetadata)
-                try chatStore.touchConversation(
-                    id: conversation.id,
-                    title: title,
-                    snippet: snippet,
-                    knowledgeScope: conversation.activeKnowledgeScope,
-                    tags: conversation.tags
-                )
                 conversation.title = title
                 conversation.snippet = snippet
                 conversation.updatedAt = Date()
                 conversation.whenString = ChatStore.formatWhenString(conversation.updatedAt)
             } else if message.role == .assistant {
                 let snippet = ChatStore.snippet(from: message.content)
-                try chatStore.touchConversation(id: conversation.id, snippet: snippet)
                 conversation.snippet = snippet
                 conversation.updatedAt = Date()
                 conversation.whenString = ChatStore.formatWhenString(conversation.updatedAt)
             }
+
+            // Conversation row must exist before messages (FK). First send creates it.
+            try chatStore.saveConversation(conversation)
+            try chatStore.saveMessage(message)
         } catch {
             print("[AgentSession] Failed to persist message: \(error)")
         }

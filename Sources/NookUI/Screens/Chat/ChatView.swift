@@ -249,7 +249,7 @@ public struct ChatView: View {
     
     // MARK: - Header
     private var chatHeaderView: some View {
-        HStack {
+        HStack(spacing: 8) {
             Button(action: onBack) {
                 HStack(spacing: 4) {
                     Image(systemName: "chevron.left")
@@ -261,12 +261,13 @@ public struct ChatView: View {
             }
             .buttonStyle(.plain)
             
-            Spacer()
-            
             VStack(spacing: 2) {
-                Text(session.conversation.title)
+                Text(ChatStore.plainText(from: session.conversation.title))
                     .font(NookTypography.rowTitle)
                     .foregroundColor(NookColors.ink)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .multilineTextAlignment(.center)
                 
                 HStack(spacing: 4) {
                     PrivacyDot()
@@ -275,8 +276,7 @@ public struct ChatView: View {
                         .foregroundColor(NookColors.ink45)
                 }
             }
-            
-            Spacer()
+            .frame(maxWidth: .infinity)
             
             Button(action: onOpenScope) {
                 Image(systemName: "line.3.horizontal.decrease.circle")

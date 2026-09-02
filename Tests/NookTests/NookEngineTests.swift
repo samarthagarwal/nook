@@ -4,6 +4,26 @@ import XCTest
 
 final class NookEngineTests: XCTestCase {
 
+    func testChatSnippetStripsMarkdownArtifacts() {
+        let raw = """
+        ### Vendor risks
+        **Important:** see [notes](https://example.com) and `code`.
+        - first item
+        """
+        let plain = ChatStore.plainText(from: raw)
+        XCTAssertFalse(plain.contains("###"))
+        XCTAssertFalse(plain.contains("**"))
+        XCTAssertFalse(plain.contains("`"))
+        XCTAssertFalse(plain.contains("]("))
+        XCTAssertTrue(plain.contains("Vendor risks"))
+        XCTAssertTrue(plain.contains("Important:"))
+        XCTAssertTrue(plain.contains("notes"))
+        XCTAssertEqual(
+            ChatStore.snippet(from: "### Hello world", maxLength: 48),
+            "Hello world"
+        )
+    }
+
     private func makeStoreWithImportedNotes() throws -> KnowledgeStore {
         let store = try KnowledgeStore.makeForTests()
         _ = try store.createCollection(

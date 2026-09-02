@@ -29,6 +29,10 @@ public final class ChatStore: @unchecked Sendable {
                 db,
                 sql: """
                     SELECT * FROM conversations
+                    WHERE EXISTS (
+                        SELECT 1 FROM messages
+                        WHERE messages.conversation_id = conversations.id
+                    )
                     ORDER BY updated_at DESC
                     """
             )
@@ -55,6 +59,38 @@ public final class ChatStore: @unchecked Sendable {
                 knowledgeScopeJSON: scopeJSON,
                 in: db
             )
+        }
+    }
+
+    public func deleteConversation(id: String) throws {
+        try dbQueue.write { db in
+            try db.execute(sql: "DELETE FROM messages WHERE conversation_id = ?", arguments: [id])
+            try db.execute(sql: "DELETE FROM conversations WHERE id = ?", arguments: [id])
+        }
+    }
+
+    /// Removes draft conversations that never received a message (legacy leftovers).
+    public func deleteEmptyConversations() throws {
+        try dbQueue.write { db in
+            try db.execute(
+                sql: """
+                    DELETE FROM conversations
+                    WHERE NOT EXISTS (
+                        SELECT 1 FROM messages
+                        WHERE messages.conversation_id = conversations.id
+                    )
+                    """
+            )
+        }
+    }
+
+    public func messageCount(conversationId: String) throws -> Int {
+        try dbQueue.read { db in
+            try Int.fetchOne(
+                db,
+                sql: "SELECT COUNT(*) FROM messages WHERE conversation_id = ?",
+                arguments: [conversationId]
+            ) ?? 0
         }
     }
 
@@ -148,10 +184,30 @@ public final class ChatStore: @unchecked Sendable {
     }
 
     public static func snippet(from text: String, maxLength: Int = 120) -> String {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return "Ask anything" }
-        if trimmed.count <= maxLength { return trimmed }
-        return String(trimmed.prefix(maxLength)).trimmingCharacters(in: .whitespacesAndNewlines) + "…"
+        let plain = plainText(from: text)
+        guard !plain.isEmpty else { return "Ask anything" }
+        if plain.count <= maxLength { return plain }
+        return String(plain.prefix(maxLength)).trimmingCharacters(in: .whitespacesAndNewlines) + "…"
+    }
+
+    /// Strips common Markdown markers so list/chat previews stay readable plain text.
+    public static func plainText(from markdown: String) -> String {
+        var s = markdown
+        // Fenced / inline code first so markers inside them are not reinterpreted.
+        s = s.replacingOccurrences(of: #"```[\s\S]*?```"#, with: " ", options: .regularExpression)
+        s = s.replacingOccurrences(of: #"`([^`]+)`"#, with: "$1", options: .regularExpression)
+        s = s.replacingOccurrences(of: #"!\[[^\]]*\]\([^)]*\)"#, with: " ", options: .regularExpression)
+        s = s.replacingOccurrences(of: #"\[([^\]]*)\]\([^)]*\)"#, with: "$1", options: .regularExpression)
+        s = s.replacingOccurrences(of: #"(?m)^#{1,6}\s+"#, with: "", options: .regularExpression)
+        s = s.replacingOccurrences(of: #"#{1,6}\s+"#, with: "", options: .regularExpression)
+        s = s.replacingOccurrences(of: #"(\*\*|__)(.+?)\1"#, with: "$2", options: .regularExpression)
+        s = s.replacingOccurrences(of: #"(\*|_)([^*_\n]+?)\1"#, with: "$2", options: .regularExpression)
+        s = s.replacingOccurrences(of: #"(?m)^>\s?"#, with: "", options: .regularExpression)
+        s = s.replacingOccurrences(of: #"(?m)^[\t ]*[-*+]\s+"#, with: "", options: .regularExpression)
+        s = s.replacingOccurrences(of: #"(?m)^[\t ]*\d+\.\s+"#, with: "", options: .regularExpression)
+        s = s.replacingOccurrences(of: #"(?m)^[-*_]{3,}\s*$"#, with: " ", options: .regularExpression)
+        s = s.replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+        return s.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func insertOrReplaceConversation(

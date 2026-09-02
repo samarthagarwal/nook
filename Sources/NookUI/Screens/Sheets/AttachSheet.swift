@@ -102,7 +102,11 @@ public struct ScopeSheet: View {
                     Text("What can this chat see?")
                         .font(NookTypography.display21)
                         .foregroundColor(NookColors.ink)
-                    Text("Only the collections you tick are searched.")
+                    Text(
+                        availableCollections.isEmpty
+                            ? "Collections you add in Knowledge appear here."
+                            : "Only the collections you tick are searched."
+                    )
                         .font(NookTypography.body)
                         .foregroundColor(NookColors.ink62)
                 }
@@ -117,33 +121,59 @@ public struct ScopeSheet: View {
                 .buttonStyle(.plain)
             }
             
-            VStack(spacing: 8) {
-                ForEach(availableCollections, id: \.self) { coll in
-                    HStack {
-                        Text(coll)
-                            .font(NookTypography.rowTitle)
+            if availableCollections.isEmpty {
+                VStack(spacing: 12) {
+                    Spacer(minLength: 12)
+
+                    Image(systemName: "books.vertical")
+                        .font(.system(size: 26, weight: .regular))
+                        .foregroundColor(NookColors.ink40)
+
+                    VStack(spacing: 8) {
+                        Text("No knowledge yet")
+                            .font(NookTypography.cardTitleSerif)
                             .foregroundColor(NookColors.ink)
-                        Spacer()
-                        NookToggle(
-                            isOn: Binding(
-                                get: { session.conversation.activeKnowledgeScope.contains(coll) },
-                                set: { newValue in
-                                    setCollection(coll, included: newValue)
-                                }
-                            ),
-                            style: .local,
-                            accessibilityLabel: "Include \(coll)"
+
+                        Text("Add a collection under Knowledge, then import Markdown. This chat will be able to search it here.")
+                            .font(NookTypography.body)
+                            .foregroundColor(NookColors.ink62)
+                            .multilineTextAlignment(.center)
+                            .lineSpacing(4)
+                    }
+
+                    Spacer(minLength: 12)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding(.horizontal, 12)
+            } else {
+                VStack(spacing: 8) {
+                    ForEach(availableCollections, id: \.self) { coll in
+                        HStack {
+                            Text(coll)
+                                .font(NookTypography.rowTitle)
+                                .foregroundColor(NookColors.ink)
+                            Spacer()
+                            NookToggle(
+                                isOn: Binding(
+                                    get: { session.conversation.activeKnowledgeScope.contains(coll) },
+                                    set: { newValue in
+                                        setCollection(coll, included: newValue)
+                                    }
+                                ),
+                                style: .local,
+                                accessibilityLabel: "Include \(coll)"
+                            )
+                        }
+                        .padding(14)
+                        .background(
+                            RoundedRectangle(cornerRadius: NookRadius.card)
+                                .fill(NookColors.surfaceSunken)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: NookRadius.card)
+                                .strokeBorder(NookColors.hairline, lineWidth: 1)
                         )
                     }
-                    .padding(14)
-                    .background(
-                        RoundedRectangle(cornerRadius: NookRadius.card)
-                            .fill(NookColors.surfaceSunken)
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: NookRadius.card)
-                            .strokeBorder(NookColors.hairline, lineWidth: 1)
-                    )
                 }
             }
             

@@ -16,12 +16,13 @@ public struct OnboardingView: View {
     @State private var selectedTier: ModelTier = ModelTier.standardTiers[0]
     @State private var downloadError: String? = nil
     private let downloadModel: @Sendable (ModelTier, @escaping @Sendable (Double) -> Void) async throws -> Void
-    private let onComplete: (ModelTier) -> Void
+    /// Completes onboarding and lands on the given tab (chat, knowledge, skills, or connect).
+    private let onComplete: (ModelTier, NookTab) -> Void
     
     public init(
         runtimeStore: ModelRuntimeStore,
         downloadModel: @escaping @Sendable (ModelTier, @escaping @Sendable (Double) -> Void) async throws -> Void,
-        onComplete: @escaping (ModelTier) -> Void
+        onComplete: @escaping (ModelTier, NookTab) -> Void
     ) {
         self.runtimeStore = runtimeStore
         self.downloadModel = downloadModel
@@ -294,43 +295,59 @@ public struct OnboardingView: View {
             }
             
             VStack(spacing: 10) {
-                actionRow(title: "Add Knowledge", sub: "Documents Nook can search")
-                actionRow(title: "Turn on a Skill", sub: "Teach it a way of working")
-                actionRow(title: "Connect a service", sub: "Reach outside, with approval")
+                actionRow(
+                    title: "Add Knowledge",
+                    sub: "Documents Nook can search",
+                    action: { onComplete(selectedTier, .knowledge) }
+                )
+                actionRow(
+                    title: "Turn on a Skill",
+                    sub: "Teach it a way of working",
+                    action: { onComplete(selectedTier, .skills) }
+                )
+                actionRow(
+                    title: "Connect a service",
+                    sub: "Reach outside, with approval",
+                    action: { onComplete(selectedTier, .connect) }
+                )
             }
             
             Spacer().frame(height: 12)
             
             NookPrimaryButton(title: "Start a chat") {
-                onComplete(selectedTier)
+                onComplete(selectedTier, .chat)
             }
         }
     }
     
-    private func actionRow(title: String, sub: String) -> some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(title)
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundColor(NookColors.ink)
-                Text(sub)
-                    .font(NookTypography.cardSub)
-                    .foregroundColor(NookColors.ink55)
+    private func actionRow(title: String, sub: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(title)
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundColor(NookColors.ink)
+                    Text(sub)
+                        .font(NookTypography.cardSub)
+                        .foregroundColor(NookColors.ink55)
+                }
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(NookColors.ink40)
             }
-            Spacer()
-            Image(systemName: "chevron.right")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundColor(NookColors.ink40)
+            .padding(15)
+            .background(
+                RoundedRectangle(cornerRadius: NookRadius.cardLg)
+                    .fill(NookColors.surface)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: NookRadius.cardLg)
+                    .strokeBorder(NookColors.hairlineStrong, lineWidth: 1)
+            )
+            .nookCardShadow()
+            .contentShape(Rectangle())
         }
-        .padding(15)
-        .background(
-            RoundedRectangle(cornerRadius: NookRadius.cardLg)
-                .fill(NookColors.surface)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: NookRadius.cardLg)
-                .strokeBorder(NookColors.hairlineStrong, lineWidth: 1)
-        )
-        .nookCardShadow()
+        .buttonStyle(.plain)
     }
 }

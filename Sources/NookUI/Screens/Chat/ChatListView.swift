@@ -8,19 +8,22 @@ public struct ChatListView: View {
     public let onSelectConversation: (Conversation) -> Void
     public let onNewChat: () -> Void
     public let onOpenSettings: () -> Void
+    public let onDeleteConversation: (Conversation) -> Void
     
     public init(
         conversations: Binding<[Conversation]>,
         activeTier: ModelTier = ModelTier.recommended,
         onSelectConversation: @escaping (Conversation) -> Void,
         onNewChat: @escaping () -> Void,
-        onOpenSettings: @escaping () -> Void
+        onOpenSettings: @escaping () -> Void,
+        onDeleteConversation: @escaping (Conversation) -> Void
     ) {
         self._conversations = conversations
         self.activeTier = activeTier
         self.onSelectConversation = onSelectConversation
         self.onNewChat = onNewChat
         self.onOpenSettings = onOpenSettings
+        self.onDeleteConversation = onDeleteConversation
     }
     
     public var body: some View {
@@ -60,7 +63,7 @@ public struct ChatListView: View {
                         }) {
                             VStack(alignment: .leading, spacing: 6) {
                                 HStack {
-                                    Text(convo.title)
+                                    Text(ChatStore.plainText(from: convo.title))
                                         .font(NookTypography.rowTitle)
                                         .foregroundColor(NookColors.ink)
                                     
@@ -71,7 +74,7 @@ public struct ChatListView: View {
                                         .foregroundColor(NookColors.ink45)
                                 }
                                 
-                                Text(convo.snippet)
+                                Text(ChatStore.plainText(from: convo.snippet))
                                     .font(NookTypography.body)
                                     .foregroundColor(NookColors.ink55)
                                     .lineLimit(2)
@@ -107,6 +110,20 @@ public struct ChatListView: View {
                             .nookCardShadow()
                         }
                         .buttonStyle(.plain)
+                        .contextMenu {
+                            Button(role: .destructive) {
+                                onDeleteConversation(convo)
+                            } label: {
+                                Label("Delete chat", systemImage: "trash")
+                            }
+                        }
+                        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                            Button(role: .destructive) {
+                                onDeleteConversation(convo)
+                            } label: {
+                                Label("Delete", systemImage: "trash")
+                            }
+                        }
                     }
                 }
                 .padding(.horizontal, 14)
