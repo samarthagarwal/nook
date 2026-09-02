@@ -216,11 +216,28 @@ public final class LiteRTModelRuntime: ModelRuntime, @unchecked Sendable {
             setDownloadState(.ready)
         } catch {
             await engine.unload()
+            // One more CPU remount if the first attempt was GPU and mmap was incomplete.
+            if !forceCPUPreferred(for: activeTier),
+               LiteRTModelEngine.isBrokenEmbedderOrMmapError(error) {
+                print("[LiteRT] Load mmap failed; forcing CPU remount")
+                do {
+                    try await engine.load(modelPath: path, forceCPU: true)
+                    setDownloadState(.ready)
+                    return
+                } catch {
+                    await engine.unload()
+                    throw LiteRTModelRuntimeError.insufficientMemory(detail: error.localizedDescription)
+                }
+            }
             if LiteRTModelEngine.isBrokenEmbedderOrMmapError(error) {
                 throw LiteRTModelRuntimeError.insufficientMemory(detail: error.localizedDescription)
             }
             throw LiteRTModelRuntimeError.modelNotReady(underlying: error)
         }
+    }
+
+    private func forceCPUPreferred(for tier: ModelTier) -> Bool {
+        tier.id == "balanced" && DeviceMemoryBudget.availableBytes < 2_000_000_000
     }
 
     private func isLocallyReady(tier: ModelTier) -> Bool {
@@ -230,6 +247,11 @@ public final class LiteRTModelRuntime: ModelRuntime, @unchecked Sendable {
     }
 
     private func installBackgroundUnload() {
+        MemoryPressureMonitor.shared.setHandler { [weak self] in
+            guard let self else { return }
+            Task { await self.handleMemoryPressure() }
+        }
+
         #if canImport(UIKit)
         NotificationCenter.default.addObserver(
             forName: UIApplication.didEnterBackgroundNotification,
@@ -240,6 +262,26 @@ public final class LiteRTModelRuntime: ModelRuntime, @unchecked Sendable {
             Task { await self.cancelAndDropGeneration(unloadWeights: true) }
         }
         #endif
+    }
+
+    /// Bundled/Fast unload under pressure. Balanced stays mapped (same load↔warn loop as MLX)
+    /// and relies on background unload + generation timeout instead.
+    private func handleMemoryPressure() async {
+        MemoryPressureState.shared.recordWarning()
+        if activeTier.id == "balanced" {
+            print(
+                "[LiteRT] Memory warning during Balanced — keeping weights mapped; " +
+                "allocatable \(DeviceMemoryBudget.formattedAvailable())"
+            )
+            return
+        }
+        await cancelAndDropGeneration(unloadWeights: true)
+        MemoryPressureState.shared.reset()
+        NotificationCenter.default.post(
+            name: .nookModelUnloadedDueToMemory,
+            object: nil,
+            userInfo: ["reason": ModelUnloadReason.memoryPressure.rawValue]
+        )
     }
 
     private func setDownloadState(_ state: ModelDownloadState) {

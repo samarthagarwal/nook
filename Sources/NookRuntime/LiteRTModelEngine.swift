@@ -227,9 +227,12 @@ final class LiteRTModelEngine: @unchecked Sendable {
             + " "
             + error.localizedDescription.lowercased()
         return message.contains("per_layer_embedding")
+            || message.contains("per_layer_embedding_lookup")
+            || message.contains("input_per_layer_embeddings")
             || message.contains("cannot allocate memory")
             || message.contains("failed to map")
-            || message.contains("input_per_layer_embeddings")
+            || message.contains("mmap")
+            || (message.contains("is null") && message.contains("embedding"))
     }
 
     static func clearCompilationCache() {

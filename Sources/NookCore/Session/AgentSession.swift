@@ -124,7 +124,9 @@ public final class AgentSession: ObservableObject {
         // - Scoped → app always runs documents_search (deterministic; not left to the model).
         // - Unscoped → normal chat; prompt may ask user to scope or try Balanced.
         if knowledgeScope.isEmpty {
+            #if DEBUG
             print("[AgentSession] No Knowledge scope — chat without documents_search")
+            #endif
             await performAssistantStream(
                 request: .textOnly,
                 systemPrompt: NookSystemPrompt.standard,
@@ -156,6 +158,7 @@ public final class AgentSession: ObservableObject {
             )
             messages.append(toolChip)
             persist(message: toolChip)
+            #if DEBUG
             print("[AgentSession] Scoped search \(DocumentsSearchTool.toolName) · \(searchResult.displayText)")
             if searchResult.chunks.isEmpty {
                 print("[AgentSession] No passages survived retrieval — model will see empty evidence")
@@ -167,6 +170,7 @@ public final class AgentSession: ObservableObject {
                     )
                 }
             }
+            #endif
 
             let evidenceNote: String
             if searchResult.chunks.isEmpty {
