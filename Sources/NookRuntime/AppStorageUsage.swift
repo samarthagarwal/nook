@@ -63,6 +63,7 @@ public enum AppStorageUsage {
     private static func measureModelsBytes() -> Int64 {
         var total: Int64 = 0
         total += measureDirectoryIfExists(huggingFaceHubCacheDirectory)
+        total += LiteRTModelPaths.measuredBytes
         if let bundled = BundledModelCatalog.bundledDirectoryURL {
             total += measureDirectoryIfExists(bundled)
         }

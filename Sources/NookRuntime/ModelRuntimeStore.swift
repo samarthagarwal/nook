@@ -161,7 +161,8 @@ public final class ModelRuntimeStore: ObservableObject {
         }
 
         if tier.shipsBundled || AppPreferences.isTierDownloaded(tier.id)
-            || LocalModelDiscovery.mlxDirectory(for: ModelCatalog.repoId(for: tier)) != nil {
+            || LocalModelDiscovery.mlxDirectory(for: ModelCatalog.repoId(for: tier)) != nil
+            || LiteRTModelPaths.isReady(for: tier) {
             try await runtime.switchTier(tier)
             activeTier = tier
             AppPreferences.activeTier = tier
@@ -194,6 +195,9 @@ public final class ModelRuntimeStore: ObservableObject {
             return "Stopped."
         }
         if let runtimeError = error as? MLXModelRuntimeError {
+            return runtimeError.localizedDescription
+        }
+        if let runtimeError = error as? LiteRTModelRuntimeError {
             return runtimeError.localizedDescription
         }
         return "Something went wrong. Try again."

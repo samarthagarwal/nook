@@ -124,7 +124,9 @@ public final class AgentSession: ObservableObject {
         // - Scoped → app always runs documents_search (deterministic; not left to the model).
         // - Unscoped → normal chat; prompt may ask user to scope or try Balanced.
         if knowledgeScope.isEmpty {
+            #if DEBUG
             print("[AgentSession] No Knowledge scope — chat without documents_search")
+            #endif
             await performAssistantStream(
                 request: .textOnly,
                 systemPrompt: NookSystemPrompt.standard,
@@ -156,7 +158,19 @@ public final class AgentSession: ObservableObject {
             )
             messages.append(toolChip)
             persist(message: toolChip)
+            #if DEBUG
             print("[AgentSession] Scoped search \(DocumentsSearchTool.toolName) · \(searchResult.displayText)")
+            if searchResult.chunks.isEmpty {
+                print("[AgentSession] No passages survived retrieval — model will see empty evidence")
+            } else {
+                for (index, chunk) in searchResult.chunks.enumerated() {
+                    print(
+                        "[AgentSession] evidence[\(index + 1)] \(chunk.documentId) · \(chunk.pageOrSection) " +
+                        "(\(chunk.text.count) chars)"
+                    )
+                }
+            }
+            #endif
 
             let evidenceNote: String
             if searchResult.chunks.isEmpty {
@@ -164,7 +178,9 @@ public final class AgentSession: ObservableObject {
             } else {
                 evidenceNote =
                     "documents_search returned \(searchResult.chunks.count) passage(s). " +
-                    "Use only the retrieved knowledge passages below."
+                    "If they answer the user's question about their documents, use only those passages. " +
+                    "If the question is general knowledge and the passages are unrelated, answer normally " +
+                    "and do not claim the answer came from Knowledge."
             }
 
             await performAssistantStream(
@@ -304,6 +320,9 @@ public final class AgentSession: ObservableObject {
                             updated.content = result.text
                         }
                         let citations = result.citations.isEmpty ? forcedCitations : result.citations
+                        // Only show citation pills when the reply has substance and we actually
+                        // retrieved passages intended as sources (forcedCitations empty when search
+                        // found nothing relevant).
                         if !updated.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                             updated.citations = citations
                         }

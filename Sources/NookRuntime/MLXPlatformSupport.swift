@@ -1,4 +1,5 @@
 import Foundation
+import NookCore
 
 /// Platform gates for MLX inference.
 public enum MLXPlatformSupport {
@@ -21,10 +22,20 @@ public enum MLXPlatformSupport {
         #if targetEnvironment(simulator)
         return "ScriptedModelRuntime (simulator)"
         #else
-        return useMLXInference ? "MLXModelRuntime (device)" : "ScriptedModelRuntime"
+        switch NookInferenceConfig.backend {
+        case .litert:
+            return "LiteRTModelRuntime (device)"
+        case .mlx:
+            return useMLXInference ? "MLXModelRuntime (device)" : "ScriptedModelRuntime"
+        }
         #endif
         #else
-        return "MLXModelRuntime (macOS)"
+        switch NookInferenceConfig.backend {
+        case .litert:
+            return "LiteRTModelRuntime (macOS)"
+        case .mlx:
+            return "MLXModelRuntime (macOS)"
+        }
         #endif
     }
 }

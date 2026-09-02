@@ -315,6 +315,7 @@ public final class KnowledgeStore: @unchecked Sendable {
             }
 
             let maxLexical = lexicalScores.values.max() ?? 0
+            let contentTokens = Self.contentTokens(from: trimmed)
 
             var ranked: [RankedKnowledgeHit] = []
             for row in candidateRows {
@@ -334,7 +335,12 @@ public final class KnowledgeStore: @unchecked Sendable {
 
                 let lexicalScore = lexicalScores[chunkId] ?? 0
                 let normalizedLexical = maxLexical > 0 ? lexicalScore / maxLexical : 0
-                let combined = (0.35 * normalizedLexical) + (0.65 * max(0, semanticScore))
+                let titleScore = Self.titleMatchScore(section: pageOrSection, tokens: contentTokens)
+                // Title overlap pulls exact-heading hits above body-only BM25 noise.
+                let combined =
+                    (0.30 * normalizedLexical) +
+                    (0.55 * max(0, semanticScore)) +
+                    (0.30 * titleScore)
 
                 ranked.append(
                     RankedKnowledgeHit(
@@ -347,7 +353,7 @@ public final class KnowledgeStore: @unchecked Sendable {
                         documentName: documentName,
                         collectionName: collectionName,
                         combined: combined,
-                        normalizedLexical: normalizedLexical,
+                        normalizedLexical: max(normalizedLexical, titleScore),
                         semanticScore: semanticScore
                     )
                 )
@@ -358,23 +364,42 @@ public final class KnowledgeStore: @unchecked Sendable {
     }
 
     /// Keeps only passages with a real lexical or semantic match — avoids showing every
-    /// chunk in a small collection as a citation pill.
+    /// chunk in a small collection as a citation pill (e.g. "capital of France" vs project docs).
     private func filterRelevantHits(_ ranked: [RankedKnowledgeHit], limit: Int) -> [KnowledgeSearchHit] {
         let sorted = ranked.sorted { $0.combined > $1.combined }
         guard let top = sorted.first else { return [] }
 
-        let minAbsoluteScore = 0.20
+        // Require a clear match. Pure embedding noise on short general-knowledge queries
+        // often lands ~0.2–0.35 against unrelated project text.
+        let minAbsoluteScore = 0.28
         let relativeToTopScore = 0.55
-        let minSemanticWhenNoLexical = 0.42
+        let minSemanticWhenNoLexical = 0.55
+        // Strong FTS alone is enough — NLEmbedding often underscores exact section matches
+        // (e.g. "long context" → "Long-context vs RAG" with sem≈0).
+        let minLexicalKeep = 0.45
 
         let filtered = sorted.filter { hit in
-            guard hit.combined >= minAbsoluteScore else { return false }
-            guard hit.combined >= top.combined * relativeToTopScore else { return false }
-            if hit.normalizedLexical > 0 { return true }
-            return hit.semanticScore >= minSemanticWhenNoLexical
+            let strongLexical = hit.normalizedLexical >= minLexicalKeep
+            if strongLexical {
+                return true
+            }
+
+            let passAbsolute = hit.combined >= minAbsoluteScore
+            let passRelative = hit.combined >= top.combined * relativeToTopScore
+            let passMixed = hit.normalizedLexical > 0.15 && hit.semanticScore >= 0.30
+            let passSemantic = hit.semanticScore >= minSemanticWhenNoLexical
+            return passAbsolute && passRelative && (passMixed || passSemantic)
         }
 
-        return Array(filtered.prefix(limit)).map { hit in
+        // Prefer lexical-strong hits when re-sorting for the prompt (exact section titles).
+        let ordered = filtered.sorted { lhs, rhs in
+            if abs(lhs.normalizedLexical - rhs.normalizedLexical) > 0.08 {
+                return lhs.normalizedLexical > rhs.normalizedLexical
+            }
+            return lhs.combined > rhs.combined
+        }
+
+        return Array(ordered.prefix(limit)).map { hit in
             KnowledgeSearchHit(
                 chunk: hit.chunk,
                 documentName: hit.documentName,
@@ -386,38 +411,22 @@ public final class KnowledgeStore: @unchecked Sendable {
 
     // MARK: - Indexing helpers
 
+    /// Heading sections are split by the Markdown parser; within each section we pack
+    /// blank-line paragraphs up to an embedding-friendly word budget (not fixed word windows).
     func chunkText(text: String, documentName: String, pageOrSection: String) -> [DocumentChunk] {
-        let words = text.split(whereSeparator: \.isWhitespace).map(String.init)
-        let chunkSizeInWords = 450
-        let overlapInWords = 60
-
-        var generatedChunks: [DocumentChunk] = []
-        var startIndex = 0
-
-        while startIndex < words.count {
-            let endIndex = min(startIndex + chunkSizeInWords, words.count)
-            let chunkWords = words[startIndex..<endIndex]
-            let chunkString = chunkWords.joined(separator: " ")
-
-            generatedChunks.append(
-                DocumentChunk(
-                    documentId: documentName,
-                    text: chunkString,
-                    pageOrSection: pageOrSection
-                )
-            )
-
-            if endIndex == words.count { break }
-            startIndex += (chunkSizeInWords - overlapInWords)
-        }
-
-        if generatedChunks.isEmpty, !text.isEmpty {
-            generatedChunks.append(
+        let passages = MarkdownParagraphChunker.chunk(text: text)
+        if passages.isEmpty, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return [
                 DocumentChunk(documentId: documentName, text: text, pageOrSection: pageOrSection)
+            ]
+        }
+        return passages.map { passage in
+            DocumentChunk(
+                documentId: documentName,
+                text: passage,
+                pageOrSection: pageOrSection
             )
         }
-
-        return generatedChunks
     }
 
     private func upsertDocument(
@@ -477,7 +486,8 @@ public final class KnowledgeStore: @unchecked Sendable {
     }
 
     private func insertChunk(_ chunk: DocumentChunk, documentId: String, in db: Database) throws {
-        let embedding = KnowledgeEmbedder.embed(chunk.text)
+        let indexedText = Self.ftsDocument(text: chunk.text, pageOrSection: chunk.pageOrSection)
+        let embedding = KnowledgeEmbedder.embed(indexedText)
         let embeddingData = embedding.map(KnowledgeEmbedder.embeddingData(from:))
         try db.execute(
             sql: """
@@ -491,18 +501,43 @@ public final class KnowledgeStore: @unchecked Sendable {
                 INSERT INTO knowledge_chunks_fts (chunk_id, text, page_or_section)
                 VALUES (?, ?, ?)
                 """,
-            arguments: [chunk.id, chunk.text, chunk.pageOrSection]
+            arguments: [chunk.id, indexedText, chunk.pageOrSection]
         )
     }
 
     private func ftsMatchQuery(from query: String) -> String? {
-        let tokens = query
+        let tokens = Self.contentTokens(from: query)
+        guard !tokens.isEmpty else { return nil }
+        return tokens.map { "\($0)*" }.joined(separator: " OR ")
+    }
+
+    private static let ftsStopwords: Set<String> = [
+        "a", "an", "the", "and", "or", "but", "in", "on", "at", "to", "for",
+        "of", "as", "is", "are", "was", "were", "be", "been", "being",
+        "what", "which", "who", "whom", "this", "that", "these", "those",
+        "how", "why", "when", "where", "do", "does", "did", "can", "could",
+        "would", "should", "with", "from", "about",
+    ]
+
+    static func contentTokens(from query: String) -> [String] {
+        query
             .lowercased()
             .split(whereSeparator: { !$0.isLetter && !$0.isNumber })
             .map(String.init)
-            .filter { $0.count > 2 }
-        guard !tokens.isEmpty else { return nil }
-        return tokens.map { "\($0)*" }.joined(separator: " OR ")
+            .filter { $0.count > 2 && !ftsStopwords.contains($0) }
+    }
+
+    static func titleMatchScore(section: String, tokens: [String]) -> Double {
+        guard !tokens.isEmpty else { return 0 }
+        let lower = section.lowercased()
+        let sectionTokens = lower
+            .split(whereSeparator: { !$0.isLetter && !$0.isNumber })
+            .map(String.init)
+        let hits = tokens.filter { token in
+            lower.contains(token)
+                || sectionTokens.contains { $0.hasPrefix(token) || token.hasPrefix($0) }
+        }.count
+        return Double(hits) / Double(tokens.count)
     }
 }
 
@@ -568,7 +603,7 @@ extension KnowledgeStore {
                 CREATE VIRTUAL TABLE knowledge_chunks_fts USING fts5(
                     chunk_id UNINDEXED,
                     text,
-                    page_or_section UNINDEXED,
+                    page_or_section,
                     tokenize='unicode61'
                 )
                 """)
@@ -578,7 +613,46 @@ extension KnowledgeStore {
                 table.add(column: "file_path", .text)
             }
         }
+        migrator.registerMigration("v4_knowledge_fts_index_sections") { db in
+            try KnowledgeStore.rebuildFTSIndexingSectionTitles(in: db)
+        }
         try migrator.migrate(queue)
         return try KnowledgeStore(dbQueue: queue)
+    }
+
+    /// Recreate FTS so section titles are searchable (headings were previously UNINDEXED).
+    static func rebuildFTSIndexingSectionTitles(in db: Database) throws {
+        try db.execute(sql: "DROP TABLE IF EXISTS knowledge_chunks_fts")
+        try db.execute(sql: """
+            CREATE VIRTUAL TABLE knowledge_chunks_fts USING fts5(
+                chunk_id UNINDEXED,
+                text,
+                page_or_section,
+                tokenize='unicode61'
+            )
+            """)
+        let rows = try Row.fetchAll(
+            db,
+            sql: "SELECT id, text, page_or_section FROM knowledge_chunks"
+        )
+        for row in rows {
+            let id: String = row["id"]
+            let text: String = row["text"]
+            let section: String = row["page_or_section"]
+            let ftsText = Self.ftsDocument(text: text, pageOrSection: section)
+            try db.execute(
+                sql: """
+                    INSERT INTO knowledge_chunks_fts (chunk_id, text, page_or_section)
+                    VALUES (?, ?, ?)
+                    """,
+                arguments: [id, ftsText, section]
+            )
+        }
+    }
+
+    static func ftsDocument(text: String, pageOrSection: String) -> String {
+        let section = pageOrSection.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !section.isEmpty else { return text }
+        return section + "\n" + text
     }
 }

@@ -29,7 +29,7 @@ enum DeviceMemoryBudget {
 
     /// Device class gate for Balanced (Gemma 4 E2B VLM).
     private static let balancedMinimumPhysical: UInt64 = 7_500_000_000
-    /// Headroom needed to *start* a cold load (not the full ~3.6 GB weight size —
+    /// Headroom needed to *start* a cold load (not the full weight size —
     /// `os_proc_available_memory` collapses once weights are mapped).
     private static let balancedMinimumAvailableToLoad: UInt64 = 1_200_000_000
 

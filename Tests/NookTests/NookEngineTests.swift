@@ -92,6 +92,112 @@ final class NookEngineTests: XCTestCase {
         XCTAssertTrue(hits.contains { $0.chunk.pageOrSection == "Risks" })
     }
 
+    /// Section titles must be FTS-indexed — body text alone can omit the heading words.
+    func testSearchMatchesSectionTitleWhenBodyOmitsQueryTerms() throws {
+        let store = try KnowledgeStore.makeForTests()
+        _ = try store.createCollection(id: "rag", name: "RAG")
+        let mdURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("rag-\(UUID().uuidString).md")
+        let markdown = """
+        # Overview
+
+        Retrieval-augmented generation overview.
+
+        ## Failure modes to design for
+
+        - Wrong top-k: Irrelevant passages still look confident.
+        - Lost in the middle: Very long contexts bury useful chunks.
+
+        ## Long-context vs RAG
+
+        Million-token windows reduce pressure for some desktop workflows.
+        """
+        try markdown.write(to: mdURL, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: mdURL) }
+        _ = try store.importMarkdownFile(from: mdURL, collectionId: "rag")
+
+        let failureHits = try store.search(
+            query: "Failure modes to design for",
+            scopedToCollections: ["RAG"],
+            limit: 5
+        )
+        XCTAssertFalse(failureHits.isEmpty, "Expected heading-only FTS hit for Failure modes")
+        XCTAssertEqual(failureHits.first?.chunk.pageOrSection, "Failure modes to design for")
+
+        let longHits = try store.search(
+            query: "What is long context?",
+            scopedToCollections: ["RAG"],
+            limit: 5
+        )
+        XCTAssertFalse(longHits.isEmpty)
+        XCTAssertTrue(
+            longHits.contains { $0.chunk.pageOrSection == "Long-context vs RAG" },
+            "Expected Long-context section among kept hits"
+        )
+    }
+
+    func testLearneoFAQMidCyclePerformanceReviews() throws {
+        let store = try KnowledgeStore.makeForTests()
+        _ = try store.createCollection(id: "learneo", name: "Learneo")
+        let fixture = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("TestFixtures/learneo-faq.md")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fixture.path), fixture.path)
+        _ = try store.importMarkdownFile(from: fixture, collectionId: "learneo")
+
+        let markdown = try String(contentsOf: fixture, encoding: .utf8)
+        let sections = MarkdownSectionParser.sections(from: markdown)
+        for section in sections {
+            let words = section.text.split(whereSeparator: \.isWhitespace).count
+            print("[test] section=\"\(section.pageOrSection)\" words=\(words)")
+        }
+
+        let hits = try store.search(
+            query: "What about mid-cycle performance reviews",
+            scopedToCollections: ["Learneo"],
+            limit: 5
+        )
+        XCTAssertFalse(hits.isEmpty, "Expected mid-cycle performance reviews FAQ hit")
+        guard let midCycle = hits.first(where: {
+            $0.chunk.text.localizedCaseInsensitiveContains("mid-cycle performance reviews")
+        }) else {
+            XCTFail("No chunk contained mid-cycle performance reviews")
+            return
+        }
+        // Paragraph packing should isolate FAQ pairs — not bury them in a 450-word window.
+        XCTAssertFalse(
+            midCycle.chunk.text.localizedCaseInsensitiveContains("What is happening?"),
+            "Mid-cycle chunk should not still contain the first FAQ pair"
+        )
+        let midCycleWords = midCycle.chunk.text.split(whereSeparator: \.isWhitespace).count
+        XCTAssertLessThanOrEqual(midCycleWords, MarkdownParagraphChunker.hardWordBudget + 40)
+    }
+
+    func testParagraphChunkingPacksBlankLineBlocks() {
+        let body = """
+        First block with a handful of words about alpha.
+
+        Second block talks about beta exclusively here.
+
+        Third block is gamma content only.
+        """
+        let passages = MarkdownParagraphChunker.chunk(text: body)
+        XCTAssertEqual(passages.count, 1, "Three short paragraphs should pack into one passage")
+        XCTAssertTrue(passages[0].contains("alpha"))
+        XCTAssertTrue(passages[0].contains("gamma"))
+
+        let longPair = String(repeating: "word ", count: 90)
+        let sparse = """
+        \(longPair.trimmingCharacters(in: .whitespaces))
+
+        \(longPair.trimmingCharacters(in: .whitespaces))
+        """
+        let split = MarkdownParagraphChunker.chunk(text: sparse)
+        XCTAssertEqual(split.count, 2, "Paragraphs near soft budget should not merge past soft limit")
+    }
+
     func testContextAssemblerTokenBudget() {
         let budget = ContextBudgetConfig(
             totalContextLimit: 8000,
