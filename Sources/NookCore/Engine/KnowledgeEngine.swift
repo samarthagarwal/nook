@@ -35,7 +35,7 @@ public actor KnowledgeEngine {
         try store.importMarkdownFile(from: url, collectionId: collectionId)
     }
 
-    /// Chunks arbitrary text into 400-600 token pieces with 50-100 token overlap.
+    /// Chunks section body by packing blank-line paragraphs (embedding-sized).
     public func chunkText(text: String, documentId: String, pageOrSection: String) -> [DocumentChunk] {
         store.chunkText(text: text, documentName: documentId, pageOrSection: pageOrSection)
     }

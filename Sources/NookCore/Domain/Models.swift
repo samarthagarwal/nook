@@ -358,8 +358,9 @@ public struct ModelTier: Identifiable, Codable, Equatable, Sendable {
     }
 
     /// True when model weights ship inside the app bundle (no network download).
+    /// LiteRT "Bundled" is a light downloadable tier (Qwen3 0.6B), not an IPA resource.
     public var shipsBundled: Bool {
-        id == "bundled"
+        id == "bundled" && NookInferenceConfig.usesMLX
     }
     
     /// Tier recommended for first-time download (chat + vision).
@@ -371,26 +372,26 @@ public struct ModelTier: Identifiable, Codable, Equatable, Sendable {
         ModelTier(
             id: "bundled",
             name: "Bundled",
-            size: "280 MB",
-            desc: "Ships with the app. Light chat, always available.",
-            longDesc: "Qwen2.5 0.5B (4-bit). Bundled with the app — no download required.",
+            size: "330 MB",
+            desc: "Lightest chat. Fast to download, always handy.",
+            longDesc: "Qwen3 0.6B (INT4, LiteRT-LM). Compact on-device chat.",
             tags: ["text", "bundled"],
             isDefault: true
         ),
         ModelTier(
             id: "fast",
             name: "Fast",
-            size: "660 MB",
-            desc: "Quick on-device chat. Stronger than Bundled.",
-            longDesc: "LFM2.5 1.2B Instruct (4-bit). Edge-optimized chat with native tool calling.",
+            size: "1.6 GB",
+            desc: "Stronger everyday chat than Bundled.",
+            longDesc: "Qwen2.5 1.5B Instruct (Q8, LiteRT-LM). Good step up before Balanced.",
             tags: ["text", "tools"]
         ),
         ModelTier(
             id: "balanced",
             name: "Balanced",
-            size: "3.6 GB",
-            desc: "Recommended. Stronger reasoning, reads photos.",
-            longDesc: "Gemma 4 E2B (4-bit). Full chat with vision and native tool calling.",
+            size: "2.6 GB",
+            desc: "Recommended. Stronger reasoning, multimodal.",
+            longDesc: "Gemma 4 E2B via LiteRT-LM (Metal). Full chat with vision and tool calling.",
             tags: ["text", "images", "tools", "recommended"]
         )
     ]

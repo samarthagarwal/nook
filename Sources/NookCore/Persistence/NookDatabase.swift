@@ -110,7 +110,7 @@ public enum NookDatabase {
                 CREATE VIRTUAL TABLE knowledge_chunks_fts USING fts5(
                     chunk_id UNINDEXED,
                     text,
-                    page_or_section UNINDEXED,
+                    page_or_section,
                     tokenize='unicode61'
                 )
                 """)
@@ -120,6 +120,10 @@ public enum NookDatabase {
             try db.alter(table: "knowledge_documents") { table in
                 table.add(column: "file_path", .text)
             }
+        }
+
+        migrator.registerMigration("v4_knowledge_fts_index_sections") { db in
+            try KnowledgeStore.rebuildFTSIndexingSectionTitles(in: db)
         }
 
         try migrator.migrate(dbQueue)

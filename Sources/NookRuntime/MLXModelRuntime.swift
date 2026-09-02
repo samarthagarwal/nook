@@ -94,7 +94,7 @@ public final class MLXModelRuntime: ModelRuntime, @unchecked Sendable {
                 try await engine.load(
                     source: source,
                     backend: spec.backend,
-                    toolCallFormat: spec.toolCallFormat
+                    toolCallFormat: ModelCatalog.toolCallFormat(for: tier)
                 ) { progress, transfer in
                     progressHandler(progress, transfer)
                     self.setDownloadState(.downloading(progressPct: progress, transfer: transfer))
@@ -265,7 +265,7 @@ public final class MLXModelRuntime: ModelRuntime, @unchecked Sendable {
         try await engine.load(
             source: source,
             backend: spec.backend,
-            toolCallFormat: spec.toolCallFormat
+            toolCallFormat: ModelCatalog.toolCallFormat(for: activeTier)
         ) { _, _ in }
         _ = withLock { downloadedRepos.insert(spec.repoId) }
         AppPreferences.markTierDownloaded(activeTier.id)

@@ -83,7 +83,7 @@ public final class DocumentsSearchTool: @unchecked Sendable, AgentTool {
         }
 
         var lines: [String] = [
-            "Verbatim passages from \(result.scopeLabel) (use only these; do not invent):"
+            "Candidate passages from \(result.scopeLabel) (use for document questions; ignore if unrelated to a general-knowledge question):"
         ]
         for (index, chunk) in result.chunks.enumerated() {
             let citation = result.citations[safe: index]
