@@ -17,7 +17,13 @@ enum MLXPromptBuilder {
         }
         if !context.retrievedEvidence.isEmpty {
             let evidence = context.retrievedEvidence.joined(separator: "\n\n")
-            instructionParts.append("Retrieved knowledge (cite sources when you use them):\n\(evidence)")
+            instructionParts.append(
+                """
+                Retrieved knowledge — verbatim passages from the user's scoped collections. \
+                Use only these facts; do not invent document content:
+                \(evidence)
+                """
+            )
         }
         if !context.toolResultSummaries.isEmpty {
             let tools = context.toolResultSummaries.joined(separator: "\n")

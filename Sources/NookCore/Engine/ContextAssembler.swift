@@ -87,7 +87,9 @@ public struct ContextAssembler: Sendable {
         for chunk in evidenceChunks {
             let chunkTokens = ContextAssembler.estimateTokens(for: chunk.text)
             if evidenceTokens + chunkTokens <= config.evidenceCap {
-                fittedEvidence.append("[\(chunk.documentId) - \(chunk.pageOrSection)]: \(chunk.text)")
+                fittedEvidence.append(
+                    "SOURCE \(chunk.documentId) · \(chunk.pageOrSection):\n\"\"\"\n\(chunk.text)\n\"\"\""
+                )
                 evidenceTokens += chunkTokens
             } else {
                 break

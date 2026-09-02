@@ -153,9 +153,19 @@ public final class AgentSession: ObservableObject {
             persist(message: toolChip)
             print("[AgentSession] Scoped search \(DocumentsSearchTool.toolName) · \(searchResult.displayText)")
 
+            let evidenceNote: String
+            if searchResult.chunks.isEmpty {
+                evidenceNote = searchResult.textForModel
+            } else {
+                evidenceNote =
+                    "documents_search returned \(searchResult.chunks.count) passage(s). " +
+                    "Use only the retrieved knowledge passages below."
+            }
+
             await performAssistantStream(
                 request: .textOnly,
-                toolResults: [searchResult.textForModel],
+                evidenceChunks: searchResult.chunks,
+                toolResults: [evidenceNote],
                 forcedCitations: searchResult.citations,
                 systemPrompt: NookSystemPrompt.withRetrievedKnowledge,
                 streamHandler: streamHandler
@@ -219,6 +229,7 @@ public final class AgentSession: ObservableObject {
 
     private func performAssistantStream(
         request: AgentGenerationRequest,
+        evidenceChunks: [DocumentChunk] = [],
         toolResults: [String] = [],
         forcedCitations: [Citation] = [],
         systemPrompt: String = NookSystemPrompt.standard,
@@ -246,7 +257,7 @@ public final class AgentSession: ObservableObject {
         let promptContext = contextAssembler.assemble(
             baseSystemPrompt: systemPrompt,
             activeSkill: nil,
-            evidenceChunks: [],
+            evidenceChunks: evidenceChunks,
             chatHistory: messages.filter { $0.id != assistantMsgId },
             toolResults: toolResults
         )

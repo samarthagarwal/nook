@@ -49,70 +49,110 @@ public struct KnowledgeView: View {
             .padding(.horizontal, 20)
             .padding(.bottom, 16)
             
-            // Collections List
-            ScrollView {
-                LazyVStack(spacing: 10) {
-                    ForEach(knowledgeEngineState.collections) { coll in
-                        Button(action: {
-                            onSelectCollection(coll)
-                        }) {
-                            VStack(alignment: .leading, spacing: 8) {
-                                HStack {
-                                    Text(coll.name)
-                                        .font(NookTypography.cardTitleSerif)
-                                        .foregroundColor(NookColors.ink)
-                                    
-                                    Spacer()
-                                    
-                                    Text(coll.count)
-                                        .font(NookTypography.badge)
-                                        .foregroundColor(NookColors.ink45)
-                                }
-                                
-                                if !coll.desc.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                                    Text(coll.desc)
-                                        .font(NookTypography.cardSub)
-                                        .foregroundColor(NookColors.ink62)
-                                }
-                                
-                                HStack(spacing: 6) {
-                                    if coll.state == .ready {
-                                        PrivacyDot()
-                                        Text(coll.status)
-                                            .font(NookTypography.badge)
-                                            .foregroundColor(NookColors.local)
-                                    } else {
-                                        PrivacyRing()
-                                        Text(coll.status)
-                                            .font(NookTypography.badge)
-                                            .foregroundColor(NookColors.external)
-                                    }
-                                }
-                                .padding(.top, 2)
-                            }
-                            .padding(16)
+            // Collections List or empty state
+            if knowledgeEngineState.collections.isEmpty {
+                VStack(spacing: 16) {
+                    Spacer(minLength: 24)
+                    
+                    Image(systemName: "books.vertical")
+                        .font(.system(size: 28, weight: .regular))
+                        .foregroundColor(NookColors.ink40)
+                    
+                    VStack(spacing: 8) {
+                        Text("No collections yet")
+                            .font(NookTypography.cardTitleSerif)
+                            .foregroundColor(NookColors.ink)
+                        
+                        Text("Create a collection, then import Markdown files. Everything stays on this iPhone.")
+                            .font(NookTypography.body)
+                            .foregroundColor(NookColors.ink62)
+                            .multilineTextAlignment(.center)
+                            .lineSpacing(4)
+                    }
+                    
+                    Button(action: onAddCollection) {
+                        Text("Create a collection")
+                            .font(NookTypography.rowTitle)
+                            .foregroundColor(NookColors.inkOnDark)
+                            .padding(.horizontal, 18)
+                            .padding(.vertical, 12)
                             .background(
-                                RoundedRectangle(cornerRadius: NookRadius.cardLg)
-                                    .fill(NookColors.surface)
+                                RoundedRectangle(cornerRadius: NookRadius.card)
+                                    .fill(NookColors.local)
                             )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: NookRadius.cardLg)
-                                    .strokeBorder(NookColors.hairline, lineWidth: 1)
-                            )
-                            .nookCardShadow()
-                        }
-                        .buttonStyle(.plain)
-                        .contextMenu {
-                            Button(role: .destructive) {
-                                onDeleteCollection(coll)
-                            } label: {
-                                Label("Delete collection", systemImage: "trash")
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.top, 4)
+                    
+                    Spacer(minLength: 24)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding(.horizontal, 28)
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 10) {
+                        ForEach(knowledgeEngineState.collections) { coll in
+                            Button(action: {
+                                onSelectCollection(coll)
+                            }) {
+                                VStack(alignment: .leading, spacing: 8) {
+                                    HStack {
+                                        Text(coll.name)
+                                            .font(NookTypography.cardTitleSerif)
+                                            .foregroundColor(NookColors.ink)
+                                        
+                                        Spacer()
+                                        
+                                        Text(coll.count)
+                                            .font(NookTypography.badge)
+                                            .foregroundColor(NookColors.ink45)
+                                    }
+                                    
+                                    if !coll.desc.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                        Text(coll.desc)
+                                            .font(NookTypography.cardSub)
+                                            .foregroundColor(NookColors.ink62)
+                                    }
+                                    
+                                    HStack(spacing: 6) {
+                                        if coll.state == .ready {
+                                            PrivacyDot()
+                                            Text(coll.status)
+                                                .font(NookTypography.badge)
+                                                .foregroundColor(NookColors.local)
+                                        } else {
+                                            PrivacyRing()
+                                            Text(coll.status)
+                                                .font(NookTypography.badge)
+                                                .foregroundColor(NookColors.external)
+                                        }
+                                    }
+                                    .padding(.top, 2)
+                                }
+                                .padding(16)
+                                .background(
+                                    RoundedRectangle(cornerRadius: NookRadius.cardLg)
+                                        .fill(NookColors.surface)
+                                )
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: NookRadius.cardLg)
+                                        .strokeBorder(NookColors.hairline, lineWidth: 1)
+                                )
+                                .nookCardShadow()
+                            }
+                            .buttonStyle(.plain)
+                            .contextMenu {
+                                Button(role: .destructive) {
+                                    onDeleteCollection(coll)
+                                } label: {
+                                    Label("Delete collection", systemImage: "trash")
+                                }
                             }
                         }
                     }
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 24)
                 }
-                .padding(.horizontal, 20)
-                .padding(.bottom, 24)
             }
         }
         .background(NookColors.paper.ignoresSafeArea())
@@ -229,6 +269,27 @@ public struct CollectionDetailView: View {
             // Documents List
             ScrollView {
                 LazyVStack(spacing: 8) {
+                    if documents.isEmpty {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("No documents yet")
+                                .font(NookTypography.rowTitle)
+                                .foregroundColor(NookColors.ink)
+                            Text("Import a Markdown file to index passages for chat search.")
+                                .font(NookTypography.meta)
+                                .foregroundColor(NookColors.ink55)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(14)
+                        .background(
+                            RoundedRectangle(cornerRadius: NookRadius.card)
+                                .fill(NookColors.surface)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: NookRadius.card)
+                                .strokeBorder(NookColors.hairline, lineWidth: 1)
+                        )
+                    }
+                    
                     ForEach(documents) { doc in
                         VStack(alignment: .leading, spacing: 6) {
                             HStack {

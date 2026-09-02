@@ -82,11 +82,13 @@ public final class DocumentsSearchTool: @unchecked Sendable, AgentTool {
             )
         }
 
-        var lines: [String] = ["Found \(result.chunks.count) passage(s) in \(result.scopeLabel):"]
+        var lines: [String] = [
+            "Verbatim passages from \(result.scopeLabel) (use only these; do not invent):"
+        ]
         for (index, chunk) in result.chunks.enumerated() {
             let citation = result.citations[safe: index]
             let label = citation?.label ?? "\(chunk.documentId) · \(chunk.pageOrSection)"
-            lines.append("[\(index + 1)] \(label)\n\(chunk.text)")
+            lines.append("SOURCE [\(index + 1)] \(label)\n\"\"\"\n\(chunk.text)\n\"\"\"")
         }
 
         return ToolExecutionResult(
