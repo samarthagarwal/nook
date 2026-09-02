@@ -34,12 +34,12 @@ public struct AttachSheet: View {
                 attachRow(title: "A file", sub: "Added to this chat only", icon: "doc", fileName: "spec-addendum.pdf")
                 attachRow(title: "A previous conversation", sub: "Attach an earlier chat as context", icon: "bubble.left.and.bubble.right", fileName: "chat:London-trip")
             }
+            
+            Spacer(minLength: 0)
         }
         .padding(20)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(NookColors.surface)
-        .cornerRadius(NookRadius.sheet)
-        .nookSheetShadow()
-        .padding(10)
     }
     
     private func attachRow(title: String, sub: String, icon: String, fileName: String) -> some View {
@@ -81,16 +81,16 @@ public struct AttachSheet: View {
 }
 
 public struct ScopeSheet: View {
-    @Binding public var activeScope: [String]
+    @ObservedObject private var session: AgentSession
     public let availableCollections: [String]
     public let onClose: () -> Void
     
     public init(
-        activeScope: Binding<[String]>,
-        availableCollections: [String] = ["Project Alpha", "Personal", "University"],
+        session: AgentSession,
+        availableCollections: [String] = [],
         onClose: @escaping () -> Void
     ) {
-        self._activeScope = activeScope
+        self.session = session
         self.availableCollections = availableCollections
         self.onClose = onClose
     }
@@ -119,7 +119,6 @@ public struct ScopeSheet: View {
             
             VStack(spacing: 8) {
                 ForEach(availableCollections, id: \.self) { coll in
-                    let isChecked = activeScope.contains(coll)
                     HStack {
                         Text(coll)
                             .font(NookTypography.rowTitle)
@@ -127,13 +126,9 @@ public struct ScopeSheet: View {
                         Spacer()
                         NookToggle(
                             isOn: Binding(
-                                get: { isChecked },
+                                get: { session.conversation.activeKnowledgeScope.contains(coll) },
                                 set: { newValue in
-                                    if newValue {
-                                        activeScope.append(coll)
-                                    } else {
-                                        activeScope.removeAll { $0 == coll }
-                                    }
+                                    setCollection(coll, included: newValue)
                                 }
                             ),
                             style: .local,
@@ -151,11 +146,26 @@ public struct ScopeSheet: View {
                     )
                 }
             }
+            
+            Spacer(minLength: 0)
         }
         .padding(20)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(NookColors.surface)
-        .cornerRadius(NookRadius.sheet)
-        .nookSheetShadow()
-        .padding(10)
+    }
+    
+    private func setCollection(_ name: String, included: Bool) {
+        var conversation = session.conversation
+        var scope = conversation.activeKnowledgeScope
+        if included {
+            if !scope.contains(name) {
+                scope.append(name)
+            }
+        } else {
+            scope.removeAll { $0 == name }
+        }
+        conversation.activeKnowledgeScope = scope
+        session.conversation = conversation
+        session.persistConversationMetadata()
     }
 }

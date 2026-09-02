@@ -96,7 +96,7 @@ public struct Conversation: Identifiable, Codable, Equatable, Sendable {
         whenString: String = "now",
         snippet: String,
         tags: [String] = [],
-        activeKnowledgeScope: [String] = ["Project Alpha"],
+        activeKnowledgeScope: [String] = [],
         createdAt: Date = Date(),
         updatedAt: Date = Date()
     ) {

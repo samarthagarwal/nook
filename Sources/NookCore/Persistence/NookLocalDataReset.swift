@@ -15,20 +15,10 @@ public enum NookLocalDataReset {
             try db.execute(sql: "DELETE FROM knowledge_chunks")
             try db.execute(sql: "DELETE FROM knowledge_documents")
             try db.execute(sql: "DELETE FROM knowledge_collections")
-
-            try db.execute(
-                sql: """
-                    INSERT INTO knowledge_collections (id, name, desc, state, created_at)
-                    VALUES (?, 'Project Alpha', 'Add Markdown files to search here.', 'ready', ?)
-                    """,
-                arguments: ["project-alpha", Date()]
-            )
         }
 
         if FileManager.default.fileExists(atPath: KnowledgeFiles.rootURL.path) {
             try FileManager.default.removeItem(at: KnowledgeFiles.rootURL)
         }
-
-        AppPreferences.skipDemoKnowledgeSeed = true
     }
 }

@@ -11,6 +11,14 @@ public actor KnowledgeEngine {
         (try? store.fetchCollections()) ?? []
     }
 
+    public func createCollection(
+        id: String = UUID().uuidString,
+        name: String,
+        desc: String = ""
+    ) throws -> KnowledgeCollection {
+        try store.createCollection(id: id, name: name, desc: desc)
+    }
+
     public func getDocuments(forCollectionId collectionId: String) -> [KnowledgeDocument] {
         (try? store.fetchDocuments(collectionId: collectionId)) ?? []
     }

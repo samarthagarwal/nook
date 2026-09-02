@@ -38,6 +38,8 @@ public struct AppRootView: View {
     @State private var isMarkdownImporterPresented: Bool = false
     @State private var markdownImportCollectionId: String? = nil
     @State private var activeToast: String? = nil
+    @State private var isNewCollectionAlertPresented: Bool = false
+    @State private var newCollectionName: String = ""
     
     public init(
         knowledgeEngine: KnowledgeEngine = KnowledgeEngine(),
@@ -192,7 +194,8 @@ public struct AppRootView: View {
                                 self.selectedCollection = coll
                             },
                             onAddCollection: {
-                                showToast("Document picker opened on device")
+                                newCollectionName = ""
+                                isNewCollectionAlertPresented = true
                             }
                         )
                     }
@@ -328,6 +331,8 @@ public struct AppRootView: View {
                 self.activeCitation = nil
             }
             .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
+            .presentationBackground(NookColors.surface)
         }
         .sheet(isPresented: $isAttachSheetOpen) {
             AttachSheet(
@@ -339,23 +344,21 @@ public struct AppRootView: View {
                 }
             )
             .presentationDetents([.medium])
+            .presentationDragIndicator(.visible)
+            .presentationBackground(NookColors.surface)
         }
         .sheet(isPresented: $isScopeSheetOpen) {
             if let session = activeSession {
                 ScopeSheet(
-                    activeScope: Binding(
-                        get: { session.conversation.activeKnowledgeScope },
-                        set: { newScope in
-                            session.conversation.activeKnowledgeScope = newScope
-                            session.persistConversationMetadata()
-                        }
-                    ),
+                    session: session,
                     availableCollections: knowledgeState.collections.map(\.name),
                     onClose: {
                         self.isScopeSheetOpen = false
                     }
                 )
                 .presentationDetents([.medium])
+                .presentationDragIndicator(.visible)
+                .presentationBackground(NookColors.surface)
             }
         }
         .sheet(item: Binding<OutgoingApprovalPayload?>(
@@ -366,6 +369,26 @@ public struct AppRootView: View {
                 activeSession?.resolveApproval(action: action)
             }
             .presentationDetents([.fraction(0.65)])
+            .presentationDragIndicator(.visible)
+            .presentationBackground(NookColors.surface)
+        }
+        .alert("New collection", isPresented: $isNewCollectionAlertPresented) {
+            TextField("Name", text: $newCollectionName)
+            Button("Cancel", role: .cancel) {}
+            Button("Create") {
+                let name = newCollectionName.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !name.isEmpty else { return }
+                Task {
+                    do {
+                        try await knowledgeState.createCollection(name: name)
+                        showToast("Created \(name)")
+                    } catch {
+                        showToast("Couldn’t create collection.")
+                    }
+                }
+            }
+        } message: {
+            Text("Collections hold Markdown files you import on this iPhone.")
         }
         .onChange(of: selectedCollection?.id) { _, collectionId in
             guard let collectionId else { return }
@@ -433,7 +456,7 @@ public struct AppRootView: View {
         self.activeSession = session
     }
     
-    private func startNewChat(scopedTo: [String] = ["Project Alpha"]) {
+    private func startNewChat(scopedTo: [String] = []) {
         let newConvo = Conversation(
             title: "New chat",
             whenString: "now",

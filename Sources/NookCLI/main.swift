@@ -7,7 +7,7 @@ struct NookCLIMain {
     static func main() async throws {
         if CommandLine.arguments.contains("--erase-local-data") {
             try NookLocalDataReset.eraseAll()
-            print("Erased all chats and Knowledge. Empty Project Alpha collection is ready for import.")
+            print("Erased all chats and Knowledge.")
             return
         }
 
@@ -23,10 +23,10 @@ struct NookCLIMain {
         let runtime = ScriptedModelRuntime(activeTier: ModelTier.recommended)
         
         let convo = Conversation(
-            title: "Project Alpha review",
+            title: "CLI review",
             snippet: "CLI test session",
-            tags: ["Project Alpha"],
-            activeKnowledgeScope: ["Project Alpha"]
+            tags: [],
+            activeKnowledgeScope: []
         )
         
         let session = AgentSession(

@@ -284,6 +284,11 @@ public final class ObservableKnowledgeEngine: ObservableObject {
         collections = await engine.getCollections()
     }
 
+    public func createCollection(name: String, desc: String = "") async throws {
+        _ = try await engine.createCollection(name: name, desc: desc)
+        await refreshCollections()
+    }
+
     public func loadDocuments(collectionId: String) async {
         documents = await engine.getDocuments(forCollectionId: collectionId)
     }

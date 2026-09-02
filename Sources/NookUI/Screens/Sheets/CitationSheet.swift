@@ -51,11 +51,11 @@ public struct CitationSheet: View {
                     .font(NookTypography.meta)
                     .foregroundColor(NookColors.ink45)
             }
+            
+            Spacer(minLength: 0)
         }
         .padding(20)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(NookColors.surface)
-        .cornerRadius(NookRadius.sheet)
-        .nookSheetShadow()
-        .padding(10)
     }
 }

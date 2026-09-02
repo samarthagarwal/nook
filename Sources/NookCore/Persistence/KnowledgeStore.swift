@@ -31,10 +31,38 @@ public final class KnowledgeStore: @unchecked Sendable {
 
     public init(dbQueue: DatabaseQueue? = nil) throws {
         self.dbQueue = try dbQueue ?? NookDatabase.makeQueue()
-        try seedDemoCorpusIfNeeded()
     }
 
     // MARK: - Collections
+
+    public func createCollection(
+        id: String = UUID().uuidString,
+        name: String,
+        desc: String = ""
+    ) throws -> KnowledgeCollection {
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty else {
+            throw KnowledgeImportError.emptyDocument
+        }
+        let now = Date()
+        try dbQueue.write { db in
+            try db.execute(
+                sql: """
+                    INSERT INTO knowledge_collections (id, name, desc, state, created_at)
+                    VALUES (?, ?, ?, 'ready', ?)
+                    """,
+                arguments: [id, trimmedName, desc, now]
+            )
+        }
+        return KnowledgeCollection(
+            id: id,
+            name: trimmedName,
+            count: "0 docs",
+            desc: desc,
+            status: "Indexed · 0 passages",
+            state: .ready
+        )
+    }
 
     public func fetchCollections() throws -> [KnowledgeCollection] {
         try dbQueue.read { db in
@@ -435,96 +463,6 @@ public final class KnowledgeStore: @unchecked Sendable {
             .filter { $0.count > 2 }
         guard !tokens.isEmpty else { return nil }
         return tokens.map { "\($0)*" }.joined(separator: " OR ")
-    }
-
-    private func seedDemoCorpusIfNeeded() throws {
-        guard !AppPreferences.skipDemoKnowledgeSeed else { return }
-
-        try dbQueue.write { db in
-            let count = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM knowledge_collections") ?? 0
-            guard count == 0 else { return }
-
-            let now = Date()
-            let projectAlphaId = "project-alpha"
-            try db.execute(
-                sql: """
-                    INSERT INTO knowledge_collections (id, name, desc, state, created_at)
-                    VALUES (?, 'Project Alpha', 'Spec, risk register, retro notes, vendor contract.', 'ready', ?)
-                    """,
-                arguments: [projectAlphaId, now]
-            )
-
-            let corpus: [(String, String, String, String)] = [
-                (
-                    "alpha-spec-v4.pdf",
-                    "42 pages",
-                    "p.18 Auth",
-                    """
-                    The specification names one primary identity provider (Okta Cloud) for all customer \
-                    authentication flows. No secondary fallback provider is currently configured or provisioned \
-                    for v1 launch. Review happens before submission in the spec workflow, not after.
-                    """
-                ),
-                (
-                    "risk-register.pdf",
-                    "6 pages",
-                    "p.3 Analytics",
-                    """
-                    Risk item #14: Analytics layer scope is unestimated and represents a high uncertainty \
-                    factor for sprint delivery. Risk item #7: Single identity provider dependency with no \
-                    documented fallback path for v1 launch.
-                    """
-                ),
-                (
-                    "risk-register.pdf",
-                    "6 pages",
-                    "p.5 Timeline",
-                    """
-                    Timeline risk: Integration milestone assumes vendor delivery in week six, but prior slips \
-                    of two to three weeks have occurred in Q1 and Q2. Mitigation owner is unassigned for \
-                    the identity provider fallback workstream.
-                    """
-                ),
-                (
-                    "retro-notes.md",
-                    "2,100 words",
-                    "Timeline",
-                    """
-                    Timeline slippage retro notes: Vendor delivery slipped 2.5 weeks in Q2, and 3 weeks in Q1. \
-                    Schedule buffer must account for vendor delays. Team flagged analytics scope as still \
-                    unestimated while remaining on the v1 milestone list.
-                    """
-                ),
-                (
-                    "vendor-contract.docx",
-                    "18 pages",
-                    "Section 4.2",
-                    """
-                    Vendor contract section 4.2 limits liability for delayed deliverables and excludes \
-                    penalty clauses for slips shorter than ten business days. The integration dependency \
-                    remains on a single approved vendor for authentication middleware.
-                    """
-                ),
-            ]
-
-            for entry in corpus {
-                let chunks = chunkText(
-                    text: entry.3,
-                    documentName: entry.0,
-                    pageOrSection: entry.2
-                )
-                let documentId = try upsertDocument(
-                    collectionId: projectAlphaId,
-                    name: entry.0,
-                    meta: entry.1,
-                    filePath: nil,
-                    in: db
-                )
-                for chunk in chunks {
-                    try insertChunk(chunk, documentId: documentId, in: db)
-                }
-            }
-        }
     }
 }
 

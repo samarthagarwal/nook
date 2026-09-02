@@ -31,7 +31,9 @@ public struct NookToggle: View {
     
     public var body: some View {
         Button(action: {
-            isOn.toggle()
+            withAnimation(.easeInOut(duration: 0.15)) {
+                isOn.toggle()
+            }
         }) {
             ZStack(alignment: isOn ? .trailing : .leading) {
                 RoundedRectangle(cornerRadius: NookRadius.toggleTrack)

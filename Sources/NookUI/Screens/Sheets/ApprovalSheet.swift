@@ -78,11 +78,11 @@ public struct ApprovalSheet: View {
                     }
                 }
             }
+            
+            Spacer(minLength: 0)
         }
         .padding(22)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(NookColors.surface)
-        .cornerRadius(NookRadius.sheet)
-        .nookSheetShadow()
-        .padding(10)
     }
 }

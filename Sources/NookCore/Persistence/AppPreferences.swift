@@ -6,7 +6,6 @@ public enum AppPreferences {
         static let onboardingComplete = "nook.onboarding.complete"
         static let activeTierId = "nook.models.activeTierId"
         static let downloadedTierIds = "nook.models.downloadedTierIds"
-        static let skipDemoKnowledgeSeed = "nook.knowledge.skipDemoSeed"
     }
 
     public static var isOnboardingComplete: Bool {
@@ -43,11 +42,6 @@ public enum AppPreferences {
 
     public static func isTierDownloaded(_ tierId: String) -> Bool {
         downloadedTierIds.contains(tierId)
-    }
-
-    public static var skipDemoKnowledgeSeed: Bool {
-        get { UserDefaults.standard.bool(forKey: Key.skipDemoKnowledgeSeed) }
-        set { UserDefaults.standard.set(newValue, forKey: Key.skipDemoKnowledgeSeed) }
     }
 
     public static func markOnboardingComplete(chosenTier: ModelTier) {
