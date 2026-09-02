@@ -64,10 +64,6 @@ public final class ModelRuntimeStore: ObservableObject {
     public func prepareForGenerationIfNeeded() async throws {
         guard modelNeedsReload else { return }
 
-        if let blockReason = DeviceMemoryBudget.loadBlockReason(for: activeTier) {
-            throw MLXModelRuntimeError.memoryConstrained(message: blockReason)
-        }
-
         presentStatus("Reloading on-device model…")
         defer {
             if statusMessage == "Reloading on-device model…" {

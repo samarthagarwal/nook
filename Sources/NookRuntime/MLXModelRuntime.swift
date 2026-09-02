@@ -105,8 +105,12 @@ public final class MLXModelRuntime: ModelRuntime, @unchecked Sendable {
                 setDownloadState(.ready)
                 progressHandler(1.0, nil)
                 logger.phase("marked ready")
-                await engine.unload()
-                MLX.Memory.clearCache()
+                // Keep Balanced resident after first successful load — unloading forces
+                // a multi-second remap on the next send and often trips memory warnings.
+                if tier.id != "balanced" {
+                    await engine.unload()
+                    MLX.Memory.clearCache()
+                }
                 return
             } catch {
                 lastError = error
@@ -164,10 +168,6 @@ public final class MLXModelRuntime: ModelRuntime, @unchecked Sendable {
             throw MLXModelRuntimeError.modelNotReady(underlying: nil)
         }
 
-        if let blockReason = DeviceMemoryBudget.loadBlockReason(for: activeTier) {
-            throw MLXModelRuntimeError.memoryConstrained(message: blockReason)
-        }
-
         idleUnloadTask?.cancel()
         isGenerating = true
         defer {
@@ -175,14 +175,21 @@ public final class MLXModelRuntime: ModelRuntime, @unchecked Sendable {
             if pendingUnloadAfterGeneration {
                 pendingUnloadAfterGeneration = false
                 Task { await self.unloadModelWeights(reason: .memoryPressure) }
-            } else {
+            } else if activeTier.id != "balanced" {
+                // Balanced is expensive to reload; keep warm until background/memory policy says otherwise.
                 idleUnloadTask = Task { await self.scheduleIdleUnload() }
             }
         }
 
         do {
-            print("[MLXModelRuntime] Loading \(activeTier.name); free memory: \(DeviceMemoryBudget.formattedAvailable())")
+            let alreadyLoaded = await engine.isModelLoaded
+            print(
+                "[MLXModelRuntime] \(alreadyLoaded ? "Using loaded" : "Loading") \(activeTier.name); " +
+                "allocatable: \(DeviceMemoryBudget.formattedAvailable())"
+            )
             try await ensureModelLoaded()
+        } catch let error as MLXModelRuntimeError {
+            throw error
         } catch {
             throw MLXModelRuntimeError.modelNotReady(underlying: error)
         }
@@ -244,7 +251,11 @@ public final class MLXModelRuntime: ModelRuntime, @unchecked Sendable {
             throw MLXModelRuntimeError.modelNotReady(underlying: nil)
         }
 
-        if let blockReason = DeviceMemoryBudget.loadBlockReason(for: activeTier) {
+        if await engine.isModelLoaded {
+            return
+        }
+
+        if let blockReason = DeviceMemoryBudget.loadBlockReason(for: activeTier, alreadyLoaded: false) {
             throw MLXModelRuntimeError.memoryConstrained(message: blockReason)
         }
 
@@ -285,6 +296,18 @@ public final class MLXModelRuntime: ModelRuntime, @unchecked Sendable {
 
     private func performMemoryUnload() async {
         MemoryPressureState.shared.recordWarning()
+
+        // Mapping Gemma 4 E2B routinely trips a memory warning. Unloading afterward
+        // creates a load → warn → unload → reload loop that breaks multi-turn chat.
+        if activeTier.id == "balanced" {
+            await engine.reduceMemoryFootprint()
+            print(
+                "[MLXModelRuntime] Memory warning during Balanced — cleared MLX cache, " +
+                "keeping weights (allocatable \(DeviceMemoryBudget.formattedAvailable()))"
+            )
+            return
+        }
+
         if withLock({ isGenerating }) {
             pendingUnloadAfterGeneration = true
             return
@@ -297,9 +320,11 @@ public final class MLXModelRuntime: ModelRuntime, @unchecked Sendable {
         switch activeTier.id {
         case "bundled", "fast":
             delayNanoseconds = 2_000_000_000
+        case "balanced":
+            // Kept warm in-session; released on background via didEnterBackground.
+            return
         default:
-            // Balanced VLM — keep warm a bit longer after use.
-            delayNanoseconds = 20_000_000_000
+            delayNanoseconds = 60_000_000_000
         }
 
         if delayNanoseconds > 0 {
@@ -409,6 +434,9 @@ public enum MLXModelRuntimeError: LocalizedError, Sendable {
         case .modelNotReady:
             return "The on-device model isn't ready yet. Finish downloading it in Settings → Models."
         case .downloadFailed(let underlying):
+            if Self.isWeightKeyMismatch(underlying) {
+                return "Couldn't load this model into memory (weight layout mismatch). Update Nook, then tap Balanced again — no need to re-download."
+            }
             if Self.isArchitectureMismatch(underlying) {
                 return "This model format isn't supported yet. Update the app, or delete and re-download the tier in Settings → Models."
             }
@@ -435,8 +463,34 @@ public enum MLXModelRuntimeError: LocalizedError, Sendable {
     }
 
     private static func isArchitectureMismatch(_ error: Error) -> Bool {
-        let message = (error as? LocalizedError)?.errorDescription
-            ?? (error as NSError).localizedDescription
+        let message = Self.flattenedErrorMessage(error)
         return message.localizedCaseInsensitiveContains("mismatched parameter")
+    }
+
+    /// Gemma 4 E2B/E4B KV-shared layers, or similar MLX module/weight mismatches during load.
+    private static func isWeightKeyMismatch(_ error: Error) -> Bool {
+        let message = Self.flattenedErrorMessage(error)
+        let lower = message.lowercased()
+        if lower.contains("key") && lower.contains("not found") {
+            return true
+        }
+        if lower.contains("keynotfound") {
+            return true
+        }
+        // Common Gemma 4 shared-layer signatures.
+        if lower.contains("k_norm") || lower.contains("k_proj") || lower.contains("v_proj") {
+            return lower.contains("self_attn") || lower.contains("gemma4")
+        }
+        return false
+    }
+
+    private static func flattenedErrorMessage(_ error: Error) -> String {
+        var parts: [String] = []
+        var current: Error? = error
+        while let err = current {
+            parts.append(err.localizedDescription)
+            current = (err as NSError).userInfo[NSUnderlyingErrorKey] as? Error
+        }
+        return parts.joined(separator: " | ")
     }
 }

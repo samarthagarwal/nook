@@ -1,4 +1,4 @@
-// swift-tools-version: 6.0
+// swift-tools-version: 6.1
 import PackageDescription
 
 let package = Package(
@@ -16,7 +16,12 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/ml-explore/mlx-swift", from: "0.31.6"),
-        .package(url: "https://github.com/ml-explore/mlx-swift-lm", from: "3.31.4"),
+        // 3.31.4 still builds K/V on Gemma 4 VLM shared layers (E2B layer 15 fails to load).
+        // Pin through mlx-swift-lm#384 until the next tagged release.
+        .package(
+            url: "https://github.com/ml-explore/mlx-swift-lm",
+            revision: "68947ccdca79bcf7a26dc220f73caa060369513c"
+        ),
         .package(url: "https://github.com/huggingface/swift-huggingface", from: "0.9.0"),
         .package(url: "https://github.com/huggingface/swift-transformers", from: "1.3.0"),
         .package(url: "https://github.com/groue/GRDB.swift", from: "7.0.0")

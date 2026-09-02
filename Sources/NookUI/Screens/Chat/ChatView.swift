@@ -61,21 +61,46 @@ public struct ChatView: View {
                 }
                 .frame(maxHeight: .infinity)
                 .onChange(of: session.messages.count) { _, _ in
-                    if let last = session.messages.last {
+                    scrollChatToBottom(proxy: proxy)
+                }
+                .onChange(of: session.isThinking) { _, isThinking in
+                    if isThinking {
                         withAnimation {
-                            proxy.scrollTo(last.id, anchor: .bottom)
+                            proxy.scrollTo("thinking-indicator", anchor: .bottom)
                         }
                     }
                 }
                 .onChange(of: session.isStreaming) { _, isStreaming in
-                    guard !isStreaming, let last = session.messages.last else { return }
-                    proxy.scrollTo(last.id, anchor: .bottom)
+                    guard !isStreaming else {
+                        scrollChatToBottom(proxy: proxy)
+                        return
+                    }
+                    scrollChatToBottom(proxy: proxy)
+                }
+                .onChange(of: session.messages.last?.content) { _, _ in
+                    if session.isStreaming {
+                        scrollChatToBottom(proxy: proxy)
+                    }
                 }
             }
 
             composerView
         }
         .background(NookColors.paper.ignoresSafeArea())
+    }
+
+    private func scrollChatToBottom(proxy: ScrollViewProxy) {
+        if session.isThinking {
+            withAnimation {
+                proxy.scrollTo("thinking-indicator", anchor: .bottom)
+            }
+            return
+        }
+        if let last = session.messages.last {
+            withAnimation {
+                proxy.scrollTo(last.id, anchor: .bottom)
+            }
+        }
     }
 
     private var knowledgeScopeCaption: String {
@@ -323,48 +348,53 @@ public struct ChatView: View {
             }
             
         case .assistant:
-            VStack(alignment: .leading, spacing: 11) {
-                AssistantMessageText(message.content)
-                
-                if !message.citations.isEmpty {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("FROM YOUR KNOWLEDGE")
-                            .nookEyebrow()
-                            .foregroundColor(NookColors.ink40)
-                        
-                        FlowLayout(spacing: 6) {
-                            ForEach(message.citations) { citation in
-                                Button(action: {
-                                    onSelectCitation(citation)
-                                }) {
-                                    HStack(spacing: 5) {
-                                        Text("1")
-                                            .font(.system(size: 10, weight: .regular, design: .monospaced))
-                                            .foregroundColor(NookColors.local)
-                                        Text(citation.label)
-                                            .font(.system(size: 11.5, weight: .regular, design: .default))
-                                            .foregroundColor(NookColors.ink70)
+            let trimmed = message.content.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.isEmpty {
+                EmptyView()
+            } else {
+                VStack(alignment: .leading, spacing: 11) {
+                    AssistantMessageText(message.content)
+
+                    if !message.citations.isEmpty {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("FROM YOUR KNOWLEDGE")
+                                .nookEyebrow()
+                                .foregroundColor(NookColors.ink40)
+                            
+                            FlowLayout(spacing: 6) {
+                                ForEach(message.citations) { citation in
+                                    Button(action: {
+                                        onSelectCitation(citation)
+                                    }) {
+                                        HStack(spacing: 5) {
+                                            Text("1")
+                                                .font(.system(size: 10, weight: .regular, design: .monospaced))
+                                                .foregroundColor(NookColors.local)
+                                            Text(citation.label)
+                                                .font(.system(size: 11.5, weight: .regular, design: .default))
+                                                .foregroundColor(NookColors.ink70)
+                                        }
+                                        .padding(.horizontal, 9)
+                                        .padding(.vertical, 5)
+                                        .background(
+                                            RoundedRectangle(cornerRadius: NookRadius.chip)
+                                                .fill(NookColors.surface)
+                                        )
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: NookRadius.chip)
+                                                .strokeBorder(NookColors.hairlineStrong, lineWidth: 1)
+                                        )
                                     }
-                                    .padding(.horizontal, 9)
-                                    .padding(.vertical, 5)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: NookRadius.chip)
-                                            .fill(NookColors.surface)
-                                    )
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: NookRadius.chip)
-                                            .strokeBorder(NookColors.hairlineStrong, lineWidth: 1)
-                                    )
+                                    .buttonStyle(.plain)
                                 }
-                                .buttonStyle(.plain)
                             }
                         }
+                        .padding(.top, 4)
                     }
-                    .padding(.top, 4)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.trailing, 20)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.trailing, 20)
         }
     }
     

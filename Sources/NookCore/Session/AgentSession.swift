@@ -93,6 +93,10 @@ public final class AgentSession: ObservableObject {
         trimDisplayedMessages()
         persist(message: userMsg, userTextForMetadata: text)
 
+        // Show thinking immediately — covers Knowledge search + model load before tokens.
+        isThinking = true
+        isStreaming = false
+
         let lower = text.lowercased()
         let knowledgeScope = conversation.activeKnowledgeScope
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -105,6 +109,7 @@ public final class AgentSession: ObservableObject {
             let isAlwaysAllowed = await toolRegistry.isAlwaysAllowed(toolName: "github.search_issues")
 
             if !isAlwaysAllowed {
+                isThinking = false
                 let payload = await mcpClient.buildApprovalPayload(toolName: "github.search_issues", parameters: [:])
                 self.pendingApproval = payload
                 self.pendingStreamHandler = streamHandler
@@ -172,6 +177,7 @@ public final class AgentSession: ObservableObject {
             )
         } catch {
             print("[AgentSession] documents_search failed: \(error)")
+            isThinking = false
             showToast("Couldn’t search Knowledge. Try again.")
             let reply = Message(
                 conversationId: conversation.id,
@@ -235,19 +241,15 @@ public final class AgentSession: ObservableObject {
         systemPrompt: String = NookSystemPrompt.standard,
         streamHandler: @escaping AgentStreamHandler
     ) async {
-        self.isThinking = true
-        try? await Task.sleep(nanoseconds: 350_000_000)
-        if Task.isCancelled {
-            self.isThinking = false
-            return
-        }
-        self.isThinking = false
+        // Keep thinking until the first token arrives. Do not attach citations yet —
+        // an empty assistant bubble with pills looks like a premature answer.
+        isThinking = true
 
         let assistantMsg = Message(
             conversationId: conversation.id,
             role: .assistant,
             content: "",
-            citations: forcedCitations
+            citations: []
         )
         let assistantMsgId = assistantMsg.id
         messages.append(assistantMsg)
@@ -275,10 +277,15 @@ public final class AgentSession: ObservableObject {
                     toolExecutor,
                     { token in
                         guard !Task.isCancelled else { return }
-                        Task { @MainActor in
-                            if let index = self.messages.firstIndex(where: { $0.id == assistantMsgId }) {
-                                self.messages[index].content += token
+                        Task { @MainActor [weak self] in
+                            guard let self else { return }
+                            guard let index = self.messages.firstIndex(where: { $0.id == assistantMsgId }) else {
+                                return
                             }
+                            self.isThinking = false
+                            var updated = self.messages[index]
+                            updated.content += token
+                            self.messages[index] = updated
                         }
                     },
                     { event in
@@ -292,16 +299,19 @@ public final class AgentSession: ObservableObject {
 
                 await MainActor.run {
                     if let index = self.messages.firstIndex(where: { $0.id == assistantMsgId }) {
-                        if !result.citations.isEmpty {
-                            self.messages[index].citations = result.citations
+                        var updated = self.messages[index]
+                        if !result.text.isEmpty, updated.content != result.text {
+                            updated.content = result.text
                         }
-                        NookTextDebug.log(
-                            "AgentSession final assistant",
-                            text: self.messages[index].content
-                        )
-                        self.persist(message: self.messages[index])
+                        let citations = result.citations.isEmpty ? forcedCitations : result.citations
+                        if !updated.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            updated.citations = citations
+                        }
+                        self.messages[index] = updated
+                        self.persist(message: updated)
                     }
                     self.trimDisplayedMessages()
+                    self.isThinking = false
                     self.isStreaming = false
                     self.activeGenerationTask = nil
                 }
@@ -314,22 +324,24 @@ public final class AgentSession: ObservableObject {
                     if let index = self.messages.firstIndex(where: { $0.id == assistantMsgId }) {
                         self.persist(message: self.messages[index])
                     }
+                    self.isThinking = false
                     self.isStreaming = false
                     self.activeGenerationTask = nil
                 }
             } catch {
                 await MainActor.run {
+                    let message = (error as? LocalizedError)?.errorDescription
+                        ?? "Something went wrong while generating on device."
                     if let index = self.messages.firstIndex(where: { $0.id == assistantMsgId }),
                        self.messages[index].content.isEmpty {
-                        self.messages[index].content = "An error occurred during local generation."
+                        self.messages[index].content = message
                     }
                     if let index = self.messages.firstIndex(where: { $0.id == assistantMsgId }) {
                         self.persist(message: self.messages[index])
                     }
+                    self.isThinking = false
                     self.isStreaming = false
                     self.activeGenerationTask = nil
-                    let message = (error as? LocalizedError)?.errorDescription
-                        ?? "Something went wrong while generating on device."
                     self.showToast(message)
                     print("[AgentSession] Generation failed: \(error)")
                 }

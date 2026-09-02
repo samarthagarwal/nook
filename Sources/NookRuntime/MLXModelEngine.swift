@@ -297,6 +297,11 @@ actor MLXModelEngine {
                 switch item {
                 case .chunk(let chunk):
                     roundText += chunk
+                    // Stream live only on the final (no-tools) turn so tool markup
+                    // never flashes in the chat bubble.
+                    if !offerTools, !chunk.isEmpty {
+                        onToken(chunk)
+                    }
                 case .toolCall(let call):
                     pendingCalls.append(call)
                     print("[MLXModelEngine] Tool call: \(call.function.name) args=\(call.function.arguments)")
@@ -317,15 +322,21 @@ actor MLXModelEngine {
                 }
 
                 let visible = Self.visibleAssistantText(roundText)
-                if visible != roundText {
+                if offerTools {
+                    // Buffered this turn — emit once.
+                    if visible != roundText {
+                        print("[MLXModelEngine] Suppressed leaked/incomplete tool markup (\(roundText.count) chars)")
+                    }
+                    if !visible.isEmpty {
+                        onToken(visible)
+                    }
+                    fullText += visible
+                } else if visible != roundText {
                     print("[MLXModelEngine] Suppressed leaked/incomplete tool markup (\(roundText.count) chars)")
-                    NookTextDebug.log("MLXModelEngine raw before sanitize", text: roundText)
+                    fullText = visible
+                } else {
+                    fullText += roundText
                 }
-                NookTextDebug.log("MLXModelEngine emit to UI", text: visible)
-                if !visible.isEmpty {
-                    onToken(visible)
-                }
-                fullText += visible
                 break
             }
 
