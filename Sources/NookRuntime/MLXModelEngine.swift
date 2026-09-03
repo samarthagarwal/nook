@@ -365,7 +365,8 @@ actor MLXModelEngine {
                     Tool results:
                     \(resultBlocks.joined(separator: "\n\n"))
 
-                    Answer the user's question using only these results. Be concise and factual.
+                    Answer the user's question using only these results. Be concise and factual. \
+                    Do not say you lack web access or cannot use tools — these results came from a successful tool call.
                     """
                 )
             )

@@ -2,12 +2,14 @@ import Foundation
 
 /// Bridges an enabled MCP tool into `ToolRegistry` as an external `AgentTool`.
 public struct MCPRemoteTool: AgentTool, Sendable {
+    /// Namespaced name shown to the model (`server__tool`).
     public let name: String
     public let description: String
     public let isExternal: Bool = true
     public let requiresApprovalByDefault: Bool
     public let parameters: [AgentToolParameterSchema]
 
+    private let remoteToolName: String
     private let serverId: String
     private let serverName: String
     private let serverURL: String
@@ -27,8 +29,9 @@ public struct MCPRemoteTool: AgentTool, Sendable {
             ),
         ]
     ) {
-        self.name = tool.name
-        self.description = tool.what
+        self.name = MCPToolRegistrar.registryName(server: server, tool: tool)
+        self.remoteToolName = tool.name
+        self.description = "[\(server.name)] \(tool.what)"
         self.requiresApprovalByDefault = requiresApprovalByDefault
         self.parameters = parameters
         self.serverId = server.id
@@ -47,7 +50,7 @@ public struct MCPRemoteTool: AgentTool, Sendable {
         do {
             let result = try await client.callTool(
                 serverId: serverId,
-                name: name,
+                name: remoteToolName,
                 arguments: mcpArgs
             )
             let text = Self.displayString(from: result)
@@ -60,7 +63,7 @@ public struct MCPRemoteTool: AgentTool, Sendable {
                 textForModel: text,
                 displayText: lines.isEmpty ? text : lines.joined(separator: "\n"),
                 isExternal: true,
-                externalFooter: "\(serverURL) · \(elapsed)"
+                externalFooter: "\(serverName) · \(serverURL) · \(elapsed)"
             )
         } catch let error as MCPError {
             throw error

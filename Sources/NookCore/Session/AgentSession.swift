@@ -41,6 +41,7 @@ public final class AgentSession: ObservableObject {
         skillManager: SkillManager,
         toolRegistry: ToolRegistry,
         mcpClient: MCPClient,
+        mcpToolRegistrar: MCPToolRegistrar? = nil,
         contextAssembler: ContextAssembler = ContextAssembler()
     ) {
         self.conversation = conversation
@@ -51,7 +52,8 @@ public final class AgentSession: ObservableObject {
         self.skillManager = skillManager
         self.toolRegistry = toolRegistry
         self.mcpClient = mcpClient
-        self.mcpToolRegistrar = MCPToolRegistrar(client: mcpClient, registry: toolRegistry)
+        self.mcpToolRegistrar = mcpToolRegistrar
+            ?? MCPToolRegistrar(client: mcpClient, registry: toolRegistry)
         self.contextAssembler = contextAssembler
     }
 
@@ -219,23 +221,20 @@ public final class AgentSession: ObservableObject {
 
     private func requestExternalToolApproval(toolName: String, arguments: ToolArguments) async -> Bool {
         let bindings = await mcpClient.enabledToolBindings()
-        let serverId = bindings.first { $0.tool.name == toolName }?.server.id
-        let payload: OutgoingApprovalPayload
-        if let serverId {
-            payload = await mcpClient.buildApprovalPayload(
-                serverId: serverId,
-                toolName: toolName,
-                arguments: arguments
-            )
-        } else {
-            payload = OutgoingApprovalPayload(
-                serverName: "External",
-                serverUrl: "local",
-                toolName: toolName,
-                formattedPayload: "tool  \(toolName)\n\(MCPClient.encodeArgumentsJSON(arguments))",
-                argumentsJSON: MCPClient.encodeArgumentsJSON(arguments)
-            )
+        let match = bindings.first {
+            MCPToolRegistrar.registryName(server: $0.server, tool: $0.tool) == toolName
+                || $0.tool.name == toolName
         }
+        guard let match else {
+            // Disabled / unknown — never show an approval sheet for a dead tool.
+            print("[AgentSession] Skipping approval; tool not enabled: \(toolName)")
+            return false
+        }
+        let payload = await mcpClient.buildApprovalPayload(
+            serverId: match.server.id,
+            toolName: match.tool.name,
+            arguments: arguments
+        )
 
         return await withCheckedContinuation { continuation in
             self.approvalContinuation?.resume(returning: false)
@@ -279,17 +278,28 @@ public final class AgentSession: ObservableObject {
         let registry = toolRegistry
         let toolExecutor: @Sendable (String, ToolArguments) async throws -> ToolExecutionResult = { name, arguments in
             print("[AgentSession] Tool requested: \(name)")
-            if await registry.requiresApproval(toolName: name) {
-                print("[AgentSession] Waiting for approval: \(name)")
-                let allowed = await self.requestExternalToolApproval(toolName: name, arguments: arguments)
+            guard let resolved = await self.resolveToolName(name) else {
+                let available = await self.enabledExternalToolNames()
+                let hint = available.isEmpty
+                    ? "No external tools are enabled."
+                    : "Available tools: \(available.joined(separator: ", "))."
+                return ToolExecutionResult(
+                    textForModel: "Tool '\(name)' is not enabled or unknown. \(hint)",
+                    displayText: "Skipped unavailable tool \(name)",
+                    isExternal: true
+                )
+            }
+            if await registry.requiresApproval(toolName: resolved) {
+                print("[AgentSession] Waiting for approval: \(resolved)")
+                let allowed = await self.requestExternalToolApproval(toolName: resolved, arguments: arguments)
                 guard allowed else {
-                    print("[AgentSession] Tool denied: \(name)")
+                    print("[AgentSession] Tool denied: \(resolved)")
                     throw CancellationError()
                 }
-                print("[AgentSession] Tool approved: \(name)")
-                return try await registry.executeApproved(toolName: name, arguments: arguments)
+                print("[AgentSession] Tool approved: \(resolved)")
+                return try await registry.executeApproved(toolName: resolved, arguments: arguments)
             }
-            return try await registry.execute(toolName: name, arguments: arguments)
+            return try await registry.execute(toolName: resolved, arguments: arguments)
         }
 
         let task = Task {
@@ -413,6 +423,29 @@ public final class AgentSession: ObservableObject {
            let index = messages.firstIndex(where: { $0.id == beforeAssistantId }) {
             messages[index].citations = event.citations
         }
+    }
+
+    /// Maps a model-emitted tool name to a registered external tool id.
+    private func resolveToolName(_ requested: String) async -> String? {
+        if await toolRegistry.getTool(named: requested) != nil {
+            return requested
+        }
+        // Bare MCP name (e.g. tavily_search) → unique namespaced match.
+        let suffix = "__\(requested)"
+        let matches = await enabledExternalToolNames().filter {
+            $0 == requested || $0.hasSuffix(suffix)
+        }
+        return matches.count == 1 ? matches[0] : nil
+    }
+
+    private func enabledExternalToolNames() async -> [String] {
+        var names: [String] = []
+        for name in await toolRegistry.allToolNames() {
+            if let tool = await toolRegistry.getTool(named: name), tool.isExternal {
+                names.append(name)
+            }
+        }
+        return names.sorted()
     }
 
     public func persistConversationMetadata() {

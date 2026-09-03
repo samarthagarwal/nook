@@ -30,7 +30,13 @@ enum LiteRTPromptBuilder {
         }
         if !context.toolResultSummaries.isEmpty {
             let tools = context.toolResultSummaries.joined(separator: "\n")
-            instructionParts.append("Tool results:\n\(tools)")
+            instructionParts.append(
+                """
+                Tool results from this turn — answer the user's question using them. \
+                Do not claim you lack access to the tool that produced these results:
+                \(tools)
+                """
+            )
         }
         if let toolsBlock = toolsInstruction(from: toolSchemas) {
             instructionParts.append(toolsBlock)
@@ -79,19 +85,25 @@ enum LiteRTPromptBuilder {
             lines.append("- \(summary)")
         }
         guard !lines.isEmpty else { return nil }
-        let exampleName = compactToolSummary(schemas[0])?.split(separator: ":").first.map(String.init)
-            ?? "TOOL_NAME"
         return """
         You can call tools when needed. Available tools:
         \(lines.joined(separator: "\n"))
 
+        Pick the tool whose name/description best matches the user's request. \
+        Tool names look like server__tool (for example exa__web_search_exa). \
+        Do not call a tool that is not in this list.
+
         To call a tool, reply with ONLY a tool call (no markdown, no prose). Prefer Gemma format:
-        <|tool_call>call:\(exampleName){query:"..."}<tool_call|>
+        <|tool_call>call:TOOL_NAME{query:"..."}<tool_call|>
 
         JSON is also accepted:
-        {"name":"\(exampleName)","arguments":{"query":"..."}}
+        {"name":"TOOL_NAME","arguments":{"query":"..."}}
 
-        Use the exact tool name from the list. Keep arguments minimal. After tool results are provided, answer normally.
+        Replace TOOL_NAME with an exact name from the list above. Keep arguments minimal.
+
+        After tool results are provided, answer normally from those results. Never say you cannot \
+        browse the web, search online, or use a tool that is listed above or that just returned results. \
+        For follow-up questions that need fresh external data, call the tool again instead of declining.
         """
     }
 

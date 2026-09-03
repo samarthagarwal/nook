@@ -178,7 +178,7 @@ public actor MCPClient {
         arguments: ToolArguments
     ) -> OutgoingApprovalPayload {
         let server = servers.first { $0.id == serverId }
-        let url = server?.url ?? "unknown"
+        let url = server?.displayURL ?? "unknown"
         let name = server?.name ?? "MCP"
         let argsJSON = Self.encodeArgumentsJSON(arguments)
         var lines = [

@@ -55,6 +55,22 @@ final class MCPAndLiteRTToolTests: XCTestCase {
         XCTAssertEqual(LiteRTToolCallParser.visibleText(from: raw), "")
     }
 
+    func testLiteRTVisibleTextStripsToolCallLeavingProse() {
+        let raw = """
+        Russia invaded Ukraine in 2022.
+        <|tool_call>call:tavily_search{query:"Russia Ukraine"}<tool_call|>
+        """
+        let visible = LiteRTToolCallParser.visibleText(from: raw)
+        XCTAssertTrue(visible.contains("Russia invaded Ukraine"))
+        XCTAssertFalse(visible.contains("tool_call"))
+        XCTAssertFalse(visible.contains("tavily_search"))
+    }
+
+    func testLiteRTVisibleTextHidesBareToolCallOnly() {
+        let raw = #"<|tool_call>call:tavily_search{query:"Russia Ukraine"}<tool_call|>"#
+        XCTAssertEqual(LiteRTToolCallParser.visibleText(from: raw), "")
+    }
+
     func testLiteRTToolCallParserGemmaDelimitedStrings() {
         let raw = #"<|tool_call>call:tavily_search{query:<|"|>WWDC news<|"|>}<tool_call|>"#
         let calls = LiteRTToolCallParser.parse(from: raw)
@@ -128,10 +144,30 @@ final class MCPAndLiteRTToolTests: XCTestCase {
 
         await registrar.sync()
         let names = await registry.allToolNames()
-        XCTAssertTrue(names.contains("demo.search"))
-        XCTAssertFalse(names.contains("demo.hidden"))
-        let tool = await registry.getTool(named: "demo.search")
+        XCTAssertTrue(names.contains("demo__demo.search"))
+        XCTAssertFalse(names.contains("demo__demo.hidden"))
+        XCTAssertFalse(names.contains("demo.search"))
+        let tool = await registry.getTool(named: "demo__demo.search")
         XCTAssertTrue(tool?.isExternal == true)
+        XCTAssertEqual(tool?.description.contains("[Demo]"), true)
+
+        await client.applyServerUpdate(
+            MCPServer(
+                id: server.id,
+                name: "Demo",
+                url: server.url,
+                isConnected: true,
+                toolsCountDescription: "0 of 2 tools on",
+                tools: [
+                    MCPToolEntry(name: "demo.search", what: "Search", isEnabled: false),
+                    MCPToolEntry(name: "demo.hidden", what: "Hidden", isEnabled: false),
+                ]
+            )
+        )
+        let freshRegistrar = MCPToolRegistrar(client: client, registry: registry)
+        await freshRegistrar.sync()
+        let afterDisable = await registry.allToolNames()
+        XCTAssertFalse(afterDisable.contains("demo__demo.search"))
     }
 
     func testAddAndConnectRemovesOrphanOnFailure() async throws {

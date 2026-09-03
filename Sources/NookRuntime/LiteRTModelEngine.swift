@@ -189,7 +189,10 @@ final class LiteRTModelEngine: @unchecked Sendable {
                             Tool results:
                             \(resultBlocks.joined(separator: "\n\n"))
 
-                            Answer the user's question using these results. Be concise and factual. Do not emit tool JSON.
+                            Answer the user's question using these results. Be concise and factual. \
+                            Do not emit tool JSON or <|tool_call> / call:NAME syntax. \
+                            Do not say you lack web access or cannot use tools — \
+                            these results came from a successful tool call.
                             """
                         ],
                         totalEstimatedTokens: workingContext.totalEstimatedTokens
@@ -238,15 +241,12 @@ final class LiteRTModelEngine: @unchecked Sendable {
         // Final prose turn (no tool schemas). Always run when we still need an answer.
         if finalText.isEmpty {
             print("[LiteRT] Final answer turn (executedTools=\(executedTools))")
-            let assembled = try await generateOnce(
+            finalText = try await generateFinalProseAnswer(
                 promptContext: workingContext,
-                toolSchemas: [],
                 maxOutputTokens: maxOutputTokens,
-                streamTokens: true,
+                executedTools: executedTools,
                 onToken: onToken
             )
-            let visible = LiteRTToolCallParser.visibleText(from: assembled)
-            finalText = visible.isEmpty ? assembled : visible
             print("[LiteRT] Final answer (\(finalText.count) chars): \(finalText.prefix(200))")
         }
 
@@ -261,6 +261,70 @@ final class LiteRTModelEngine: @unchecked Sendable {
         }
 
         return AgentGenerationResult(text: trimmed, citations: citations)
+    }
+
+    /// Generates a user-visible answer and never returns raw tool-call markup.
+    private func generateFinalProseAnswer(
+        promptContext: AssembledPromptContext,
+        maxOutputTokens: Int,
+        executedTools: Bool,
+        onToken: @escaping @Sendable (String) -> Void
+    ) async throws -> String {
+        // Don't stream until sanitized — otherwise `<|tool_call>…` leaks into the bubble.
+        var context = promptContext
+        for attempt in 0..<2 {
+            let assembled = try await generateOnce(
+                promptContext: context,
+                toolSchemas: [],
+                maxOutputTokens: maxOutputTokens,
+                streamTokens: false,
+                onToken: onToken
+            )
+            let visible = LiteRTToolCallParser.visibleText(from: assembled)
+            if !visible.isEmpty {
+                onToken(visible)
+                return visible
+            }
+
+            let dirty = LiteRTToolCallParser.looksLikeToolAttempt(assembled)
+                || !LiteRTToolCallParser.parse(from: assembled).isEmpty
+            if dirty, attempt == 0 {
+                print("[LiteRT] Final turn emitted tool markup; retrying prose-only")
+                context = AssembledPromptContext(
+                    systemPrompt: context.systemPrompt,
+                    activeSkillInstructions: context.activeSkillInstructions,
+                    retrievedEvidence: context.retrievedEvidence,
+                    recentMessages: context.recentMessages,
+                    toolResultSummaries: [
+                        """
+                        \(context.toolResultSummaries.joined(separator: "\n\n"))
+
+                        Write the final answer now in plain Markdown for the user. \
+                        Do NOT emit <|tool_call>, call:NAME{…}, JSON tool calls, or code fences. \
+                        Just answer the question.
+                        """
+                    ],
+                    totalEstimatedTokens: context.totalEstimatedTokens
+                )
+                continue
+            }
+
+            // Never surface raw tool syntax.
+            if dirty {
+                break
+            }
+            // Non-tool empty/whitespace — fall through.
+            if !assembled.isEmpty {
+                onToken(assembled)
+                return assembled
+            }
+        }
+
+        let fallback = executedTools
+            ? "I ran the tool but couldn't form a follow-up answer. Please try asking again."
+            : "I couldn't generate a reply. Please try again."
+        onToken(fallback)
+        return fallback
     }
 
     private func mount(

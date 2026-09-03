@@ -2,6 +2,12 @@ import SwiftUI
 import NookDesign
 import NookCore
 
+#if canImport(UIKit)
+import UIKit
+#elseif canImport(AppKit)
+import AppKit
+#endif
+
 public struct ConnectionsView: View {
     @ObservedObject public var state: ObservableMCPState
     public let onSelectServer: (MCPServer) -> Void
@@ -78,9 +84,16 @@ public struct ConnectionsView: View {
                                     }
                                 }
                                 
-                                Text(server.url)
+                                Text(server.displayURL)
                                     .font(NookTypography.meta)
                                     .foregroundColor(NookColors.ink45)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+
+                                if !server.tools.isEmpty {
+                                    MCPConnectionToolChips(tools: server.toolsOrderedForChips)
+                                        .padding(.top, 2)
+                                }
                             }
                             .padding(14)
                             .background(
@@ -104,17 +117,106 @@ public struct ConnectionsView: View {
     }
 }
 
+/// One-row tool chips: full names, as many as fit, then `+N`. Enabled chips use external accent.
+private struct MCPConnectionToolChips: View {
+    let tools: [MCPToolEntry]
+    private let spacing: CGFloat = 6
+
+    var body: some View {
+        GeometryReader { geo in
+            let fitted = Self.fit(tools: tools, in: geo.size.width, spacing: spacing)
+            HStack(spacing: spacing) {
+                ForEach(fitted.visible) { tool in
+                    Text(tool.name)
+                        .font(NookTypography.badge)
+                        .foregroundColor(tool.isEnabled ? NookColors.external : NookColors.ink45)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2.5)
+                        .background(
+                            RoundedRectangle(cornerRadius: NookRadius.tag)
+                                .fill(tool.isEnabled ? NookColors.externalSoft : NookColors.fill)
+                        )
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
+                }
+                if fitted.overflow > 0 {
+                    Text("+\(fitted.overflow)")
+                        .font(NookTypography.badge)
+                        .foregroundColor(NookColors.ink45)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2.5)
+                        .background(
+                            RoundedRectangle(cornerRadius: NookRadius.tag)
+                                .fill(NookColors.fill)
+                        )
+                        .fixedSize(horizontal: true, vertical: false)
+                }
+                Spacer(minLength: 0)
+            }
+        }
+        .frame(height: 22)
+    }
+
+    private static func fit(
+        tools: [MCPToolEntry],
+        in width: CGFloat,
+        spacing: CGFloat
+    ) -> (visible: [MCPToolEntry], overflow: Int) {
+        guard width > 0, !tools.isEmpty else {
+            return ([], tools.count)
+        }
+
+        var visible: [MCPToolEntry] = []
+        var used: CGFloat = 0
+
+        for tool in tools {
+            let chipW = textChipWidth(tool.name)
+            let remainingAfter = tools.count - visible.count - 1
+            let overflowLabel = remainingAfter > 0 ? "+\(remainingAfter)" : nil
+            let overflowW = overflowLabel.map { textChipWidth($0) } ?? 0
+            let gap = visible.isEmpty ? 0 : spacing
+            let overflowGap = overflowLabel == nil ? 0 : spacing
+            let needed = used + gap + chipW + overflowGap + overflowW
+
+            if needed <= width + 0.5 {
+                visible.append(tool)
+                used += gap + chipW
+            } else {
+                break
+            }
+        }
+
+        // If nothing fit, still show overflow so the row isn't blank.
+        if visible.isEmpty {
+            return ([], tools.count)
+        }
+        return (visible, tools.count - visible.count)
+    }
+
+    private static func textChipWidth(_ text: String) -> CGFloat {
+        #if canImport(UIKit)
+        let font = UIFont.monospacedSystemFont(ofSize: 10.5, weight: .regular)
+        let textWidth = (text as NSString).size(withAttributes: [.font: font]).width
+        #elseif canImport(AppKit)
+        let font = NSFont.monospacedSystemFont(ofSize: 10.5, weight: .regular)
+        let textWidth = (text as NSString).size(withAttributes: [.font: font]).width
+        #else
+        let textWidth = CGFloat(text.count) * 6.5
+        #endif
+        return ceil(textWidth) + 12 // horizontal padding
+    }
+}
+
 public struct ServerDetailView: View {
     @State public var server: MCPServer
     public let onBack: () -> Void
     public let onSave: (MCPServer) -> Void
     /// Returns the refreshed server so this view can update its local copy.
     public var onReconnect: ((MCPServer) async throws -> MCPServer)?
-    public var onRemove: ((MCPServer) async -> Void)?
+    public var onRemove: ((MCPServer) -> Void)?
     
     @State private var selectedPolicyIndex: Int = 1 // Consequential
     @State private var isReconnecting = false
-    @State private var isRemoving = false
     @State private var statusMessage: String?
     @State private var statusIsError = false
     
@@ -125,7 +227,7 @@ public struct ServerDetailView: View {
         onBack: @escaping () -> Void,
         onSave: @escaping (MCPServer) -> Void,
         onReconnect: ((MCPServer) async throws -> MCPServer)? = nil,
-        onRemove: ((MCPServer) async -> Void)? = nil
+        onRemove: ((MCPServer) -> Void)? = nil
     ) {
         self._server = State(initialValue: server)
         self.onBack = onBack
@@ -141,23 +243,42 @@ public struct ServerDetailView: View {
         VStack(spacing: 0) {
             // Header
             VStack(alignment: .leading, spacing: 6) {
-                Button(action: onBack) {
-                    HStack(spacing: 4) {
-                        Image(systemName: "chevron.left")
-                            .font(.system(size: 14, weight: .medium))
-                        Text("Connections")
-                            .font(NookTypography.body)
+                HStack {
+                    Button(action: onBack) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "chevron.left")
+                                .font(.system(size: 14, weight: .medium))
+                            Text("Connections")
+                                .font(NookTypography.body)
+                        }
+                        .foregroundColor(NookColors.ink45)
                     }
-                    .foregroundColor(NookColors.ink45)
+                    .buttonStyle(.plain)
+                    
+                    Spacer()
+                    
+                    if let onRemove {
+                        Button(role: .destructive) {
+                            onRemove(server)
+                        } label: {
+                            Image(systemName: "trash")
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundColor(NookColors.external)
+                                .frame(width: 32, height: 32)
+                                .background(Circle().fill(NookColors.externalSoft))
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(isReconnecting)
+                        .accessibilityLabel("Remove connection")
+                    }
                 }
-                .buttonStyle(.plain)
                 
                 Text(server.name)
                     .font(NookTypography.detailTitle)
                     .foregroundColor(NookColors.ink)
                     .padding(.top, 4)
                 
-                Text("\(server.url) · Streamable HTTP · header auth")
+                Text("\(server.displayURL) · Streamable HTTP · header auth")
                     .font(NookTypography.meta)
                     .foregroundColor(NookColors.ink45)
 
@@ -194,23 +315,6 @@ public struct ServerDetailView: View {
                                 .font(NookTypography.meta)
                                 .foregroundColor(statusIsError ? .red : NookColors.ink62)
                         }
-                    }
-
-                    if let onRemove {
-                        Button(role: .destructive) {
-                            Task {
-                                guard !isRemoving else { return }
-                                isRemoving = true
-                                await onRemove(server)
-                                isRemoving = false
-                            }
-                        } label: {
-                            Text(isRemoving ? "Removing…" : "Remove connection")
-                                .font(NookTypography.meta)
-                                .foregroundColor(.red)
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(isRemoving || isReconnecting)
                     }
 
                     // Segmented Policy Control

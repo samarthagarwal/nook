@@ -10,6 +10,7 @@ public struct ChatView: View {
     public let onOpenScope: () -> Void
     public let onOpenAttach: () -> Void
     public let onSelectCitation: (Citation) -> Void
+    public let onDelete: () -> Void
     
     @State private var inputText: String = ""
     @State private var attachedImage: String? = nil
@@ -20,7 +21,8 @@ public struct ChatView: View {
         onBack: @escaping () -> Void,
         onOpenScope: @escaping () -> Void,
         onOpenAttach: @escaping () -> Void,
-        onSelectCitation: @escaping (Citation) -> Void
+        onSelectCitation: @escaping (Citation) -> Void,
+        onDelete: @escaping () -> Void
     ) {
         self.session = session
         self.runtimeStore = runtimeStore
@@ -28,6 +30,7 @@ public struct ChatView: View {
         self.onOpenScope = onOpenScope
         self.onOpenAttach = onOpenAttach
         self.onSelectCitation = onSelectCitation
+        self.onDelete = onDelete
     }
     
     public var body: some View {
@@ -263,7 +266,7 @@ public struct ChatView: View {
             
             VStack(spacing: 2) {
                 Text(ChatStore.plainText(from: session.conversation.title))
-                    .font(NookTypography.rowTitle)
+                    .font(NookTypography.cardSub)
                     .foregroundColor(NookColors.ink)
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -278,12 +281,25 @@ public struct ChatView: View {
             }
             .frame(maxWidth: .infinity)
             
-            Button(action: onOpenScope) {
-                Image(systemName: "line.3.horizontal.decrease.circle")
-                    .font(.system(size: 20, weight: .regular))
-                    .foregroundColor(NookColors.ink70)
+            HStack(spacing: 10) {
+                Button(role: .destructive, action: onDelete) {
+                    Image(systemName: "trash")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(NookColors.external)
+                        .frame(width: 32, height: 32)
+                        .background(Circle().fill(NookColors.externalSoft))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Delete chat")
+                
+                Button(action: onOpenScope) {
+                    Image(systemName: "line.3.horizontal.decrease.circle")
+                        .font(.system(size: 20, weight: .regular))
+                        .foregroundColor(NookColors.ink70)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Knowledge scope")
             }
-            .buttonStyle(.plain)
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 12)

@@ -303,6 +303,29 @@ public struct MCPServer: Identifiable, Codable, Equatable, Sendable {
         self.approvalPolicy = approvalPolicy
         self.tools = tools
     }
+
+    /// Host + path only — never query/fragment (API keys are sometimes put in the URL).
+    public var displayURL: String {
+        if var components = URLComponents(string: url) {
+            components.query = nil
+            components.fragment = nil
+            if let cleaned = components.string, !cleaned.isEmpty {
+                return cleaned
+            }
+        }
+        if let queryStart = url.firstIndex(of: "?") {
+            return String(url[..<queryStart])
+        }
+        if let fragmentStart = url.firstIndex(of: "#") {
+            return String(url[..<fragmentStart])
+        }
+        return url
+    }
+
+    /// Tools for list chips: enabled first, then the rest (full set — UI fits what it can).
+    public var toolsOrderedForChips: [MCPToolEntry] {
+        tools.filter(\.isEnabled) + tools.filter { !$0.isEnabled }
+    }
 }
 
 // MARK: - Memory Domain

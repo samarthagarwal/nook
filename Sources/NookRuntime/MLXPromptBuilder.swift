@@ -27,7 +27,13 @@ enum MLXPromptBuilder {
         }
         if !context.toolResultSummaries.isEmpty {
             let tools = context.toolResultSummaries.joined(separator: "\n")
-            instructionParts.append("Tool results:\n\(tools)")
+            instructionParts.append(
+                """
+                Tool results from this turn — answer the user's question using them. \
+                Do not claim you lack access to the tool that produced these results:
+                \(tools)
+                """
+            )
         }
 
         var turns: [Turn] = []

@@ -40,13 +40,76 @@ enum LiteRTToolCallParser {
 
     /// Visible assistant text with tool-call markup removed.
     static func visibleText(from text: String) -> String {
-        if !parse(from: text).isEmpty {
+        let stripped = stripToolCallMarkup(from: text)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !stripped.isEmpty else { return "" }
+        // Still mostly/only a tool attempt after stripping → hide entirely.
+        if looksLikeToolAttempt(stripped) {
             return ""
         }
-        if looksLikeToolAttempt(text) {
-            return ""
+        return stripped
+    }
+
+    /// Removes Gemma/OpenAI-style tool-call spans so leftover prose can be shown.
+    static func stripToolCallMarkup(from text: String) -> String {
+        var s = text
+
+        // `<|tool_call>…<tool_call|>` / `<tool_call>…</tool_call>`
+        let fencePatterns = [
+            #"<\|tool_call\>[\s\S]*?<tool_call\|>"#,
+            #"<\|tool_call\>[\s\S]*$"#,
+            #"<tool_call\>[\s\S]*?</tool_call\>"#,
+            #"<tool_call\>[\s\S]*$"#,
+        ]
+        for pattern in fencePatterns {
+            s = s.replacingOccurrences(of: pattern, with: " ", options: .regularExpression)
         }
-        return text.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Bare `call:name{…}` (Gemma without fences).
+        var searchIndex = s.startIndex
+        while let callRange = s.range(of: "call:", range: searchIndex..<s.endIndex) {
+            let nameStart = callRange.upperBound
+            var nameEnd = nameStart
+            while nameEnd < s.endIndex {
+                let ch = s[nameEnd]
+                if ch.isLetter || ch.isNumber || ch == "_" || ch == "." || ch == "-" {
+                    nameEnd = s.index(after: nameEnd)
+                } else {
+                    break
+                }
+            }
+            let toolName = String(s[nameStart..<nameEnd])
+            guard !toolName.isEmpty, nameEnd < s.endIndex, s[nameEnd] == "{" else {
+                searchIndex = nameEnd > callRange.upperBound ? nameEnd : s.index(after: callRange.lowerBound)
+                continue
+            }
+            if let argsBody = balancedBracesContent(in: s, openBraceAt: nameEnd),
+               let close = s.index(nameEnd, offsetBy: argsBody.count + 2, limitedBy: s.endIndex) {
+                s.replaceSubrange(callRange.lowerBound..<close, with: " ")
+                searchIndex = callRange.lowerBound
+            } else {
+                // Truncated `call:name{…` — drop from here to end.
+                s = String(s[..<callRange.lowerBound])
+                break
+            }
+        }
+
+        // Fenced JSON tool payloads.
+        s = s.replacingOccurrences(
+            of: #"```(?:json)?\s*\{[\s\S]*?"(?:name|tool_calls|function)"[\s\S]*?```"#,
+            with: " ",
+            options: .regularExpression
+        )
+        // Unfenced single JSON tool object occupying most of the reply.
+        let trimmed = s.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.hasPrefix("{"),
+           (trimmed.contains("\"tool_calls\"") || (trimmed.contains("\"name\"") && trimmed.contains("\"arguments\""))) {
+            if parse(from: trimmed).isEmpty == false || looksLikeToolAttempt(trimmed) {
+                return ""
+            }
+        }
+
+        return s.replacingOccurrences(of: #"\s{2,}"#, with: " ", options: .regularExpression)
     }
 
     /// True when the model clearly tried to emit a tool call (even if JSON is truncated).
@@ -54,7 +117,11 @@ enum LiteRTToolCallParser {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return false }
         let lower = trimmed.lowercased()
-        if lower.contains("tool_call") || lower.contains("call:") {
+        if lower.contains("tool_call") || lower.contains("<|tool_call") {
+            return true
+        }
+        // Bare Gemma call — require call:name{ shape, not the English word "call:".
+        if lower.range(of: #"call:[a-z0-9_.-]+\s*\{"#, options: .regularExpression) != nil {
             return true
         }
         if lower.contains("\"tool_calls\"") || lower.contains("'tool_calls'") {

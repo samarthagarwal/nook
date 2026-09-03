@@ -20,6 +20,7 @@ public struct AppRootView: View {
     private let skillManager: SkillManager
     private let toolRegistry: ToolRegistry
     private let mcpClient: MCPClient
+    private let mcpToolRegistrar: MCPToolRegistrar
     
     // Navigation / Detail States
     @State private var conversations: [Conversation] = []
@@ -44,6 +45,8 @@ public struct AppRootView: View {
     @State private var collectionPendingDelete: KnowledgeCollection? = nil
     @State private var documentPendingDelete: KnowledgeDocument? = nil
     @State private var conversationPendingDelete: Conversation? = nil
+    @State private var serverPendingDelete: MCPServer? = nil
+    @State private var memoryPendingForget: MemoryItem? = nil
     @State private var isAddMCPServerOpen: Bool = false
     
     public init(
@@ -57,8 +60,10 @@ public struct AppRootView: View {
         self.knowledgeEngine = knowledgeEngine
         self.memoryEngine = memoryEngine
         self.skillManager = skillManager
-        self.toolRegistry = toolRegistry ?? ToolRegistry(knowledgeEngine: knowledgeEngine)
+        let resolvedRegistry = toolRegistry ?? ToolRegistry(knowledgeEngine: knowledgeEngine)
+        self.toolRegistry = resolvedRegistry
         self.mcpClient = mcpClient
+        self.mcpToolRegistrar = MCPToolRegistrar(client: mcpClient, registry: resolvedRegistry)
         _runtimeStore = StateObject(wrappedValue: ModelRuntimeStore(runtime: runtime))
         
         _knowledgeState = StateObject(wrappedValue: ObservableKnowledgeEngine(engine: knowledgeEngine))
@@ -103,6 +108,12 @@ public struct AppRootView: View {
         }
         .onAppear {
             loadConversations()
+            mcpState.onToolsChanged = { [mcpToolRegistrar] in
+                await mcpToolRegistrar.sync()
+            }
+            Task {
+                await mcpToolRegistrar.sync()
+            }
             print("[AppRootView] App launched. Runtime: \(type(of: runtimeStore.runtime)) (\(MLXPlatformSupport.runtimeLabel)). DownloadState: \(runtimeStore.downloadState)")
             if isOnboardingComplete {
                 Task {
@@ -161,6 +172,11 @@ public struct AppRootView: View {
                             },
                             onSelectCitation: { citation in
                                 self.activeCitation = citation
+                            },
+                            onDelete: {
+                                if let session = self.activeSession {
+                                    conversationPendingDelete = session.conversation
+                                }
                             }
                         )
                     } else {
@@ -269,9 +285,7 @@ public struct AppRootView: View {
                                 return refreshed
                             },
                             onRemove: { server in
-                                await mcpState.removeServer(id: server.id)
-                                selectedServer = nil
-                                showToast("Removed \(server.name).")
+                                serverPendingDelete = server
                             }
                         )
                     } else {
@@ -298,8 +312,7 @@ public struct AppRootView: View {
                             }
                         },
                         onForgetMemory: { item in
-                            memoryState.forget(item: item)
-                            showToast("Forgotten. The chat itself is untouched.")
+                            memoryPendingForget = item
                         }
                     )
                 }
@@ -445,6 +458,8 @@ public struct AppRootView: View {
                     conversations.removeAll { $0.id == conversation.id }
                     if activeSession?.conversation.id == conversation.id {
                         activeSession = nil
+                        runtimeStore.releaseModelWhenIdle()
+                        runtimeStore.resetMemoryPressureState()
                     }
                     showToast("Deleted chat")
                 } catch {
@@ -456,6 +471,51 @@ public struct AppRootView: View {
                 let title = ChatStore.plainText(from: conversation.title)
                 Text("“\(title)” will be removed from this iPhone. Memory items from it are unchanged.")
             }
+        }
+        .alert(
+            "Remove connection?",
+            isPresented: Binding(
+                get: { serverPendingDelete != nil },
+                set: { if !$0 { serverPendingDelete = nil } }
+            )
+        ) {
+            Button("Cancel", role: .cancel) {
+                serverPendingDelete = nil
+            }
+            Button("Remove", role: .destructive) {
+                guard let server = serverPendingDelete else { return }
+                serverPendingDelete = nil
+                Task {
+                    await mcpState.removeServer(id: server.id)
+                    if selectedServer?.id == server.id {
+                        selectedServer = nil
+                    }
+                    showToast("Removed \(server.name).")
+                }
+            }
+        } message: {
+            if let server = serverPendingDelete {
+                Text("“\(server.name)” will be disconnected and removed from this iPhone. You can add it again later.")
+            }
+        }
+        .alert(
+            "Forget this memory?",
+            isPresented: Binding(
+                get: { memoryPendingForget != nil },
+                set: { if !$0 { memoryPendingForget = nil } }
+            )
+        ) {
+            Button("Cancel", role: .cancel) {
+                memoryPendingForget = nil
+            }
+            Button("Forget", role: .destructive) {
+                guard let item = memoryPendingForget else { return }
+                memoryPendingForget = nil
+                memoryState.forget(item: item)
+                showToast("Forgotten. The chat itself is untouched.")
+            }
+        } message: {
+            Text("Nook will stop using this derived memory. The original chat stays on this iPhone.")
         }
         .alert(
             "Delete collection?",
@@ -582,7 +642,8 @@ public struct AppRootView: View {
             memoryEngine: memoryEngine,
             skillManager: skillManager,
             toolRegistry: toolRegistry,
-            mcpClient: mcpClient
+            mcpClient: mcpClient,
+            mcpToolRegistrar: mcpToolRegistrar
         )
         self.activeSession = session
     }
