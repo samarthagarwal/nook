@@ -126,6 +126,67 @@ public enum NookDatabase {
             try KnowledgeStore.rebuildFTSIndexingSectionTitles(in: db)
         }
 
+        migrator.registerMigration("v5_memory") { db in
+            try db.create(table: "memory_cards") { table in
+                table.column("id", .text).primaryKey()
+                table.column("subject", .text).notNull()
+                table.column("kind", .text).notNull()
+                table.column("quote", .text).notNull()
+                table.column("quote_normalized", .text).notNull()
+                table.column("conversation_id", .text)
+                    .notNull()
+                    .references("conversations", onDelete: .cascade)
+                table.column("message_id", .text)
+                    .notNull()
+                    .references("messages", onDelete: .cascade)
+                table.column("source_label", .text).notNull()
+                table.column("is_forgotten", .boolean).notNull().defaults(to: false)
+                table.column("created_at", .datetime).notNull()
+                table.uniqueKey(["message_id", "quote_normalized"])
+            }
+
+            try db.create(index: "memory_cards_by_conversation", on: "memory_cards", columns: ["conversation_id"])
+            try db.create(index: "memory_cards_active", on: "memory_cards", columns: ["is_forgotten", "created_at"])
+
+            try db.create(table: "memory_excerpts") { table in
+                table.column("message_id", .text).primaryKey()
+                    .references("messages", onDelete: .cascade)
+                table.column("conversation_id", .text)
+                    .notNull()
+                    .references("conversations", onDelete: .cascade)
+                table.column("body", .text).notNull()
+                table.column("created_at", .datetime).notNull()
+            }
+
+            try db.execute(sql: """
+                CREATE VIRTUAL TABLE memory_excerpts_fts USING fts5(
+                    message_id UNINDEXED,
+                    body,
+                    tokenize='unicode61'
+                )
+                """)
+
+            try db.create(table: "memory_extracted_messages") { table in
+                table.column("message_id", .text).primaryKey()
+                    .references("messages", onDelete: .cascade)
+                table.column("extracted_at", .datetime).notNull()
+            }
+        }
+
         try migrator.migrate(dbQueue)
+    }
+
+    /// Temp SQLite with full migrations — for unit tests that need chats + memory (+ knowledge schema).
+    public static func makeTestQueue() throws -> DatabaseQueue {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("nook-test-\(UUID().uuidString).sqlite")
+        if FileManager.default.fileExists(atPath: url.path) {
+            try FileManager.default.removeItem(at: url)
+        }
+        var config = Configuration()
+        config.foreignKeysEnabled = true
+        let queue = try DatabaseQueue(path: url.path, configuration: config)
+        try migrate(queue)
+        return queue
     }
 }

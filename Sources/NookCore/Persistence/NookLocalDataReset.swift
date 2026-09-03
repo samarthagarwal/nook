@@ -9,6 +9,10 @@ public enum NookLocalDataReset {
 
     static func eraseAll(dbQueue: DatabaseQueue) throws {
         try dbQueue.write { db in
+            try db.execute(sql: "DELETE FROM memory_extracted_messages")
+            try db.execute(sql: "DELETE FROM memory_excerpts_fts")
+            try db.execute(sql: "DELETE FROM memory_excerpts")
+            try db.execute(sql: "DELETE FROM memory_cards")
             try db.execute(sql: "DELETE FROM messages")
             try db.execute(sql: "DELETE FROM conversations")
             try db.execute(sql: "DELETE FROM knowledge_chunks_fts")

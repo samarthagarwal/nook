@@ -12,6 +12,12 @@ public final class AgentSession: ObservableObject {
         _ onToolEvent: @escaping @Sendable (AgentToolEvent) -> Void
     ) async throws -> AgentGenerationResult
 
+    /// On-device generation used only for memory card extraction (text in → text out).
+    public typealias MemoryExtractHandler = @Sendable (
+        _ systemPrompt: String,
+        _ userPrompt: String
+    ) async throws -> String
+
     @Published public var conversation: Conversation
     @Published public var messages: [Message] = []
     @Published public var isStreaming: Bool = false
@@ -87,7 +93,8 @@ public final class AgentSession: ObservableObject {
         text: String,
         attachedImageName: String? = nil,
         runtime: any Sendable,
-        streamHandler: @escaping AgentStreamHandler
+        streamHandler: @escaping AgentStreamHandler,
+        memoryExtractHandler: MemoryExtractHandler? = nil
     ) async {
         activeGenerationTask?.cancel()
 
@@ -104,6 +111,9 @@ public final class AgentSession: ObservableObject {
         isThinking = true
         isStreaming = false
 
+        let memoryHits = await memoryEngine.memoriesForChat(query: text)
+        let memoryEvidence = MemoryEngine.evidenceStrings(from: memoryHits)
+
         let knowledgeScope = conversation.activeKnowledgeScope
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
@@ -117,8 +127,11 @@ public final class AgentSession: ObservableObject {
             #endif
             await performAssistantStream(
                 request: await externalToolsRequest(),
+                memoryEvidence: memoryEvidence,
                 systemPrompt: NookSystemPrompt.standard,
-                streamHandler: streamHandler
+                streamHandler: streamHandler,
+                userMessageForMemory: userMsg,
+                memoryExtractHandler: memoryExtractHandler
             )
             return
         }
@@ -127,8 +140,11 @@ public final class AgentSession: ObservableObject {
         guard registered.contains(DocumentsSearchTool.toolName) else {
             await performAssistantStream(
                 request: await externalToolsRequest(),
+                memoryEvidence: memoryEvidence,
                 systemPrompt: NookSystemPrompt.standard,
-                streamHandler: streamHandler
+                streamHandler: streamHandler,
+                userMessageForMemory: userMsg,
+                memoryExtractHandler: memoryExtractHandler
             )
             return
         }
@@ -163,8 +179,11 @@ public final class AgentSession: ObservableObject {
                 evidenceChunks: searchResult.chunks,
                 toolResults: [evidenceNote],
                 forcedCitations: searchResult.citations,
+                memoryEvidence: memoryEvidence,
                 systemPrompt: NookSystemPrompt.withRetrievedKnowledge,
-                streamHandler: streamHandler
+                streamHandler: streamHandler,
+                userMessageForMemory: userMsg,
+                memoryExtractHandler: memoryExtractHandler
             )
         } catch {
             print("[AgentSession] documents_search failed: \(error)")
@@ -251,8 +270,11 @@ public final class AgentSession: ObservableObject {
         evidenceChunks: [DocumentChunk] = [],
         toolResults: [String] = [],
         forcedCitations: [Citation] = [],
+        memoryEvidence: [String] = [],
         systemPrompt: String = NookSystemPrompt.standard,
-        streamHandler: @escaping AgentStreamHandler
+        streamHandler: @escaping AgentStreamHandler,
+        userMessageForMemory: Message? = nil,
+        memoryExtractHandler: MemoryExtractHandler? = nil
     ) async {
         isThinking = true
 
@@ -272,7 +294,8 @@ public final class AgentSession: ObservableObject {
             activeSkill: nil,
             evidenceChunks: evidenceChunks,
             chatHistory: messages.filter { $0.id != assistantMsgId },
-            toolResults: toolResults
+            toolResults: toolResults,
+            memoryEvidence: memoryEvidence
         )
 
         let registry = toolRegistry
@@ -353,6 +376,18 @@ public final class AgentSession: ObservableObject {
                     self.isThinking = false
                     self.isStreaming = false
                     self.activeGenerationTask = nil
+                }
+
+                if let userMessageForMemory, let memoryExtractHandler {
+                    let title = await MainActor.run { self.conversation.title }
+                    let engine = memoryEngine
+                    Task {
+                        await engine.processUserMessage(
+                            message: userMessageForMemory,
+                            conversationTitle: title,
+                            generate: memoryExtractHandler
+                        )
+                    }
                 }
             } catch is CancellationError {
                 await MainActor.run {

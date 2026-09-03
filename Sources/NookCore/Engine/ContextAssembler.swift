@@ -70,7 +70,8 @@ public struct ContextAssembler: Sendable {
         activeSkill: Skill?,
         evidenceChunks: [DocumentChunk],
         chatHistory: [Message],
-        toolResults: [String]
+        toolResults: [String],
+        memoryEvidence: [String] = []
     ) -> AssembledPromptContext {
         // 1. Truncate / fit System prompt
         let fittedSystem = truncate(text: baseSystemPrompt, maxTokens: config.systemInstructionsCap)
@@ -81,9 +82,16 @@ public struct ContextAssembler: Sendable {
             fittedSkill = truncate(text: skill.skillMdContent, maxTokens: config.activeSkillCap)
         }
         
-        // 3. Fit Evidence (Knowledge chunks / Memory excerpts)
+        // 3. Fit Evidence — memory first (tiny), then Knowledge chunks
         var fittedEvidence: [String] = []
         var evidenceTokens = 0
+        let memoryBudget = min(MemoryEngine.chatInjectMaxTokens, config.evidenceCap)
+        for block in memoryEvidence {
+            let cost = ContextAssembler.estimateTokens(for: block)
+            if evidenceTokens + cost > memoryBudget { break }
+            fittedEvidence.append(block)
+            evidenceTokens += cost
+        }
         for chunk in evidenceChunks {
             let chunkTokens = ContextAssembler.estimateTokens(for: chunk.text)
             if evidenceTokens + chunkTokens <= config.evidenceCap {

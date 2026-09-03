@@ -488,6 +488,36 @@ public struct ChatView: View {
                             onToken: tokenCallback,
                             onToolEvent: toolEventCallback
                         )
+                    },
+                    memoryExtractHandler: { systemPrompt, userPrompt in
+                        let extractContext = AssembledPromptContext(
+                            systemPrompt: systemPrompt,
+                            activeSkillInstructions: nil,
+                            retrievedEvidence: [],
+                            recentMessages: [
+                                Message(
+                                    conversationId: "memory-extract",
+                                    role: .user,
+                                    content: userPrompt
+                                )
+                            ],
+                            toolResultSummaries: [],
+                            totalEstimatedTokens: 0
+                        )
+                        let result = try await runtimeStore.runtime.generateStreaming(
+                            promptContext: extractContext,
+                            request: .textOnly,
+                            toolExecutor: { _, _ in
+                                ToolExecutionResult(
+                                    textForModel: "",
+                                    displayText: "",
+                                    isExternal: false
+                                )
+                            },
+                            onToken: { _ in },
+                            onToolEvent: { _ in }
+                        )
+                        return result.text
                     }
                 )
             } catch {

@@ -305,10 +305,14 @@ public struct AppRootView: View {
                 if selectedTab == .memory {
                     MemoryView(
                         state: memoryState,
-                        onOpenSourceChat: { source in
+                        onOpenSourceChat: { conversationId in
                             self.selectedTab = .chat
-                            if let first = conversations.first {
-                                openConversation(first)
+                            if let match = conversations.first(where: { $0.id == conversationId }) {
+                                openConversation(match)
+                            } else if let loaded = try? ChatStore.shared.fetchConversation(id: conversationId) {
+                                openConversation(loaded)
+                            } else {
+                                showToast("That chat is no longer on this iPhone.")
                             }
                         },
                         onForgetMemory: { item in
@@ -456,6 +460,7 @@ public struct AppRootView: View {
                 do {
                     try ChatStore.shared.deleteConversation(id: conversation.id)
                     conversations.removeAll { $0.id == conversation.id }
+                    memoryState.reload()
                     if activeSession?.conversation.id == conversation.id {
                         activeSession = nil
                         runtimeStore.releaseModelWhenIdle()
@@ -469,7 +474,7 @@ public struct AppRootView: View {
         } message: {
             if let conversation = conversationPendingDelete {
                 let title = ChatStore.plainText(from: conversation.title)
-                Text("“\(title)” will be removed from this iPhone. Memory items from it are unchanged.")
+                Text("“\(title)” will be removed from this iPhone. Memories from this chat will be removed too.")
             }
         }
         .alert(

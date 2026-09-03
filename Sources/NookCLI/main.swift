@@ -71,7 +71,7 @@ struct NookCLIMain {
         
         print("\n[Step 3] Checking Memory Engine Recall:")
         let memories = await memoryEngine.searchMemories(query: "London")
-        print("  -> Found \(memories.count) memories mentioning 'London':")
+        print("  -> Found \(memories.count) active memories mentioning 'London':")
         for mem in memories {
             print("     * [\(mem.kind)] \(mem.subject): \"\(mem.quote)\" (\(mem.source))")
         }

@@ -335,23 +335,33 @@ public struct MemoryItem: Identifiable, Codable, Equatable, Sendable {
     public var subject: String
     public var kind: String
     public var quote: String
+    /// Display label, e.g. `“Dinner planning” · 24 Aug`.
     public var source: String
+    public var conversationId: String
+    public var messageId: String
     public var isForgotten: Bool
-    
+    public var createdAt: Date
+
     public init(
         id: String = UUID().uuidString,
         subject: String,
         kind: String,
         quote: String,
         source: String,
-        isForgotten: Bool = false
+        conversationId: String,
+        messageId: String,
+        isForgotten: Bool = false,
+        createdAt: Date = Date()
     ) {
         self.id = id
         self.subject = subject
         self.kind = kind
         self.quote = quote
         self.source = source
+        self.conversationId = conversationId
+        self.messageId = messageId
         self.isForgotten = isForgotten
+        self.createdAt = createdAt
     }
 }
 
