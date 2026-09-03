@@ -330,15 +330,21 @@ public struct MCPServer: Identifiable, Codable, Equatable, Sendable {
 
 // MARK: - Memory Domain
 
+public enum MemoryProvenance: String, Codable, Sendable, Equatable {
+    case user
+    case assistant
+}
+
 public struct MemoryItem: Identifiable, Codable, Equatable, Sendable {
     public let id: String
     public var subject: String
     public var kind: String
     public var quote: String
-    /// Display label, e.g. `“Dinner planning” · 24 Aug`.
+    /// Display label, e.g. `“Dinner planning” · 24 Aug` or `From a reply · “…” · 24 Aug`.
     public var source: String
     public var conversationId: String
     public var messageId: String
+    public var provenance: MemoryProvenance
     public var isForgotten: Bool
     public var createdAt: Date
 
@@ -350,6 +356,7 @@ public struct MemoryItem: Identifiable, Codable, Equatable, Sendable {
         source: String,
         conversationId: String,
         messageId: String,
+        provenance: MemoryProvenance = .user,
         isForgotten: Bool = false,
         createdAt: Date = Date()
     ) {
@@ -360,6 +367,7 @@ public struct MemoryItem: Identifiable, Codable, Equatable, Sendable {
         self.source = source
         self.conversationId = conversationId
         self.messageId = messageId
+        self.provenance = provenance
         self.isForgotten = isForgotten
         self.createdAt = createdAt
     }

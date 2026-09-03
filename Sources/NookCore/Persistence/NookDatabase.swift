@@ -173,6 +173,12 @@ public enum NookDatabase {
             }
         }
 
+        migrator.registerMigration("v6_memory_provenance") { db in
+            try db.alter(table: "memory_cards") { table in
+                table.add(column: "provenance", .text).notNull().defaults(to: MemoryProvenance.user.rawValue)
+            }
+        }
+
         try migrator.migrate(dbQueue)
     }
 

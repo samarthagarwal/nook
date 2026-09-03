@@ -37,42 +37,53 @@ public actor MemoryEngine {
         try? store.forget(memoryId: memoryId)
     }
 
-    /// Indexes the user message excerpt and runs LLM extraction if not already done.
-    /// `generate` should return model text for the given system+user extract prompts.
-    public func processUserMessage(
-        message: Message,
+    /// Indexes both sides of a turn and extracts cards (user + assistant) in one model call.
+    public func processExchange(
+        userMessage: Message,
+        assistantMessage: Message,
         conversationTitle: String,
         generate: @Sendable (_ systemPrompt: String, _ userPrompt: String) async throws -> String
     ) async {
-        guard message.role == .user else { return }
-        let body = message.content.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !body.isEmpty else { return }
+        guard userMessage.role == .user else { return }
+        let userBody = userMessage.content.trimmingCharacters(in: .whitespacesAndNewlines)
+        let assistantBody = assistantMessage.content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !userBody.isEmpty else { return }
 
         do {
             try store.upsertExcerpt(
-                messageId: message.id,
-                conversationId: message.conversationId,
-                body: body,
-                createdAt: message.createdAt
+                messageId: userMessage.id,
+                conversationId: userMessage.conversationId,
+                body: userBody,
+                createdAt: userMessage.createdAt
             )
-        } catch {
-            print("[MemoryEngine] Failed to upsert excerpt: \(error)")
-        }
-
-        do {
-            if try store.hasExtracted(messageId: message.id) {
-                return
+            if !assistantBody.isEmpty {
+                try store.upsertExcerpt(
+                    messageId: assistantMessage.id,
+                    conversationId: assistantMessage.conversationId,
+                    body: assistantBody,
+                    createdAt: assistantMessage.createdAt
+                )
             }
         } catch {
-            print("[MemoryEngine] Watermark read failed: \(error)")
+            print("[MemoryEngine] Failed to upsert excerpts: \(error)")
+        }
+
+        let userDone = (try? store.hasExtracted(messageId: userMessage.id)) ?? false
+        let assistantDone = assistantBody.isEmpty
+            || ((try? store.hasExtracted(messageId: assistantMessage.id)) ?? false)
+        if userDone && assistantDone {
             return
         }
 
         let raw: String
         do {
+            print("[MemoryExtract] Running exchange extract for message \(userMessage.id)")
             raw = try await generate(
                 MemoryExtractor.systemPrompt,
-                MemoryExtractor.userPrompt(for: body)
+                MemoryExtractor.exchangePrompt(
+                    userMessage: userBody,
+                    assistantMessage: assistantBody.isEmpty ? "(no reply)" : assistantBody
+                )
             )
         } catch {
             print("[MemoryEngine] Extract generation failed: \(error)")
@@ -81,23 +92,33 @@ public actor MemoryEngine {
 
         let validated = MemoryExtractor.validated(
             candidates: MemoryExtractor.parseCandidates(from: raw),
-            againstUserMessage: body
-        )
+            userMessage: userBody,
+            assistantMessage: assistantBody
+        ).filter { candidate in
+            // Don't memorize "I don't know" / ungrounded world-news refusals from weak replies.
+            if candidate.provenance == .assistant,
+               Self.looksLikeLowValueAssistantReply(candidate.quote) || Self.looksLikeLowValueAssistantReply(assistantBody) {
+                return false
+            }
+            return true
+        }
 
-        let source = MemoryStore.sourceLabel(
-            conversationTitle: conversationTitle,
-            date: message.createdAt
-        )
-
-        for candidate in validated.prefix(3) {
+        for candidate in validated.prefix(4) {
+            let sourceMessage = candidate.provenance == .assistant ? assistantMessage : userMessage
+            let source = MemoryStore.sourceLabel(
+                conversationTitle: conversationTitle,
+                date: sourceMessage.createdAt,
+                provenance: candidate.provenance
+            )
             let item = MemoryItem(
                 subject: candidate.subject,
                 kind: candidate.kind,
                 quote: candidate.quote,
                 source: source,
-                conversationId: message.conversationId,
-                messageId: message.id,
-                createdAt: message.createdAt
+                conversationId: sourceMessage.conversationId,
+                messageId: sourceMessage.id,
+                provenance: candidate.provenance,
+                createdAt: sourceMessage.createdAt
             )
             do {
                 _ = try store.insertCard(item)
@@ -107,15 +128,19 @@ public actor MemoryEngine {
         }
 
         do {
-            try store.markExtracted(messageId: message.id)
+            try store.markExtracted(messageId: userMessage.id)
+            if !assistantBody.isEmpty {
+                try store.markExtracted(messageId: assistantMessage.id)
+            }
         } catch {
             print("[MemoryEngine] Failed to mark extracted: \(error)")
         }
     }
 
     public static func formatEvidence(_ item: MemoryItem) -> String {
-        """
-        MEMORY \(item.source):
+        let tag = item.provenance == .assistant ? "MEMORY (from a reply)" : "MEMORY"
+        return """
+        \(tag) \(item.source):
         \"\"\"
         \(item.quote)
         \"\"\"
@@ -124,5 +149,19 @@ public actor MemoryEngine {
 
     public static func evidenceStrings(from items: [MemoryItem]) -> [String] {
         items.map(formatEvidence)
+    }
+
+    private static func looksLikeLowValueAssistantReply(_ text: String) -> Bool {
+        let lower = text.lowercased()
+        let markers = [
+            "i do not have",
+            "i don't have",
+            "i'm not sure",
+            "i am not sure",
+            "no specific information",
+            "complex geopolitical",
+            "as an ai",
+        ]
+        return markers.contains { lower.contains($0) }
     }
 }

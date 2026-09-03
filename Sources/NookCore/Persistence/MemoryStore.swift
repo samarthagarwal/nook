@@ -127,38 +127,54 @@ public final class MemoryStore: @unchecked Sendable {
     }
 
     public func insertCard(_ item: MemoryItem) throws -> Bool {
-        let normalized = Self.normalizeQuote(item.quote)
-        guard !normalized.isEmpty else { return false }
+        let normalizedQuote = Self.normalizeQuote(item.quote)
+        let normalizedSubject = Self.normalizeSubject(item.subject)
+        guard !normalizedQuote.isEmpty, !normalizedSubject.isEmpty else { return false }
         return try dbQueue.write { db in
-            // Respect soft-forget: existing row (forgotten or not) blocks insert.
+            // Exact message+quote (including forgotten) — never recreate that pair.
             if try Row.fetchOne(
                 db,
                 sql: """
                     SELECT id FROM memory_cards
                     WHERE message_id = ? AND quote_normalized = ?
                     """,
-                arguments: [item.messageId, normalized]
+                arguments: [item.messageId, normalizedQuote]
             ) != nil {
                 return false
             }
+
+            // Active card with same subject across chats — keep the first, don't fork.
+            if try Row.fetchOne(
+                db,
+                sql: """
+                    SELECT id FROM memory_cards
+                    WHERE is_forgotten = 0
+                      AND lower(trim(subject)) = ?
+                    """,
+                arguments: [normalizedSubject]
+            ) != nil {
+                return false
+            }
+
             try db.execute(
                 sql: """
                     INSERT INTO memory_cards (
                         id, subject, kind, quote, quote_normalized,
-                        conversation_id, message_id, source_label, is_forgotten, created_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        conversation_id, message_id, source_label, is_forgotten, created_at, provenance
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                 arguments: [
                     item.id,
                     item.subject,
                     item.kind,
                     item.quote,
-                    normalized,
+                    normalizedQuote,
                     item.conversationId,
                     item.messageId,
                     item.source,
                     item.isForgotten,
                     item.createdAt,
+                    item.provenance.rawValue,
                 ]
             )
             return true
@@ -236,6 +252,13 @@ public final class MemoryStore: @unchecked Sendable {
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    public static func normalizeSubject(_ subject: String) -> String {
+        subject
+            .lowercased()
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     /// True when `quote` appears in `message` after whitespace/case normalization.
     public static func quoteIsVerbatim(quote: String, in message: String) -> Bool {
         let q = normalizeQuote(quote)
@@ -244,12 +267,22 @@ public final class MemoryStore: @unchecked Sendable {
         return m.contains(q)
     }
 
-    public static func sourceLabel(conversationTitle: String, date: Date) -> String {
+    public static func sourceLabel(
+        conversationTitle: String,
+        date: Date,
+        provenance: MemoryProvenance = .user
+    ) -> String {
         let title = conversationTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         let displayTitle = title.isEmpty ? "Chat" : title
         let formatter = DateFormatter()
         formatter.dateFormat = "d MMM"
-        return "“\(displayTitle)” · \(formatter.string(from: date))"
+        let when = formatter.string(from: date)
+        switch provenance {
+        case .user:
+            return "“\(displayTitle)” · \(when)"
+        case .assistant:
+            return "From a reply · “\(displayTitle)” · \(when)"
+        }
     }
 
     private func cardsForMessageIds(_ messageIds: [String]) throws -> [MemoryItem] {
@@ -272,7 +305,8 @@ public final class MemoryStore: @unchecked Sendable {
     }
 
     private func card(from row: Row) -> MemoryItem {
-        MemoryItem(
+        let provenanceRaw: String = (row["provenance"] as String?) ?? MemoryProvenance.user.rawValue
+        return MemoryItem(
             id: row["id"],
             subject: row["subject"],
             kind: row["kind"],
@@ -280,6 +314,7 @@ public final class MemoryStore: @unchecked Sendable {
             source: row["source_label"],
             conversationId: row["conversation_id"],
             messageId: row["message_id"],
+            provenance: MemoryProvenance(rawValue: provenanceRaw) ?? .user,
             isForgotten: row["is_forgotten"],
             createdAt: row["created_at"]
         )

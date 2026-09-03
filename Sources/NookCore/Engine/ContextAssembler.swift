@@ -82,16 +82,9 @@ public struct ContextAssembler: Sendable {
             fittedSkill = truncate(text: skill.skillMdContent, maxTokens: config.activeSkillCap)
         }
         
-        // 3. Fit Evidence — memory first (tiny), then Knowledge chunks
+        // 3. Fit Evidence — Knowledge first, then Memory (Knowledge must win when both present)
         var fittedEvidence: [String] = []
         var evidenceTokens = 0
-        let memoryBudget = min(MemoryEngine.chatInjectMaxTokens, config.evidenceCap)
-        for block in memoryEvidence {
-            let cost = ContextAssembler.estimateTokens(for: block)
-            if evidenceTokens + cost > memoryBudget { break }
-            fittedEvidence.append(block)
-            evidenceTokens += cost
-        }
         for chunk in evidenceChunks {
             let chunkTokens = ContextAssembler.estimateTokens(for: chunk.text)
             if evidenceTokens + chunkTokens <= config.evidenceCap {
@@ -102,6 +95,15 @@ public struct ContextAssembler: Sendable {
             } else {
                 break
             }
+        }
+        let memoryBudget = min(MemoryEngine.chatInjectMaxTokens, max(0, config.evidenceCap - evidenceTokens))
+        var memoryTokens = 0
+        for block in memoryEvidence {
+            let cost = ContextAssembler.estimateTokens(for: block)
+            if memoryTokens + cost > memoryBudget { break }
+            fittedEvidence.append(block)
+            memoryTokens += cost
+            evidenceTokens += cost
         }
         
         // 4. Fit Tool Results

@@ -81,20 +81,6 @@ public struct MemoryView: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    if searchText.isEmpty, !state.suggestionQueries.isEmpty {
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text("TRY")
-                                .nookEyebrow()
-                                .foregroundColor(NookColors.ink40)
-
-                            VStack(spacing: 6) {
-                                ForEach(state.suggestionQueries, id: \.self) { suggestion in
-                                    suggestionRow(suggestion)
-                                }
-                            }
-                        }
-                    }
-
                     if displayedMemories.isEmpty {
                         VStack(alignment: .leading, spacing: 8) {
                             Text(searchText.isEmpty
@@ -103,7 +89,7 @@ public struct MemoryView: View {
                                 .font(NookTypography.cardTitleSerif)
                                 .foregroundColor(NookColors.ink)
                             Text(searchText.isEmpty
-                                 ? "As you chat, Nook will pick up facts from what you say and list them here."
+                                 ? "As you chat, Nook will pick up facts from what you say — and from replies — and list them here."
                                  : "Try a different name, place, or phrase from a past chat.")
                                 .font(NookTypography.body)
                                 .foregroundColor(NookColors.ink62)
@@ -156,7 +142,7 @@ public struct MemoryView: View {
 
                 Spacer()
 
-                Text(item.kind)
+                Text(item.provenance == .assistant ? "from reply" : item.kind)
                     .font(NookTypography.badge)
                     .foregroundColor(NookColors.ink40)
             }
@@ -212,39 +198,11 @@ public struct MemoryView: View {
         )
         .nookCardShadow()
     }
-
-    private func suggestionRow(_ text: String) -> some View {
-        Button(action: {
-            searchText = text
-        }) {
-            HStack {
-                Text(text)
-                    .font(NookTypography.body)
-                    .foregroundColor(NookColors.ink62)
-                Spacer()
-                Image(systemName: "arrow.up.left")
-                    .font(.system(size: 11))
-                    .foregroundColor(NookColors.ink40)
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .background(
-                RoundedRectangle(cornerRadius: NookRadius.chip)
-                    .fill(NookColors.surface)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: NookRadius.chip)
-                    .strokeBorder(NookColors.hairline, lineWidth: 1)
-            )
-        }
-        .buttonStyle(.plain)
-    }
 }
 
 @MainActor
 public final class ObservableMemoryState: ObservableObject {
     @Published public var memories: [MemoryItem] = []
-    @Published public var suggestionQueries: [String] = []
     private let engine: MemoryEngine
 
     public init(engine: MemoryEngine) {
@@ -256,7 +214,6 @@ public final class ObservableMemoryState: ObservableObject {
         Task {
             let m = await engine.getAllMemories()
             self.memories = m
-            self.suggestionQueries = Self.suggestions(from: m)
         }
     }
 
@@ -272,18 +229,8 @@ public final class ObservableMemoryState: ObservableObject {
 
     public func forget(item: MemoryItem) {
         memories.removeAll { $0.id == item.id }
-        suggestionQueries = Self.suggestions(from: memories)
         Task {
             await engine.forget(memoryId: item.id)
         }
-    }
-
-    private static func suggestions(from items: [MemoryItem]) -> [String] {
-        Array(items.prefix(2).map { item in
-            if item.kind == "place" || item.subject.count < 40 {
-                return item.subject
-            }
-            return String(item.subject.prefix(36))
-        })
     }
 }

@@ -83,7 +83,7 @@ public final class DocumentsSearchTool: @unchecked Sendable, AgentTool {
         }
 
         var lines: [String] = [
-            "Candidate passages from \(result.scopeLabel) (use for document questions; ignore if unrelated to a general-knowledge question):"
+            "Retrieved passages from \(result.scopeLabel). Prefer these for the user's question:"
         ]
         for (index, chunk) in result.chunks.enumerated() {
             let citation = result.citations[safe: index]

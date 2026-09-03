@@ -15,7 +15,7 @@ enum MLXContextTrimmer {
         let messages = Array(context.recentMessages.suffix(3))
 
         return AssembledPromptContext(
-            systemPrompt: truncate(context.systemPrompt, maxTokens: 320),
+            systemPrompt: truncate(context.systemPrompt, maxTokens: 400),
             activeSkillInstructions: nil,
             retrievedEvidence: evidence,
             recentMessages: messages,

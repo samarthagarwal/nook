@@ -340,16 +340,44 @@ final class NookEngineTests: XCTestCase {
         XCTAssertFalse(extAllowedReq, "Once always-allowed, explicit modal approval is bypassed")
     }
     
-    func testMemoryProvenanceAndForget() async {
-        let memoryEngine = MemoryEngine()
+    func testMemoryProvenanceAndForget() async throws {
+        let queue = try NookDatabase.makeTestQueue()
+        let chatStore = try ChatStore(dbQueue: queue)
+        let memoryStore = try MemoryStore(dbQueue: queue)
+        let conversation = Conversation(
+            id: "c-mem",
+            title: "Test",
+            whenString: "now",
+            snippet: "",
+            tags: [],
+            activeKnowledgeScope: []
+        )
+        try chatStore.saveConversation(conversation)
+        let message = Message(
+            id: "m-mem",
+            conversationId: conversation.id,
+            role: .user,
+            content: "Sarah recommended DuckDB"
+        )
+        try chatStore.saveMessage(message)
+        XCTAssertTrue(try memoryStore.insertCard(MemoryItem(
+            subject: "DuckDB",
+            kind: "technology",
+            quote: "Sarah recommended DuckDB",
+            source: "“Test” · 3 Sep",
+            conversationId: conversation.id,
+            messageId: message.id
+        )))
+
+        let memoryEngine = MemoryEngine(store: memoryStore)
         let initial = await memoryEngine.getAllMemories()
-        XCTAssertFalse(initial.isEmpty)
-        
+        XCTAssertEqual(initial.count, 1)
+
         let first = initial[0]
         await memoryEngine.forget(memoryId: first.id)
-        
+
         let remaining = await memoryEngine.getAllMemories()
-        XCTAssertFalse(remaining.contains(where: { $0.id == first.id }), "Forgotten item must be excluded from memory search")
+        XCTAssertFalse(remaining.contains(where: { $0.id == first.id }))
     }
 
     func testDeleteDocumentAndCollection() throws {

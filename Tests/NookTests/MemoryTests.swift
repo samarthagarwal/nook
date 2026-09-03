@@ -36,18 +36,25 @@ final class MemoryTests: XCTestCase {
     }
 
     func testParseAndValidateCandidates() {
-        let user = "Sarah recommended DuckDB for the local analytics layer."
+        let user = "Who led the Delhi protests?"
+        let assistant = "Abhijeet Dipke was associated with the Delhi protests according to reports."
         let raw = """
         [
-          {"subject":"DuckDB","kind":"technology","quote":"Sarah recommended DuckDB for the local analytics layer."},
-          {"subject":"Fake","kind":"place","quote":"This quote is not in the message"}
+          {"from":"user","subject":"Delhi protests","kind":"other","quote":"Who led the Delhi protests?"},
+          {"from":"assistant","subject":"Abhijeet Dipke","kind":"person","quote":"Abhijeet Dipke was associated with the Delhi protests according to reports."},
+          {"from":"assistant","subject":"Fake","kind":"person","quote":"This quote is not in the reply"}
         ]
         """
         let parsed = MemoryExtractor.parseCandidates(from: raw)
-        XCTAssertEqual(parsed.count, 2)
-        let validated = MemoryExtractor.validated(candidates: parsed, againstUserMessage: user)
-        XCTAssertEqual(validated.count, 1)
-        XCTAssertEqual(validated[0].subject, "DuckDB")
+        XCTAssertEqual(parsed.count, 3)
+        let validated = MemoryExtractor.validated(
+            candidates: parsed,
+            userMessage: user,
+            assistantMessage: assistant
+        )
+        XCTAssertEqual(validated.count, 2)
+        XCTAssertEqual(validated[1].subject, "Abhijeet Dipke")
+        XCTAssertEqual(validated[1].provenance, .assistant)
     }
 
     func testInsertDedupeAndForget() throws {
@@ -71,6 +78,41 @@ final class MemoryTests: XCTestCase {
         try memoryStore.forget(memoryId: item.id)
         XCTAssertTrue(try memoryStore.fetchActiveCards().isEmpty)
         XCTAssertFalse(try memoryStore.insertCard(item), "Forgotten row still blocks re-insert")
+    }
+
+    func testSubjectDedupeAcrossChats() throws {
+        let queue = try NookDatabase.makeTestQueue()
+        let chatStore = try ChatStore(dbQueue: queue)
+        let memoryStore = try MemoryStore(dbQueue: queue)
+
+        let c1 = Conversation(id: "c1", title: "Chat 1", whenString: "now", snippet: "", tags: [], activeKnowledgeScope: [])
+        let c2 = Conversation(id: "c2", title: "Chat 2", whenString: "now", snippet: "", tags: [], activeKnowledgeScope: [])
+        try chatStore.saveConversation(c1)
+        try chatStore.saveConversation(c2)
+        let m1 = Message(id: "m1", conversationId: c1.id, role: .user, content: "Tell me about Abhijeet Dipke")
+        let m2 = Message(id: "m2", conversationId: c2.id, role: .user, content: "What did we say about Abhijeet Dipke earlier?")
+        try chatStore.saveMessage(m1)
+        try chatStore.saveMessage(m2)
+
+        XCTAssertTrue(try memoryStore.insertCard(MemoryItem(
+            subject: "Abhijeet Dipke",
+            kind: "person",
+            quote: "Abhijeet Dipke",
+            source: "“Chat 1” · 3 Sep",
+            conversationId: c1.id,
+            messageId: m1.id,
+            provenance: .assistant
+        )))
+        XCTAssertFalse(try memoryStore.insertCard(MemoryItem(
+            subject: "abhijeet dipke",
+            kind: "person",
+            quote: "What did we say about Abhijeet Dipke earlier?",
+            source: "“Chat 2” · 3 Sep",
+            conversationId: c2.id,
+            messageId: m2.id,
+            provenance: .user
+        )), "Same subject should not create a second active card")
+        XCTAssertEqual(try memoryStore.fetchActiveCards().count, 1)
     }
 
     func testCascadeDeletesMemoryWithChat() throws {

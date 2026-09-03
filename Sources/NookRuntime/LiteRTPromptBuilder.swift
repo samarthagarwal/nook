@@ -23,7 +23,7 @@ enum LiteRTPromptBuilder {
             instructionParts.append(
                 """
                 Retrieved knowledge — verbatim passages from the user's scoped collections. \
-                Use only these facts; do not invent document content:
+                Use the best match to answer briefly; do not invent unrelated events:
                 \(evidence)
                 """
             )

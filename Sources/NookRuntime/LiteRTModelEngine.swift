@@ -376,7 +376,7 @@ final class LiteRTModelEngine: @unchecked Sendable {
         let approxChars = built.systemText.count
             + built.history.reduce(0) { $0 + $1.toString.count }
             + built.latestUser.toString.count
-        print("[LiteRT] Prompt ~\(approxChars) chars (~\(approxChars / 4) tokens est), tools=\(toolSchemas.count)")
+        print("[LiteRT] Prompt ~\(approxChars) chars (~\(approxChars / 4) tokens est), tools=\(toolSchemas.count), evidence=\(trimmed.retrievedEvidence.count), toolResults=\(trimmed.toolResultSummaries.count)")
 
         let temperature: Float = toolSchemas.isEmpty ? 0.3 : 0.0
         let sampler = try SamplerConfig(topK: 40, topP: 0.95, temperature: temperature)
@@ -461,11 +461,12 @@ final class LiteRTModelEngine: @unchecked Sendable {
 
     /// Keep prompt inside the engine context window (leave headroom for generation).
     private static func trimContext(_ context: AssembledPromptContext) -> AssembledPromptContext {
-        let evidence = context.retrievedEvidence.prefix(2).map { truncate($0, maxChars: 600) }
-        let tools = context.toolResultSummaries.prefix(1).map { truncate($0, maxChars: 1_200) }
+        let evidence = context.retrievedEvidence.prefix(3).map { truncate($0, maxChars: 900) }
+        let tools = context.toolResultSummaries.prefix(2).map { truncate($0, maxChars: 1_500) }
         let messages = context.recentMessages.suffix(4).map(truncateMessage(_:))
         return AssembledPromptContext(
-            systemPrompt: truncate(context.systemPrompt, maxChars: 1_000),
+            // Knowledge grounding lives in the system prompt — 1000 chars was cutting it off.
+            systemPrompt: truncate(context.systemPrompt, maxChars: 2_800),
             activeSkillInstructions: context.activeSkillInstructions.map { truncate($0, maxChars: 400) },
             retrievedEvidence: Array(evidence),
             recentMessages: Array(messages),

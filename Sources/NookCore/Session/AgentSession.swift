@@ -164,22 +164,44 @@ public final class AgentSession: ObservableObject {
             persist(message: toolChip)
 
             let evidenceNote: String
+            let generationRequest: AgentGenerationRequest
+            // When Knowledge hits, do not inject Memory — small models latch onto MEMORY
+            // labels and ignore FAQ passages (e.g. "What is happening?" → world news).
+            let memoryForTurn: [String]
+            let chunksForPrompt: [DocumentChunk]
+            let citationsForUI: [Citation]
             if searchResult.chunks.isEmpty {
                 evidenceNote = searchResult.textForModel
+                generationRequest = await externalToolsRequest()
+                memoryForTurn = memoryEvidence
+                chunksForPrompt = []
+                citationsForUI = []
             } else {
+                // Top passages once — duplicating full text in toolResults bloated the prompt
+                // (~5–7k chars) and made answers dump entire FAQ sections.
+                chunksForPrompt = Array(searchResult.chunks.prefix(3))
+                citationsForUI = Self.deduplicatedCitations(Array(searchResult.citations.prefix(3)))
                 evidenceNote =
-                    "documents_search returned \(searchResult.chunks.count) passage(s). " +
-                    "If they answer the user's question about their documents, use only those passages. " +
-                    "If the question is general knowledge and the passages are unrelated, answer normally " +
-                    "and do not claim the answer came from Knowledge."
+                    "\(chunksForPrompt.count) passage(s) from scoped Knowledge are in context. " +
+                    "Answer the user's question briefly from the best matching passage. " +
+                    "Do not summarize every passage. Do not invent unrelated events."
+                generationRequest = .textOnly
+                memoryForTurn = []
+                #if DEBUG
+                print(
+                    "[AgentSession] Knowledge hits=\(searchResult.chunks.count) " +
+                    "(using \(chunksForPrompt.count)); " +
+                    "suppressing \(memoryEvidence.count) memory block(s) for this turn"
+                )
+                #endif
             }
 
             await performAssistantStream(
-                request: await externalToolsRequest(),
-                evidenceChunks: searchResult.chunks,
+                request: generationRequest,
+                evidenceChunks: chunksForPrompt,
                 toolResults: [evidenceNote],
-                forcedCitations: searchResult.citations,
-                memoryEvidence: memoryEvidence,
+                forcedCitations: citationsForUI,
+                memoryEvidence: memoryForTurn,
                 systemPrompt: NookSystemPrompt.withRetrievedKnowledge,
                 streamHandler: streamHandler,
                 userMessageForMemory: userMsg,
@@ -380,13 +402,19 @@ public final class AgentSession: ObservableObject {
 
                 if let userMessageForMemory, let memoryExtractHandler {
                     let title = await MainActor.run { self.conversation.title }
+                    let assistantForMemory = await MainActor.run { () -> Message? in
+                        self.messages.first(where: { $0.id == assistantMsgId })
+                    }
                     let engine = memoryEngine
                     Task {
-                        await engine.processUserMessage(
-                            message: userMessageForMemory,
-                            conversationTitle: title,
-                            generate: memoryExtractHandler
-                        )
+                        if let assistantForMemory {
+                            await engine.processExchange(
+                                userMessage: userMessageForMemory,
+                                assistantMessage: assistantForMemory,
+                                conversationTitle: title,
+                                generate: memoryExtractHandler
+                            )
+                        }
                     }
                 }
             } catch is CancellationError {
@@ -481,6 +509,19 @@ public final class AgentSession: ObservableObject {
             }
         }
         return names.sorted()
+    }
+
+    /// Collapse duplicate Knowledge citations (same document · section).
+    private static func deduplicatedCitations(_ citations: [Citation]) -> [Citation] {
+        var seen = Set<String>()
+        var unique: [Citation] = []
+        for citation in citations {
+            let key = "\(citation.sourceDocument)|\(citation.pageOrSection)".lowercased()
+            if seen.insert(key).inserted {
+                unique.append(citation)
+            }
+        }
+        return unique
     }
 
     public func persistConversationMetadata() {
