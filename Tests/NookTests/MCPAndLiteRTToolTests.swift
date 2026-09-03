@@ -71,6 +71,15 @@ final class MCPAndLiteRTToolTests: XCTestCase {
         XCTAssertEqual(LiteRTToolCallParser.visibleText(from: raw), "")
     }
 
+    func testLiteRTToolCallParserGemmaSkillShapedName() {
+        let raw = #"<|tool_call>call:Meeting Prep{query:<|"|>Shubh<|"|>}<tool_call|>"#
+        let calls = LiteRTToolCallParser.parse(from: raw)
+        XCTAssertEqual(calls.count, 1)
+        XCTAssertEqual(calls[0].name, "Meeting Prep")
+        XCTAssertEqual(calls[0].arguments["query"]?.stringValue, "Shubh")
+        XCTAssertEqual(LiteRTToolCallParser.visibleText(from: raw), "")
+    }
+
     func testLiteRTToolCallParserGemmaDelimitedStrings() {
         let raw = #"<|tool_call>call:tavily_search{query:<|"|>WWDC news<|"|>}<tool_call|>"#
         let calls = LiteRTToolCallParser.parse(from: raw)

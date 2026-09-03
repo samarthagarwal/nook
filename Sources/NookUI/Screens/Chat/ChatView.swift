@@ -6,6 +6,7 @@ import NookRuntime
 public struct ChatView: View {
     @ObservedObject public var session: AgentSession
     @ObservedObject public var runtimeStore: ModelRuntimeStore
+    public let skills: [Skill]
     public let onBack: () -> Void
     public let onOpenScope: () -> Void
     public let onOpenAttach: () -> Void
@@ -18,6 +19,7 @@ public struct ChatView: View {
     public init(
         session: AgentSession,
         runtimeStore: ModelRuntimeStore,
+        skills: [Skill] = [],
         onBack: @escaping () -> Void,
         onOpenScope: @escaping () -> Void,
         onOpenAttach: @escaping () -> Void,
@@ -26,6 +28,7 @@ public struct ChatView: View {
     ) {
         self.session = session
         self.runtimeStore = runtimeStore
+        self.skills = skills
         self.onBack = onBack
         self.onOpenScope = onOpenScope
         self.onOpenAttach = onOpenAttach
@@ -134,6 +137,10 @@ public struct ChatView: View {
         }
     }
 
+    private var slashMatches: [Skill] {
+        SkillActivation.autocomplete(prefix: inputText, skills: skills)
+    }
+
     private var knowledgeScopeCaption: String {
         let scope = session.conversation.activeKnowledgeScope
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -157,6 +164,73 @@ public struct ChatView: View {
             .padding(.top, 10)
             .contentShape(Rectangle())
             .onTapGesture(perform: onOpenScope)
+
+            if let skill = skills.first(where: { $0.id == session.conversation.activeSkillId }) {
+                HStack(spacing: 8) {
+                    Text(skill.name)
+                        .font(NookTypography.badge)
+                        .foregroundColor(NookColors.local)
+                    Text(SkillActivation.slashCommand(for: skill))
+                        .font(.system(size: 11, weight: .regular, design: .monospaced))
+                        .foregroundColor(NookColors.ink45)
+                    Spacer()
+                    Button {
+                        session.setActiveSkill(nil)
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundColor(NookColors.ink45)
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 7)
+                .background(
+                    RoundedRectangle(cornerRadius: NookRadius.chip)
+                        .fill(NookColors.localSoft)
+                )
+                .padding(.horizontal, 18)
+            }
+
+            if !slashMatches.isEmpty {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(slashMatches) { skill in
+                        Button {
+                            session.setActiveSkill(skill)
+                            if let invoked = SkillActivation.parseInvocation(inputText, skills: skills),
+                               invoked.skill.id == skill.id {
+                                inputText = invoked.remainder
+                            } else {
+                                inputText = ""
+                            }
+                        } label: {
+                            HStack {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(skill.name)
+                                        .font(NookTypography.rowTitle)
+                                        .foregroundColor(NookColors.ink)
+                                    Text(SkillActivation.slashCommand(for: skill))
+                                        .font(.system(size: 11, weight: .regular, design: .monospaced))
+                                        .foregroundColor(NookColors.ink45)
+                                }
+                                Spacer()
+                            }
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .background(
+                    RoundedRectangle(cornerRadius: NookRadius.card)
+                        .fill(NookColors.surface)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: NookRadius.card)
+                        .strokeBorder(NookColors.hairline, lineWidth: 1)
+                )
+                .padding(.horizontal, 18)
+            }
 
             if let img = attachedImage {
                 HStack {

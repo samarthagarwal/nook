@@ -100,6 +100,18 @@ public extension AgentTool {
     }
 }
 
+/// How the agent loop should treat a tool result. Policy lives here, not in string matching.
+public enum ToolDisposition: Sendable, Equatable {
+    /// Observation goes back; the model decides the next step.
+    case completed
+    /// End the turn and show this text (or ask the user).
+    case needsUser
+    /// End the turn and show this text — the tool already answered.
+    case finished
+    /// Observation goes back; do not auto-retry this same call.
+    case failed
+}
+
 public struct ToolExecutionResult: Sendable {
     public let textForModel: String
     public let displayText: String
@@ -107,6 +119,7 @@ public struct ToolExecutionResult: Sendable {
     public let chunks: [DocumentChunk]
     public let isExternal: Bool
     public let externalFooter: String?
+    public let disposition: ToolDisposition
 
     public init(
         textForModel: String,
@@ -114,7 +127,8 @@ public struct ToolExecutionResult: Sendable {
         citations: [Citation] = [],
         chunks: [DocumentChunk] = [],
         isExternal: Bool = false,
-        externalFooter: String? = nil
+        externalFooter: String? = nil,
+        disposition: ToolDisposition = .completed
     ) {
         self.textForModel = textForModel
         self.displayText = displayText
@@ -122,6 +136,17 @@ public struct ToolExecutionResult: Sendable {
         self.chunks = chunks
         self.isExternal = isExternal
         self.externalFooter = externalFooter
+        self.disposition = disposition
+    }
+}
+
+public struct AgentToolCall: Sendable, Equatable {
+    public let name: String
+    public let arguments: ToolArguments
+
+    public init(name: String, arguments: ToolArguments) {
+        self.name = name
+        self.arguments = arguments
     }
 }
 
@@ -150,24 +175,43 @@ public struct AgentToolEvent: Sendable {
 
 /// Request for a model turn that may include native tool calling.
 public struct AgentGenerationRequest: Sendable {
-    public let toolSchemas: [AgentToolSpec]
-    public let maxToolRounds: Int
-
-    public init(toolSchemas: [AgentToolSpec], maxToolRounds: Int = 3) {
-        self.toolSchemas = toolSchemas
-        self.maxToolRounds = maxToolRounds
+    /// What shape of output the runtime should allow for one step.
+    public enum ResponseMode: Sendable, Equatable {
+        /// The model may call a tool or answer in prose.
+        case auto
+        /// The model must answer the user. Runtimes that support constrained
+        /// decoding make tool-call syntax unreachable rather than asking for prose.
+        case proseOnly
     }
 
+    public let toolSchemas: [AgentToolSpec]
+    public let maxToolRounds: Int
+    public let responseMode: ResponseMode
+
+    public init(
+        toolSchemas: [AgentToolSpec],
+        maxToolRounds: Int = 3,
+        responseMode: ResponseMode = .auto
+    ) {
+        self.toolSchemas = toolSchemas
+        self.maxToolRounds = maxToolRounds
+        self.responseMode = responseMode
+    }
+
+    /// Plain chat. Deliberately unconstrained so answers may contain `<`.
     public static let textOnly = AgentGenerationRequest(toolSchemas: [], maxToolRounds: 0)
 }
 
 public struct AgentGenerationResult: Sendable {
     public let text: String
     public let citations: [Citation]
+    /// One model step. Non-empty means the loop should execute these, not show `text`.
+    public let toolCalls: [AgentToolCall]
 
-    public init(text: String, citations: [Citation] = []) {
+    public init(text: String, citations: [Citation] = [], toolCalls: [AgentToolCall] = []) {
         self.text = text
         self.citations = citations
+        self.toolCalls = toolCalls
     }
 }
 
@@ -220,12 +264,20 @@ public actor ToolRegistry {
     private var documentsSearchTool: DocumentsSearchTool?
     private var documentsSearchScope: [String] = []
 
-    public init(knowledgeEngine: KnowledgeEngine? = nil) {
+    public init(
+        knowledgeEngine: KnowledgeEngine? = nil,
+        calendarReader: (any CalendarEventReading)? = nil,
+        reminderWriter: (any ReminderWriting)? = nil
+    ) {
         if let knowledgeEngine {
             let tool = DocumentsSearchTool(knowledgeEngine: knowledgeEngine)
             documentsSearchTool = tool
             registeredTools[DocumentsSearchTool.toolName] = tool
         }
+        let calendar = CalendarSearchTool(reader: calendarReader ?? EventKitCalendarReader())
+        registeredTools[CalendarSearchTool.toolName] = calendar
+        let reminders = RemindersCreateTool(writer: reminderWriter ?? EventKitReminderWriter())
+        registeredTools[RemindersCreateTool.toolName] = reminders
     }
 
     /// Binds the conversation's Knowledge scope for `documents_search` this turn.
@@ -315,7 +367,8 @@ public actor ToolRegistry {
                 citations: result.citations,
                 chunks: result.chunks,
                 isExternal: tool.isExternal,
-                externalFooter: result.externalFooter
+                externalFooter: result.externalFooter,
+                disposition: result.disposition
             )
         }
         return result

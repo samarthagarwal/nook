@@ -32,8 +32,9 @@ enum LiteRTPromptBuilder {
             let tools = context.toolResultSummaries.joined(separator: "\n")
             instructionParts.append(
                 """
-                Tool results from this turn — answer the user's question using them. \
-                Do not claim you lack access to the tool that produced these results:
+                Tool results from this turn. If another listed tool is needed, call it. \
+                Otherwise answer the user from these results. Do not claim you lack access \
+                to a tool that is listed or that just returned results:
                 \(tools)
                 """
             )
@@ -90,8 +91,11 @@ enum LiteRTPromptBuilder {
         \(lines.joined(separator: "\n"))
 
         Pick the tool whose name/description best matches the user's request. \
+        Use an exact name from this list — never a Skill name. \
         Tool names look like server__tool (for example exa__web_search_exa). \
-        Do not call a tool that is not in this list.
+        Do not call a tool that is not in this list. \
+        Never invent a datetime — copy yyyy-MM-dd HH:mm from the user or a tool result, \
+        or stop and ask.
 
         To call a tool, reply with ONLY a tool call (no markdown, no prose). Prefer Gemma format:
         <|tool_call>call:TOOL_NAME{query:"..."}<tool_call|>
@@ -117,8 +121,8 @@ enum LiteRTPromptBuilder {
             .replacingOccurrences(of: "\n", with: " ")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let shortDescription: String
-        if description.count > 140 {
-            shortDescription = String(description.prefix(137)) + "..."
+        if description.count > 320 {
+            shortDescription = String(description.prefix(317)) + "..."
         } else {
             shortDescription = description
         }

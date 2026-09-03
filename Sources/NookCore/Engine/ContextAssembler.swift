@@ -76,10 +76,13 @@ public struct ContextAssembler: Sendable {
         // 1. Truncate / fit System prompt
         let fittedSystem = truncate(text: baseSystemPrompt, maxTokens: config.systemInstructionsCap)
         
-        // 2. Truncate / fit active Skill instructions if granted
+        // 2. Inject SKILL.md only when this chat has an explicit Skill.
         var fittedSkill: String? = nil
-        if let skill = activeSkill, skill.isEnabled {
-            fittedSkill = truncate(text: skill.skillMdContent, maxTokens: config.activeSkillCap)
+        if let skill = activeSkill {
+            let body = skill.skillMdContent.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !body.isEmpty {
+                fittedSkill = truncate(text: body, maxTokens: config.activeSkillCap)
+            }
         }
         
         // 3. Fit Evidence — Knowledge first, then Memory (Knowledge must win when both present)

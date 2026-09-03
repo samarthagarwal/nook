@@ -29,8 +29,9 @@ enum MLXPromptBuilder {
             let tools = context.toolResultSummaries.joined(separator: "\n")
             instructionParts.append(
                 """
-                Tool results from this turn — answer the user's question using them. \
-                Do not claim you lack access to the tool that produced these results:
+                Tool results from this turn. If another listed tool is needed, call it. \
+                Otherwise answer the user from these results. Do not claim you lack access \
+                to a tool that is listed or that just returned results:
                 \(tools)
                 """
             )

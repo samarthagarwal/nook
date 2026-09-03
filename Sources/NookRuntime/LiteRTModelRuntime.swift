@@ -11,6 +11,7 @@ public final class LiteRTModelRuntime: ModelRuntime, @unchecked Sendable {
     public private(set) var downloadState: ModelDownloadState = .notDownloaded
 
     private let engine = LiteRTModelEngine()
+    private let generationGate = LiteRTGenerationGate()
     private let stateLock = NSLock()
     private var activeDownloadTask: Task<Void, Error>?
     private var activeGenerationTask: Task<AgentGenerationResult, Error>?
@@ -75,8 +76,24 @@ public final class LiteRTModelRuntime: ModelRuntime, @unchecked Sendable {
             throw LiteRTModelRuntimeError.modelNotReady(underlying: nil)
         }
 
-        // Stop any prior hung native stream before loading/generating again.
-        await cancelAndDropGeneration(unloadWeights: false)
+        return try await generationGate.run {
+            try await self.performGenerate(
+                promptContext: promptContext,
+                request: request,
+                toolExecutor: toolExecutor,
+                onToken: onToken,
+                onToolEvent: onToolEvent
+            )
+        }
+    }
+
+    private func performGenerate(
+        promptContext: AssembledPromptContext,
+        request: AgentGenerationRequest,
+        toolExecutor: (@Sendable (String, ToolArguments) async throws -> ToolExecutionResult)?,
+        onToken: @escaping @Sendable (String) -> Void,
+        onToolEvent: (@Sendable (AgentToolEvent) -> Void)?
+    ) async throws -> AgentGenerationResult {
         try await ensureModelLoaded()
 
         let task = Task<AgentGenerationResult, Error> {
@@ -104,19 +121,21 @@ public final class LiteRTModelRuntime: ModelRuntime, @unchecked Sendable {
                 }
                 let result = try await group.next()!
                 group.cancelAll()
-                task.cancel()
                 return result
             }
         } catch is CancellationError {
-            await cancelAndDropGeneration(unloadWeights: true)
+            await cancelAndDropGeneration(unloadWeights: false)
             throw CancellationError()
         } catch let error as LiteRTModelRuntimeError {
-            await cancelAndDropGeneration(unloadWeights: true)
+            await cancelAndDropGeneration(unloadWeights: false)
             throw error
         } catch {
-            await cancelAndDropGeneration(unloadWeights: true)
+            await cancelAndDropGeneration(unloadWeights: false)
             if LiteRTModelEngine.isBrokenEmbedderOrMmapError(error) {
                 throw LiteRTModelRuntimeError.insufficientMemory(detail: error.localizedDescription)
+            }
+            if LiteRTModelEngine.isDeadlineError(error) {
+                throw LiteRTModelRuntimeError.generationFailed(underlying: URLError(.timedOut))
             }
             throw LiteRTModelRuntimeError.generationFailed(underlying: error)
         }
@@ -320,6 +339,13 @@ public final class LiteRTModelRuntime: ModelRuntime, @unchecked Sendable {
         stateLock.lock()
         activeGenerationTask = task
         stateLock.unlock()
+    }
+}
+
+/// One LiteRT conversation at a time — memory extract and the next chat share the GPU.
+private actor LiteRTGenerationGate {
+    func run<T: Sendable>(_ work: @Sendable () async throws -> T) async throws -> T {
+        try await work()
     }
 }
 

@@ -25,8 +25,16 @@
 		<key>UIApplicationSupportsMultipleScenes</key>
 		<false/>
 	</dict>
-	<key>UILaunchScreen</key>
-	<dict/>
+	<key>UILaunchStoryboardName</key>
+	<string>LaunchScreen</string>
+	<key>NSCalendarsUsageDescription</key>
+	<string>Nook reads your calendar on this iPhone when a Skill you turned on needs it — for example Meeting Prep.</string>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>Nook reads your calendar on this iPhone when a Skill you turned on needs it — for example Meeting Prep.</string>
+	<key>NSRemindersUsageDescription</key>
+	<string>Nook adds reminders on this iPhone when you ask it to.</string>
+	<key>NSRemindersFullAccessUsageDescription</key>
+	<string>Nook adds reminders on this iPhone when you ask it to.</string>
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>

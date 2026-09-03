@@ -25,7 +25,9 @@ let package = Package(
         .package(url: "https://github.com/huggingface/swift-huggingface", from: "0.9.0"),
         .package(url: "https://github.com/huggingface/swift-transformers", from: "1.3.0"),
         .package(url: "https://github.com/groue/GRDB.swift", from: "7.0.0"),
-        .package(url: "https://github.com/google-ai-edge/LiteRT-LM", from: "0.16.0")
+        // Local shallow checkout — remote URL mirror is multi‑GB and stalls Xcode resolve.
+        // Committed remote: .package(url: "https://github.com/google-ai-edge/LiteRT-LM", from: "0.16.0")
+        .package(path: "/tmp/LiteRT-LM")
     ],
     targets: [
         .target(

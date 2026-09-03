@@ -69,17 +69,11 @@ enum LiteRTToolCallParser {
         var searchIndex = s.startIndex
         while let callRange = s.range(of: "call:", range: searchIndex..<s.endIndex) {
             let nameStart = callRange.upperBound
-            var nameEnd = nameStart
-            while nameEnd < s.endIndex {
-                let ch = s[nameEnd]
-                if ch.isLetter || ch.isNumber || ch == "_" || ch == "." || ch == "-" {
-                    nameEnd = s.index(after: nameEnd)
-                } else {
-                    break
-                }
+            guard let (_, nameEnd) = gemmaToolName(in: s, start: nameStart) else {
+                searchIndex = s.index(after: callRange.lowerBound)
+                continue
             }
-            let toolName = String(s[nameStart..<nameEnd])
-            guard !toolName.isEmpty, nameEnd < s.endIndex, s[nameEnd] == "{" else {
+            guard nameEnd < s.endIndex, s[nameEnd] == "{" else {
                 searchIndex = nameEnd > callRange.upperBound ? nameEnd : s.index(after: callRange.lowerBound)
                 continue
             }
@@ -121,7 +115,7 @@ enum LiteRTToolCallParser {
             return true
         }
         // Bare Gemma call — require call:name{ shape, not the English word "call:".
-        if lower.range(of: #"call:[a-z0-9_.-]+\s*\{"#, options: .regularExpression) != nil {
+        if lower.range(of: #"call:[a-z0-9_.\- ]+\{"#, options: .regularExpression) != nil {
             return true
         }
         if lower.contains("\"tool_calls\"") || lower.contains("'tool_calls'") {
@@ -157,18 +151,9 @@ enum LiteRTToolCallParser {
             let nameStart = callStart.upperBound
             guard nameStart < text.endIndex else { break }
 
-            var nameEnd = nameStart
-            while nameEnd < text.endIndex {
-                let ch = text[nameEnd]
-                if ch.isLetter || ch.isNumber || ch == "_" || ch == "." || ch == "-" {
-                    nameEnd = text.index(after: nameEnd)
-                } else {
-                    break
-                }
-            }
-            let name = String(text[nameStart..<nameEnd])
-            guard !name.isEmpty, nameEnd < text.endIndex, text[nameEnd] == "{" else {
-                search = nameEnd
+            guard let (name, nameEnd) = gemmaToolName(in: text, start: nameStart),
+                  nameEnd < text.endIndex, text[nameEnd] == "{" else {
+                search = text.index(after: callStart.lowerBound)
                 continue
             }
 
@@ -189,6 +174,25 @@ enum LiteRTToolCallParser {
         }
 
         return calls
+    }
+
+    /// `calendar.search` or a skill-shaped `Meeting Prep` (spaces until `{`).
+    private static func gemmaToolName(
+        in text: String,
+        start: String.Index
+    ) -> (String, String.Index)? {
+        var nameEnd = start
+        while nameEnd < text.endIndex {
+            let ch = text[nameEnd]
+            if ch.isLetter || ch.isNumber || ch == "_" || ch == "." || ch == "-" || ch == " " {
+                nameEnd = text.index(after: nameEnd)
+            } else {
+                break
+            }
+        }
+        let name = String(text[start..<nameEnd]).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return nil }
+        return (name, nameEnd)
     }
 
     /// Given index of `{`, returns the inner content up to the matching `}`.

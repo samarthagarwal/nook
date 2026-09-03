@@ -36,6 +36,10 @@ public final class AgentSession: ObservableObject {
     private var activeGenerationTask: Task<Void, Never>?
     private var approvalContinuation: CheckedContinuation<Bool, Never>?
     private var approvalContinuationToolName: String?
+    private var turnGrantedLocalTools: Set<String> = []
+    private var turnActiveSkill: Skill?
+    private var catalogSkills: [Skill] = []
+    private var turnMemoryGrounding: String = ""
     private let chatStore: ChatStore
 
     public init(
@@ -69,6 +73,11 @@ public final class AgentSession: ObservableObject {
         messages.removeFirst(messages.count - count)
     }
 
+    public func setActiveSkill(_ skill: Skill?) {
+        conversation.activeSkillId = skill?.id
+        persistConversationMetadata()
+    }
+
     public func showToast(_ text: String) {
         self.toastMessage = text
         Task {
@@ -98,21 +107,33 @@ public final class AgentSession: ObservableObject {
     ) async {
         activeGenerationTask?.cancel()
 
+        catalogSkills = await skillManager.getAllSkills()
+        var body = text
+        if let invoked = SkillActivation.parseInvocation(body, skills: catalogSkills) {
+            setActiveSkill(invoked.skill)
+            body = invoked.remainder
+            if body.isEmpty {
+                showToast("\(invoked.skill.name) is on for this chat.")
+                return
+            }
+        }
+
         let userMsg = Message(
             conversationId: conversation.id,
             role: .user,
-            content: text,
+            content: body,
             attachedImageName: attachedImageName
         )
         messages.append(userMsg)
         trimDisplayedMessages()
-        persist(message: userMsg, userTextForMetadata: text)
+        persist(message: userMsg, userTextForMetadata: body)
 
         isThinking = true
         isStreaming = false
 
-        let memoryHits = await memoryEngine.memoriesForChat(query: text)
+        let memoryHits = await memoryEngine.memoriesForChat(query: body)
         let memoryEvidence = MemoryEngine.evidenceStrings(from: memoryHits)
+        turnMemoryGrounding = memoryEvidence.joined(separator: "\n")
 
         let knowledgeScope = conversation.activeKnowledgeScope
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -121,14 +142,27 @@ public final class AgentSession: ObservableObject {
         await toolRegistry.setDocumentsSearchScope(knowledgeScope)
         await mcpToolRegistrar.sync()
 
+        turnActiveSkill = SkillActivation.skill(id: conversation.activeSkillId, in: catalogSkills)
+        turnGrantedLocalTools = SkillActivation.grantedToolNames(for: catalogSkills)
+        #if DEBUG
+        if let turnActiveSkill {
+            print("[AgentSession] Invoked skill=\(turnActiveSkill.name) tools=\(turnGrantedLocalTools.sorted())")
+        } else {
+            print("[AgentSession] No invoked skill; offering granted tools=\(turnGrantedLocalTools.sorted())")
+        }
+        #endif
+
         if knowledgeScope.isEmpty {
             #if DEBUG
             print("[AgentSession] No Knowledge scope — chat without documents_search")
             #endif
             await performAssistantStream(
-                request: await externalToolsRequest(),
+                request: await makeGenerationRequest(grantedLocalToolNames: turnGrantedLocalTools),
                 memoryEvidence: memoryEvidence,
-                systemPrompt: NookSystemPrompt.standard,
+                systemPrompt: NookSystemPrompt.withSkills(
+                    base: NookSystemPrompt.standard,
+                    active: turnActiveSkill
+                ),
                 streamHandler: streamHandler,
                 userMessageForMemory: userMsg,
                 memoryExtractHandler: memoryExtractHandler
@@ -139,9 +173,12 @@ public final class AgentSession: ObservableObject {
         let registered = await toolRegistry.allToolNames()
         guard registered.contains(DocumentsSearchTool.toolName) else {
             await performAssistantStream(
-                request: await externalToolsRequest(),
+                request: await makeGenerationRequest(grantedLocalToolNames: turnGrantedLocalTools),
                 memoryEvidence: memoryEvidence,
-                systemPrompt: NookSystemPrompt.standard,
+                systemPrompt: NookSystemPrompt.withSkills(
+                    base: NookSystemPrompt.standard,
+                    active: turnActiveSkill
+                ),
                 streamHandler: streamHandler,
                 userMessageForMemory: userMsg,
                 memoryExtractHandler: memoryExtractHandler
@@ -152,7 +189,7 @@ public final class AgentSession: ObservableObject {
         do {
             let searchResult = try await toolRegistry.execute(
                 toolName: DocumentsSearchTool.toolName,
-                arguments: ["query": .string(text)]
+                arguments: ["query": .string(body)]
             )
             let toolChip = Message(
                 conversationId: conversation.id,
@@ -172,7 +209,7 @@ public final class AgentSession: ObservableObject {
             let citationsForUI: [Citation]
             if searchResult.chunks.isEmpty {
                 evidenceNote = searchResult.textForModel
-                generationRequest = await externalToolsRequest()
+                generationRequest = await makeGenerationRequest(grantedLocalToolNames: turnGrantedLocalTools)
                 memoryForTurn = memoryEvidence
                 chunksForPrompt = []
                 citationsForUI = []
@@ -185,12 +222,12 @@ public final class AgentSession: ObservableObject {
                     "\(chunksForPrompt.count) passage(s) from scoped Knowledge are in context. " +
                     "Answer the user's question briefly from the best matching passage. " +
                     "Do not summarize every passage. Do not invent unrelated events."
-                generationRequest = .textOnly
+                generationRequest = await makeGenerationRequest(grantedLocalToolNames: turnGrantedLocalTools)
                 memoryForTurn = []
                 #if DEBUG
                 print(
                     "[AgentSession] Knowledge hits=\(searchResult.chunks.count) " +
-                    "(using \(chunksForPrompt.count)); " +
+                    "(using \(chunksForPrompt.count)); tools stay on; " +
                     "suppressing \(memoryEvidence.count) memory block(s) for this turn"
                 )
                 #endif
@@ -202,7 +239,10 @@ public final class AgentSession: ObservableObject {
                 toolResults: [evidenceNote],
                 forcedCitations: citationsForUI,
                 memoryEvidence: memoryForTurn,
-                systemPrompt: NookSystemPrompt.withRetrievedKnowledge,
+                systemPrompt: NookSystemPrompt.withSkills(
+                    base: NookSystemPrompt.withRetrievedKnowledge,
+                    active: turnActiveSkill
+                ),
                 streamHandler: streamHandler,
                 userMessageForMemory: userMsg,
                 memoryExtractHandler: memoryExtractHandler
@@ -248,16 +288,21 @@ public final class AgentSession: ObservableObject {
         }
     }
 
-    private func externalToolsRequest() async -> AgentGenerationRequest {
+    private func makeGenerationRequest(grantedLocalToolNames: Set<String>) async -> AgentGenerationRequest {
         let names = await toolRegistry.allToolNames()
         var allowed = Set<String>()
         for name in names {
-            guard let tool = await toolRegistry.getTool(named: name), tool.isExternal else { continue }
-            allowed.insert(name)
+            guard let tool = await toolRegistry.getTool(named: name) else { continue }
+            if tool.isExternal {
+                allowed.insert(name)
+            } else if name != DocumentsSearchTool.toolName,
+                      grantedLocalToolNames.contains(name) || AlwaysOfferedLocalTools.contains(name) {
+                allowed.insert(name)
+            }
         }
         guard !allowed.isEmpty else { return .textOnly }
         let schemas = await toolRegistry.schemas(forAllowedNames: allowed)
-        return AgentGenerationRequest(toolSchemas: schemas, maxToolRounds: 2)
+        return AgentGenerationRequest(toolSchemas: schemas, maxToolRounds: 0)
     }
 
     private func requestExternalToolApproval(toolName: String, arguments: ToolArguments) async -> Bool {
@@ -313,7 +358,7 @@ public final class AgentSession: ObservableObject {
 
         let promptContext = contextAssembler.assemble(
             baseSystemPrompt: systemPrompt,
-            activeSkill: nil,
+            activeSkill: turnActiveSkill,
             evidenceChunks: evidenceChunks,
             chatHistory: messages.filter { $0.id != assistantMsgId },
             toolResults: toolResults,
@@ -321,19 +366,51 @@ public final class AgentSession: ObservableObject {
         )
 
         let registry = toolRegistry
+        let grantedLocal = turnGrantedLocalTools
+        let userGrounding = messages
+            .filter { $0.role == .user || $0.role == .assistant }
+            .suffix(8)
+            .map(\.content)
+            .joined(separator: "\n")
+        let memoryGrounding = turnMemoryGrounding
+        let toolGrounding = ToolGroundingBox()
         let toolExecutor: @Sendable (String, ToolArguments) async throws -> ToolExecutionResult = { name, arguments in
             print("[AgentSession] Tool requested: \(name)")
             guard let resolved = await self.resolveToolName(name) else {
-                let available = await self.enabledExternalToolNames()
+                let available = await self.enabledModelFacingToolNames()
                 let hint = available.isEmpty
-                    ? "No external tools are enabled."
+                    ? "No tools are enabled."
                     : "Available tools: \(available.joined(separator: ", "))."
                 return ToolExecutionResult(
                     textForModel: "Tool '\(name)' is not enabled or unknown. \(hint)",
                     displayText: "Skipped unavailable tool \(name)",
-                    isExternal: true
+                    isExternal: true,
+                    disposition: .failed
                 )
             }
+            if let tool = await registry.getTool(named: resolved),
+               !tool.isExternal,
+               resolved != DocumentsSearchTool.toolName,
+               !grantedLocal.contains(resolved),
+               !AlwaysOfferedLocalTools.contains(resolved) {
+                return ToolExecutionResult(
+                    textForModel: "\(resolved) is not granted for the active Skill. Ask the user to turn on that permission.",
+                    displayText: "\(resolved) · not granted",
+                    disposition: .needsUser
+                )
+            }
+            if resolved == RemindersCreateTool.toolName,
+               let reminders = await registry.getTool(named: resolved) as? RemindersCreateTool {
+                let lookupResults = toolGrounding.texts.filter {
+                    !$0.lowercased().hasPrefix("reminders.create")
+                }
+                reminders.setGroundingText(
+                    ([userGrounding, memoryGrounding] + lookupResults)
+                        .filter { !$0.isEmpty }
+                        .joined(separator: "\n")
+                )
+            }
+            let result: ToolExecutionResult
             if await registry.requiresApproval(toolName: resolved) {
                 print("[AgentSession] Waiting for approval: \(resolved)")
                 let allowed = await self.requestExternalToolApproval(toolName: resolved, arguments: arguments)
@@ -342,31 +419,48 @@ public final class AgentSession: ObservableObject {
                     throw CancellationError()
                 }
                 print("[AgentSession] Tool approved: \(resolved)")
-                return try await registry.executeApproved(toolName: resolved, arguments: arguments)
+                result = try await registry.executeApproved(toolName: resolved, arguments: arguments)
+            } else {
+                result = try await registry.execute(toolName: resolved, arguments: arguments)
             }
-            return try await registry.execute(toolName: resolved, arguments: arguments)
+            toolGrounding.append(result.textForModel)
+            return result
         }
 
         let task = Task {
             do {
-                let result = try await streamHandler(
-                    promptContext,
-                    request,
-                    toolExecutor,
-                    { token in
-                        guard !Task.isCancelled else { return }
-                        Task { @MainActor [weak self] in
-                            guard let self else { return }
-                            guard let index = self.messages.firstIndex(where: { $0.id == assistantMsgId }) else {
-                                return
-                            }
-                            self.isThinking = false
-                            var updated = self.messages[index]
-                            updated.content += token
-                            self.messages[index] = updated
-                        }
+                let unusedExecutor: @Sendable (String, ToolArguments) async throws -> ToolExecutionResult = { _, _ in
+                    ToolExecutionResult(
+                        textForModel: "Runtime one-step should not execute tools.",
+                        displayText: "skipped"
+                    )
+                }
+                let result = try await AgentLoop.run(
+                    promptContext: promptContext,
+                    request: request,
+                    generateStep: { context, stepRequest in
+                        try await streamHandler(
+                            context,
+                            stepRequest,
+                            unusedExecutor,
+                            { token in
+                                guard !Task.isCancelled else { return }
+                                Task { @MainActor [weak self] in
+                                    guard let self else { return }
+                                    guard let index = self.messages.firstIndex(where: { $0.id == assistantMsgId }) else {
+                                        return
+                                    }
+                                    self.isThinking = false
+                                    var updated = self.messages[index]
+                                    updated.content += token
+                                    self.messages[index] = updated
+                                }
+                            },
+                            { _ in }
+                        )
                     },
-                    { event in
+                    execute: toolExecutor,
+                    onToolEvent: { event in
                         Task { @MainActor in
                             self.handleToolEvent(event, beforeAssistantId: assistantMsgId)
                         }
@@ -405,16 +499,13 @@ public final class AgentSession: ObservableObject {
                     let assistantForMemory = await MainActor.run { () -> Message? in
                         self.messages.first(where: { $0.id == assistantMsgId })
                     }
-                    let engine = memoryEngine
-                    Task {
-                        if let assistantForMemory {
-                            await engine.processExchange(
-                                userMessage: userMessageForMemory,
-                                assistantMessage: assistantForMemory,
-                                conversationTitle: title,
-                                generate: memoryExtractHandler
-                            )
-                        }
+                    if let assistantForMemory {
+                        await memoryEngine.processExchange(
+                            userMessage: userMessageForMemory,
+                            assistantMessage: assistantForMemory,
+                            conversationTitle: title,
+                            generate: memoryExtractHandler
+                        )
                     }
                 }
             } catch is CancellationError {
@@ -493,19 +584,29 @@ public final class AgentSession: ObservableObject {
         if await toolRegistry.getTool(named: requested) != nil {
             return requested
         }
+        let available = Set(await enabledModelFacingToolNames())
+        if let mapped = ToolNameResolver.resolve(requested, available: available) {
+            print("[AgentSession] Mapped '\(requested)' → \(mapped)")
+            return mapped
+        }
         // Bare MCP name (e.g. tavily_search) → unique namespaced match.
         let suffix = "__\(requested)"
-        let matches = await enabledExternalToolNames().filter {
+        let matches = available.filter {
             $0 == requested || $0.hasSuffix(suffix)
         }
-        return matches.count == 1 ? matches[0] : nil
+        return matches.count == 1 ? matches.first : nil
     }
 
-    private func enabledExternalToolNames() async -> [String] {
+    private func enabledModelFacingToolNames() async -> [String] {
         var names: [String] = []
         for name in await toolRegistry.allToolNames() {
-            if let tool = await toolRegistry.getTool(named: name), tool.isExternal {
-                names.append(name)
+            guard name != DocumentsSearchTool.toolName else { continue }
+            if let tool = await toolRegistry.getTool(named: name) {
+                if tool.isExternal
+                    || turnGrantedLocalTools.contains(name)
+                    || AlwaysOfferedLocalTools.contains(name) {
+                    names.append(name)
+                }
             }
         }
         return names.sorted()
@@ -561,6 +662,24 @@ public final class AgentSession: ObservableObject {
         } catch {
             print("[AgentSession] Failed to persist message: \(error)")
         }
+    }
+}
+
+/// Accumulates this-turn tool results so later calls (e.g. reminders.create) can ground dates.
+private final class ToolGroundingBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var stored: [String] = []
+
+    var texts: [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return stored
+    }
+
+    func append(_ text: String) {
+        lock.lock()
+        stored.append(text)
+        lock.unlock()
     }
 }
 

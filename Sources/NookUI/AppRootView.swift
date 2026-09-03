@@ -151,6 +151,7 @@ public struct AppRootView: View {
                         ChatView(
                             session: session,
                             runtimeStore: runtimeStore,
+                            skills: skillState.skills,
                             onBack: {
                                 // Empty drafts were never written; delete is a no-op cleanup.
                                 if let session = self.activeSession, session.messages.isEmpty {
@@ -248,16 +249,31 @@ public struct AppRootView: View {
                     if let skill = selectedSkill {
                         SkillDetailView(
                             skill: skill,
+                            isUsedInCurrentChat: activeSession?.conversation.activeSkillId == skill.id,
                             onBack: {
                                 self.selectedSkill = nil
                             },
-                            onToggleSkill: { updated in
-                                skillState.updateSkill(updated)
+                            onTogglePermission: { updated in
+                                selectedSkill = updated
+                                Task { await skillState.persist(updated) }
+                            },
+                            onUseInChat: { chosen in
+                                if self.activeSession == nil {
+                                    startNewChat()
+                                }
+                                self.activeSession?.setActiveSkill(chosen)
+                                self.selectedSkill = nil
+                                self.selectedTab = .chat
+                            },
+                            onRemoveFromChat: {
+                                self.activeSession?.setActiveSkill(nil)
+                                self.selectedSkill = nil
                             }
                         )
                     } else {
                         SkillsView(
                             state: skillState,
+                            currentChatSkillId: activeSession?.conversation.activeSkillId,
                             onSelectSkill: { skill in
                                 self.selectedSkill = skill
                             },

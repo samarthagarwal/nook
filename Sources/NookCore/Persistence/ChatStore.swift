@@ -219,14 +219,16 @@ public final class ChatStore: @unchecked Sendable {
         try db.execute(
             sql: """
                 INSERT INTO conversations (
-                    id, title, when_string, snippet, tags_json, knowledge_scope_json, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    id, title, when_string, snippet, tags_json, knowledge_scope_json,
+                    active_skill_id, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                     title = excluded.title,
                     when_string = excluded.when_string,
                     snippet = excluded.snippet,
                     tags_json = excluded.tags_json,
                     knowledge_scope_json = excluded.knowledge_scope_json,
+                    active_skill_id = excluded.active_skill_id,
                     updated_at = excluded.updated_at
                 """,
             arguments: [
@@ -236,6 +238,7 @@ public final class ChatStore: @unchecked Sendable {
                 conversation.snippet,
                 tagsJSON,
                 knowledgeScopeJSON,
+                conversation.activeSkillId,
                 conversation.createdAt,
                 conversation.updatedAt,
             ]
@@ -283,6 +286,7 @@ public final class ChatStore: @unchecked Sendable {
             snippet: row["snippet"],
             tags: try decodeJSON(row["tags_json"] as String, as: [String].self) ?? [],
             activeKnowledgeScope: try decodeJSON(row["knowledge_scope_json"] as String, as: [String].self) ?? [],
+            activeSkillId: row["active_skill_id"],
             createdAt: row["created_at"],
             updatedAt: row["updated_at"]
         )

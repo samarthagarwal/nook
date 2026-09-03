@@ -138,193 +138,58 @@ final class LiteRTModelEngine: @unchecked Sendable {
         onToken: @escaping @Sendable (String) -> Void,
         onToolEvent: (@Sendable (AgentToolEvent) -> Void)?
     ) async throws -> AgentGenerationResult {
-        let offeringTools = toolExecutor != nil && !request.toolSchemas.isEmpty
-        var workingContext = promptContext
-        var citations: [Citation] = []
-        var finalText = ""
-        var executedTools = false
-        let maxRounds = max(0, request.maxToolRounds)
-
-        if offeringTools, let toolExecutor {
-            print("[LiteRT] Offering \(request.toolSchemas.count) tool schema(s); maxRounds=\(maxRounds)")
-            for round in 0..<maxRounds {
-                let assembled = try await generateOnce(
-                    promptContext: workingContext,
-                    toolSchemas: request.toolSchemas,
-                    maxOutputTokens: max(maxOutputTokens, 384),
-                    streamTokens: false,
-                    onToken: onToken
-                )
-                print("[LiteRT] Tool round \(round) output (\(assembled.count) chars): \(assembled.prefix(400))")
-
-                let calls = LiteRTToolCallParser.parse(from: assembled)
-                if !calls.isEmpty {
-                    var resultBlocks: [String] = []
-                    for call in calls {
-                        print("[LiteRT] Executing tool \(call.name) args=\(call.arguments.keys.sorted())")
-                        let result = try await toolExecutor(call.name, call.arguments)
-                        citations.append(contentsOf: result.citations)
-                        onToolEvent?(
-                            AgentToolEvent(
-                                toolName: call.name,
-                                displayText: result.displayText,
-                                citations: result.citations,
-                                chunks: result.chunks,
-                                isExternal: result.isExternal
-                            )
-                        )
-                        // Cap what we feed back into the model — UI still gets full displayText.
-                        let clipped = Self.truncate(result.textForModel, maxChars: 1_500)
-                        resultBlocks.append("\(call.name):\n\(clipped)")
-                        executedTools = true
-                    }
-
-                    workingContext = AssembledPromptContext(
-                        systemPrompt: workingContext.systemPrompt,
-                        activeSkillInstructions: workingContext.activeSkillInstructions,
-                        retrievedEvidence: workingContext.retrievedEvidence,
-                        recentMessages: workingContext.recentMessages,
-                        toolResultSummaries: [
-                            """
-                            Tool results:
-                            \(resultBlocks.joined(separator: "\n\n"))
-
-                            Answer the user's question using these results. Be concise and factual. \
-                            Do not emit tool JSON or <|tool_call> / call:NAME syntax. \
-                            Do not say you lack web access or cannot use tools — \
-                            these results came from a successful tool call.
-                            """
-                        ],
-                        totalEstimatedTokens: workingContext.totalEstimatedTokens
-                    )
-                    // After tools run, leave the loop and generate a final prose answer.
-                    break
-                }
-
-                if LiteRTToolCallParser.looksLikeToolAttempt(assembled) {
-                    print("[LiteRT] Tool call parse failed; raw=\(assembled.prefix(400))")
-                    if round + 1 < maxRounds {
-                        workingContext = AssembledPromptContext(
-                            systemPrompt: workingContext.systemPrompt,
-                            activeSkillInstructions: workingContext.activeSkillInstructions,
-                            retrievedEvidence: workingContext.retrievedEvidence,
-                            recentMessages: workingContext.recentMessages,
-                            toolResultSummaries: [
-                                """
-                                Your previous tool call was invalid or truncated. \
-                                Reply with ONLY complete JSON like:
-                                {"name":"TOOL_NAME","arguments":{"query":"..."}}
-                                No markdown fences.
-                                """
-                            ],
-                            totalEstimatedTokens: workingContext.totalEstimatedTokens
-                        )
-                        continue
-                    }
-                    finalText = "I couldn't complete the tool call. Please try asking again."
-                    onToken(finalText)
-                    return AgentGenerationResult(text: finalText, citations: citations)
-                }
-
-                // Model answered in prose without calling a tool — use that.
-                let visible = LiteRTToolCallParser.visibleText(from: assembled)
-                if !visible.isEmpty {
-                    onToken(visible)
-                    return AgentGenerationResult(
-                        text: visible.trimmingCharacters(in: .whitespacesAndNewlines),
-                        citations: citations
-                    )
-                }
-            }
-        }
-
-        // Final prose turn (no tool schemas). Always run when we still need an answer.
-        if finalText.isEmpty {
-            print("[LiteRT] Final answer turn (executedTools=\(executedTools))")
-            finalText = try await generateFinalProseAnswer(
-                promptContext: workingContext,
-                maxOutputTokens: maxOutputTokens,
-                executedTools: executedTools,
-                onToken: onToken
-            )
-            print("[LiteRT] Final answer (\(finalText.count) chars): \(finalText.prefix(200))")
-        }
-
-        let trimmed = finalText.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty {
-            let fallback = executedTools
-                ? "I ran the tool but couldn't form a follow-up answer. Please try asking again."
-                : "I couldn't generate a reply. Please try again."
-            print("[LiteRT] Empty model output — using fallback")
-            onToken(fallback)
-            return AgentGenerationResult(text: fallback, citations: citations)
-        }
-
-        return AgentGenerationResult(text: trimmed, citations: citations)
-    }
-
-    /// Generates a user-visible answer and never returns raw tool-call markup.
-    private func generateFinalProseAnswer(
-        promptContext: AssembledPromptContext,
-        maxOutputTokens: Int,
-        executedTools: Bool,
-        onToken: @escaping @Sendable (String) -> Void
-    ) async throws -> String {
-        // Don't stream until sanitized — otherwise `<|tool_call>…` leaks into the bubble.
-        var context = promptContext
-        for attempt in 0..<2 {
-            let assembled = try await generateOnce(
-                promptContext: context,
-                toolSchemas: [],
-                maxOutputTokens: maxOutputTokens,
+        _ = toolExecutor
+        _ = onToolEvent
+        let proseOnly = request.responseMode == .proseOnly
+        var assembled: String
+        do {
+            assembled = try await generateOnce(
+                promptContext: promptContext,
+                toolSchemas: request.toolSchemas,
+                proseOnly: proseOnly,
+                maxOutputTokens: max(maxOutputTokens, 384),
                 streamTokens: false,
                 onToken: onToken
             )
-            let visible = LiteRTToolCallParser.visibleText(from: assembled)
-            if !visible.isEmpty {
-                onToken(visible)
-                return visible
-            }
-
-            let dirty = LiteRTToolCallParser.looksLikeToolAttempt(assembled)
-                || !LiteRTToolCallParser.parse(from: assembled).isEmpty
-            if dirty, attempt == 0 {
-                print("[LiteRT] Final turn emitted tool markup; retrying prose-only")
-                context = AssembledPromptContext(
-                    systemPrompt: context.systemPrompt,
-                    activeSkillInstructions: context.activeSkillInstructions,
-                    retrievedEvidence: context.retrievedEvidence,
-                    recentMessages: context.recentMessages,
-                    toolResultSummaries: [
-                        """
-                        \(context.toolResultSummaries.joined(separator: "\n\n"))
-
-                        Write the final answer now in plain Markdown for the user. \
-                        Do NOT emit <|tool_call>, call:NAME{…}, JSON tool calls, or code fences. \
-                        Just answer the question.
-                        """
-                    ],
-                    totalEstimatedTokens: context.totalEstimatedTokens
-                )
-                continue
-            }
-
-            // Never surface raw tool syntax.
-            if dirty {
-                break
-            }
-            // Non-tool empty/whitespace — fall through.
-            if !assembled.isEmpty {
-                onToken(assembled)
-                return assembled
-            }
+        } catch {
+            // A constrained answer turn is a nice-to-have; never fail the turn
+            // because the grammar could not be applied on this backend.
+            guard proseOnly,
+                  !(error is CancellationError),
+                  !Self.isBrokenEmbedderOrMmapError(error) else { throw error }
+            print("[LiteRT] Constrained answer turn failed (\(error.localizedDescription)); retrying unconstrained")
+            assembled = try await generateOnce(
+                promptContext: promptContext,
+                toolSchemas: [],
+                proseOnly: false,
+                maxOutputTokens: max(maxOutputTokens, 384),
+                streamTokens: false,
+                onToken: onToken
+            )
         }
-
-        let fallback = executedTools
-            ? "I ran the tool but couldn't form a follow-up answer. Please try asking again."
-            : "I couldn't generate a reply. Please try again."
-        onToken(fallback)
-        return fallback
+        print("[LiteRT] Step (\(assembled.count) chars): \(assembled.prefix(400))")
+        let parsed = LiteRTToolCallParser.parse(from: assembled)
+        if !request.toolSchemas.isEmpty, !parsed.isEmpty {
+            print("[LiteRT] Parsed \(parsed.count) tool call(s): \(parsed.map(\.name).joined(separator: ", "))")
+            return AgentGenerationResult(
+                text: "",
+                toolCalls: parsed.map { AgentToolCall(name: $0.name, arguments: $0.arguments) }
+            )
+        }
+        let visible = LiteRTToolCallParser.visibleText(from: assembled)
+        if !visible.isEmpty {
+            onToken(visible)
+            return AgentGenerationResult(text: visible)
+        }
+        if LiteRTToolCallParser.looksLikeToolAttempt(assembled) {
+            print("[LiteRT] Unparsed tool attempt; not showing raw markup")
+            return AgentGenerationResult(text: "")
+        }
+        if !assembled.isEmpty {
+            onToken(assembled)
+            return AgentGenerationResult(text: assembled)
+        }
+        return AgentGenerationResult(text: "")
     }
 
     private func mount(
@@ -362,6 +227,47 @@ final class LiteRTModelEngine: @unchecked Sendable {
     private func generateOnce(
         promptContext: AssembledPromptContext,
         toolSchemas: [AgentToolSpec],
+        proseOnly: Bool,
+        maxOutputTokens: Int,
+        streamTokens: Bool,
+        onToken: @escaping @Sendable (String) -> Void
+    ) async throws -> String {
+        do {
+            return try await runConversation(
+                promptContext: promptContext,
+                toolSchemas: toolSchemas,
+                proseOnly: proseOnly,
+                maxOutputTokens: maxOutputTokens,
+                streamTokens: streamTokens,
+                onToken: onToken
+            )
+        } catch {
+            guard Self.isDeadlineError(error) else { throw error }
+            print("[LiteRT] Callback pool timeout; settling and retrying once")
+            cancelActiveConversation()
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            return try await runConversation(
+                promptContext: promptContext,
+                toolSchemas: toolSchemas,
+                proseOnly: proseOnly,
+                maxOutputTokens: maxOutputTokens,
+                streamTokens: streamTokens,
+                onToken: onToken
+            )
+        }
+    }
+
+    /// llguidance grammar for a plain-text answer. Excluding `<` makes Gemma's
+    /// `<|tool_call>` sentinel unreachable at the token level, so a synthesis turn
+    /// cannot loop back into another tool call.
+    private static var proseGrammar: ResponseFormat {
+        ResponseFormat.regex(pattern: "[^<]{1,2000}")
+    }
+
+    private func runConversation(
+        promptContext: AssembledPromptContext,
+        toolSchemas: [AgentToolSpec],
+        proseOnly: Bool,
         maxOutputTokens: Int,
         streamTokens: Bool,
         onToken: @escaping @Sendable (String) -> Void
@@ -376,7 +282,7 @@ final class LiteRTModelEngine: @unchecked Sendable {
         let approxChars = built.systemText.count
             + built.history.reduce(0) { $0 + $1.toString.count }
             + built.latestUser.toString.count
-        print("[LiteRT] Prompt ~\(approxChars) chars (~\(approxChars / 4) tokens est), tools=\(toolSchemas.count), evidence=\(trimmed.retrievedEvidence.count), toolResults=\(trimmed.toolResultSummaries.count)")
+        print("[LiteRT] Prompt ~\(approxChars) chars (~\(approxChars / 4) tokens est), tools=\(toolSchemas.count), evidence=\(trimmed.retrievedEvidence.count), toolResults=\(trimmed.toolResultSummaries.count), proseOnly=\(proseOnly)")
 
         let temperature: Float = toolSchemas.isEmpty ? 0.3 : 0.0
         let sampler = try SamplerConfig(topK: 40, topP: 0.95, temperature: temperature)
@@ -386,11 +292,13 @@ final class LiteRTModelEngine: @unchecked Sendable {
                 : LiteRTLM.Message(built.systemText, role: .system),
             initialMessages: built.history,
             samplerConfig: sampler,
-            automaticToolCalling: false
+            automaticToolCalling: false,
+            enableResponseFormat: proseOnly
         )
         let conversation = try await engine.createConversation(with: conversationConfig)
         withLock { activeConversation = conversation }
         defer {
+            try? conversation.cancel()
             withLock { activeConversation = nil }
         }
 
@@ -399,7 +307,8 @@ final class LiteRTModelEngine: @unchecked Sendable {
         do {
             for try await chunk in conversation.sendMessageStream(
                 built.latestUser,
-                maxOutputTokens: maxOutputTokens
+                maxOutputTokens: maxOutputTokens,
+                responseFormat: proseOnly ? Self.proseGrammar : nil
             ) {
                 if withLock({ cancelRequested }) || Task.isCancelled {
                     try? conversation.cancel()
@@ -427,6 +336,7 @@ final class LiteRTModelEngine: @unchecked Sendable {
             throw error
         }
 
+        try? await Task.sleep(nanoseconds: 120_000_000)
         return assembled.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
@@ -439,17 +349,31 @@ final class LiteRTModelEngine: @unchecked Sendable {
         try? conversation?.cancel()
     }
 
+    static func isDeadlineError(_ error: Error) -> Bool {
+        let message = String(describing: error).lowercased()
+            + " "
+            + error.localizedDescription.lowercased()
+        return message.contains("deadline_exceeded")
+            || message.contains("timeout waiting for all tasks")
+            || message.contains("callback_thread_pool")
+    }
+
     static func isBrokenEmbedderOrMmapError(_ error: Error) -> Bool {
         let message = String(describing: error).lowercased()
             + " "
             + error.localizedDescription.lowercased()
+        // LiteRT reports several shapes for the same failure: GPU mmap left the
+        // embedding lookup subgraph uninitialized, so the first prefill dies.
         return message.contains("per_layer_embedding")
             || message.contains("per_layer_embedding_lookup")
             || message.contains("input_per_layer_embeddings")
+            || message.contains("embedding lookup model is not initialized")
+            || message.contains("input embeddings required")
             || message.contains("cannot allocate memory")
             || message.contains("failed to map")
             || message.contains("mmap")
             || (message.contains("is null") && message.contains("embedding"))
+            || (message.contains("failed_precondition") && message.contains("embedding"))
     }
 
     static func clearCompilationCache() {
@@ -467,7 +391,7 @@ final class LiteRTModelEngine: @unchecked Sendable {
         return AssembledPromptContext(
             // Knowledge grounding lives in the system prompt — 1000 chars was cutting it off.
             systemPrompt: truncate(context.systemPrompt, maxChars: 2_800),
-            activeSkillInstructions: context.activeSkillInstructions.map { truncate($0, maxChars: 400) },
+            activeSkillInstructions: context.activeSkillInstructions.map { truncate($0, maxChars: 800) },
             retrievedEvidence: Array(evidence),
             recentMessages: Array(messages),
             toolResultSummaries: Array(tools),

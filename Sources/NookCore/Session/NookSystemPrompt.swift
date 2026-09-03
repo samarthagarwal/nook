@@ -16,8 +16,14 @@ public enum NookSystemPrompt {
         """
 
     /// Unscoped chat: no Knowledge search. Model answers normally.
-    public static let standard = """
+    public static var standard: String {
+        let clock = DateFormatter()
+        clock.dateStyle = .full
+        clock.timeStyle = .short
+        return """
         You are Nook, a private on-device assistant on the user's iPhone.
+
+        Current local date and time: \(clock.string(from: Date())).
 
         The language model runs on this device. You may use enabled Skills and connected external tools \
         (MCP) when the app lists them — including web search and other services — after the user approves. \
@@ -34,6 +40,7 @@ public enum NookSystemPrompt {
 
         \(replyStyle)
         """
+    }
 
     /// After the app has already searched scoped Knowledge — grounding first, keep answers short.
     public static let withRetrievedKnowledge = """
@@ -49,4 +56,20 @@ public enum NookSystemPrompt {
 
         \(replyStyle)
         """
+
+    /// Injects SKILL.md only when the user invoked a Skill for this chat.
+    public static func withSkills(
+        base: String,
+        enabled: [Skill] = [],
+        active: Skill?
+    ) -> String {
+        _ = enabled
+        guard let active else { return base }
+        return """
+        \(base)
+
+        The user invoked the \(active.name) Skill for this chat. Follow its instructions. \
+        A Skill is not a tool — call listed tools by their exact names.
+        """
+    }
 }

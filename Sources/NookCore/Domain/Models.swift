@@ -87,6 +87,8 @@ public struct Conversation: Identifiable, Codable, Equatable, Sendable {
     public var snippet: String
     public var tags: [String]
     public var activeKnowledgeScope: [String]
+    /// Explicit Skill for this chat. Nil means no SKILL.md is injected.
+    public var activeSkillId: String?
     public let createdAt: Date
     public var updatedAt: Date
     
@@ -97,6 +99,7 @@ public struct Conversation: Identifiable, Codable, Equatable, Sendable {
         snippet: String,
         tags: [String] = [],
         activeKnowledgeScope: [String] = [],
+        activeSkillId: String? = nil,
         createdAt: Date = Date(),
         updatedAt: Date = Date()
     ) {
@@ -106,6 +109,7 @@ public struct Conversation: Identifiable, Codable, Equatable, Sendable {
         self.snippet = snippet
         self.tags = tags
         self.activeKnowledgeScope = activeKnowledgeScope
+        self.activeSkillId = activeSkillId
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }

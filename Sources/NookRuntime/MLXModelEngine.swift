@@ -250,7 +250,9 @@ actor MLXModelEngine {
         let safeContext = MLXContextTrimmer.trimmed(promptContext, for: loadedBackend ?? .llm)
         let built = MLXPromptBuilder.build(from: safeContext)
         let maxTokens = loadedBackend == .vlm ? 256 : 768
-        let offeringTools = toolExecutor != nil && !request.toolSchemas.isEmpty
+        _ = toolExecutor
+        _ = onToolEvent
+        let offeringTools = !request.toolSchemas.isEmpty
         // Greedy decoding when native tools are offered — more reliable tool-call formatting.
         let parameters = GenerateParameters(
             maxTokens: maxTokens,
@@ -259,124 +261,73 @@ actor MLXModelEngine {
 
         MLX.Memory.clearCache()
 
-        let toolSpecs: [ToolSpec]? = request.toolSchemas.isEmpty ? nil : request.toolSchemas
-        let maxRounds = max(0, request.maxToolRounds)
-        var citations: [Citation] = []
-        var conversation = built.messages
-        var fullText = ""
-        var round = 0
-        var allowTools = offeringTools
+        let toolSpecs: [ToolSpec]? = offeringTools ? request.toolSchemas : nil
 
         print(
-            "[MLXModelEngine] Generate backend=\(loadedBackend.map { "\($0)" } ?? "?") toolsFormat=\(loadedToolCallFormat?.rawValue ?? "?") offeringTools=\(offeringTools) schemas=\(request.toolSchemas.count)"
+            "[MLXModelEngine] Step backend=\(loadedBackend.map { "\($0)" } ?? "?") toolsFormat=\(loadedToolCallFormat?.rawValue ?? "?") offeringTools=\(offeringTools) schemas=\(request.toolSchemas.count)"
         )
 
-        // Manual tool loop — do not use ChatSession.toolDispatch.
-        // Some chat templates (e.g. Gemma) require tool messages to include `name`, which
-        // MLX's `.tool(content, id:)` does not set, so auto-dispatch can fail on the
-        // continuation turn. Inject results as a user turn instead (template-safe).
-        while true {
-            let offerTools = allowTools && round < maxRounds
-            let session = ChatSession(
-                container,
-                instructions: built.instructions,
-                generateParameters: parameters,
-                tools: offerTools ? toolSpecs : nil,
-                toolDispatch: nil
-            )
+        let session = ChatSession(
+            container,
+            instructions: built.instructions,
+            generateParameters: parameters,
+            tools: toolSpecs,
+            toolDispatch: nil
+        )
 
-            var pendingCalls: [ToolCall] = []
-            var roundText = ""
-            // streamDetails(to:) is consuming — copy so we can continue the conversation.
-            let turnMessages = conversation
+        var pendingCalls: [ToolCall] = []
+        var roundText = ""
+        let turnMessages = built.messages
 
-            for try await item in session.streamDetails(to: turnMessages) {
-                if isCancellationRequested() || Task.isCancelled {
-                    break
-                }
-                switch item {
-                case .chunk(let chunk):
-                    roundText += chunk
-                    // Stream live only on the final (no-tools) turn so tool markup
-                    // never flashes in the chat bubble.
-                    if !offerTools, !chunk.isEmpty {
-                        onToken(chunk)
-                    }
-                case .toolCall(let call):
-                    pendingCalls.append(call)
-                    print("[MLXModelEngine] Tool call: \(call.function.name) args=\(call.function.arguments)")
-                case .info:
-                    break
-                @unknown default:
-                    break
-                }
-            }
-
+        for try await item in session.streamDetails(to: turnMessages) {
             if isCancellationRequested() || Task.isCancelled {
-                throw CancellationError()
-            }
-
-            guard let toolExecutor, !pendingCalls.isEmpty else {
-                if pendingCalls.isEmpty {
-                    print("[MLXModelEngine] No tool calls this round (round \(round)); text length=\(roundText.count)")
-                }
-
-                let visible = Self.visibleAssistantText(roundText)
-                if offerTools {
-                    // Buffered this turn — emit once.
-                    if visible != roundText {
-                        print("[MLXModelEngine] Suppressed leaked/incomplete tool markup (\(roundText.count) chars)")
-                    }
-                    if !visible.isEmpty {
-                        onToken(visible)
-                    }
-                    fullText += visible
-                } else if visible != roundText {
-                    print("[MLXModelEngine] Suppressed leaked/incomplete tool markup (\(roundText.count) chars)")
-                    fullText = visible
-                } else {
-                    fullText += roundText
-                }
                 break
             }
-
-            var resultBlocks: [String] = []
-            for call in pendingCalls {
-                let arguments: ToolArguments = call.function.arguments.mapValues { value in
-                    ToolJSONValue.from(value.anyValue)
+            switch item {
+            case .chunk(let chunk):
+                roundText += chunk
+                if !offeringTools, !chunk.isEmpty {
+                    onToken(chunk)
                 }
-                let result = try await toolExecutor(call.function.name, arguments)
-                citations.append(contentsOf: result.citations)
-                onToolEvent?(
-                    AgentToolEvent(
-                        toolName: call.function.name,
-                        displayText: result.displayText,
-                        citations: result.citations,
-                        chunks: result.chunks,
-                        isExternal: result.isExternal
-                    )
-                )
-                resultBlocks.append("\(call.function.name):\n\(result.textForModel)")
+            case .toolCall(let call):
+                pendingCalls.append(call)
+                print("[MLXModelEngine] Tool call: \(call.function.name) args=\(call.function.arguments)")
+            case .info:
+                break
+            @unknown default:
+                break
             }
-
-            conversation.append(
-                .user(
-                    """
-                    Tool results:
-                    \(resultBlocks.joined(separator: "\n\n"))
-
-                    Answer the user's question using only these results. Be concise and factual. \
-                    Do not say you lack web access or cannot use tools — these results came from a successful tool call.
-                    """
-                )
-            )
-            // Force a final answer turn — avoid re-offering tools after results are injected.
-            allowTools = false
-            round += 1
-            print("[MLXModelEngine] Injected \(pendingCalls.count) tool result(s); requesting final answer")
         }
 
-        return AgentGenerationResult(text: fullText, citations: citations)
+        if isCancellationRequested() || Task.isCancelled {
+            throw CancellationError()
+        }
+
+        if offeringTools, !pendingCalls.isEmpty {
+            let toolCalls = pendingCalls.map { call in
+                AgentToolCall(
+                    name: call.function.name,
+                    arguments: call.function.arguments.mapValues { ToolJSONValue.from($0.anyValue) }
+                )
+            }
+            return AgentGenerationResult(text: "", toolCalls: toolCalls)
+        }
+
+        let visible = Self.visibleAssistantText(roundText)
+        if offeringTools {
+            if visible != roundText {
+                print("[MLXModelEngine] Suppressed leaked/incomplete tool markup (\(roundText.count) chars)")
+            }
+            if !visible.isEmpty {
+                onToken(visible)
+            }
+            return AgentGenerationResult(text: visible)
+        }
+        if visible != roundText {
+            print("[MLXModelEngine] Suppressed leaked/incomplete tool markup (\(roundText.count) chars)")
+            return AgentGenerationResult(text: visible)
+        }
+        return AgentGenerationResult(text: roundText)
     }
 
     /// Never show raw tool-call markup in the chat bubble.

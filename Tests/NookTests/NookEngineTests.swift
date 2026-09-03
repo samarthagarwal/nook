@@ -253,16 +253,9 @@ final class NookEngineTests: XCTestCase {
         XCTAssertLessThanOrEqual(result.totalEstimatedTokens, budget.totalContextLimit - budget.outputReserve)
     }
     
-    func testSkillPermissionIsolation() async {
-        let skillManager = SkillManager()
-        let skills = await skillManager.getAllSkills()
-        
-        // Ensure imported skills default to NO permissions granted
-        if let compSkill = skills.first(where: { $0.id == "competitive-teardown" }) {
-            for perm in compSkill.permissions {
-                XCTAssertFalse(perm.isGranted, "Permission \(perm.tool) must default to off")
-            }
-        }
+    func testSkillCatalogOnlyIncludesWiredSkills() async {
+        let skills = await SkillManager().getAllSkills()
+        XCTAssertEqual(skills.map(\.id), ["meeting-prep"])
     }
     
     func testDocumentsSearchToolIsRegistered() async throws {

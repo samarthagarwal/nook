@@ -4,15 +4,18 @@ import NookCore
 
 public struct SkillsView: View {
     @ObservedObject public var state: ObservableSkillManager
+    public let currentChatSkillId: String?
     public let onSelectSkill: (Skill) -> Void
     public let onImportSkill: () -> Void
     
     public init(
         state: ObservableSkillManager,
+        currentChatSkillId: String? = nil,
         onSelectSkill: @escaping (Skill) -> Void,
         onImportSkill: @escaping () -> Void
     ) {
         self.state = state
+        self.currentChatSkillId = currentChatSkillId
         self.onSelectSkill = onSelectSkill
         self.onImportSkill = onImportSkill
     }
@@ -40,7 +43,7 @@ public struct SkillsView: View {
             
             // Intro
             HStack {
-                Text("A Skill teaches Nook a way of working. It can ask for tools, but never grants itself any.")
+                Text("A Skill teaches Nook a way of working for one chat. Use it here, or type / in the composer.")
                     .font(NookTypography.body)
                     .foregroundColor(NookColors.ink62)
                     .lineSpacing(4)
@@ -52,9 +55,12 @@ public struct SkillsView: View {
             // Groups
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
-                    groupSection(title: "Built in", skills: state.skills.filter { $0.group == .builtIn })
-                    groupSection(title: "Imported", skills: state.skills.filter { $0.group == .imported })
-                    groupSection(title: "Yours", skills: state.skills.filter { $0.group == .yours })
+                    let builtIn = state.skills.filter { $0.group == .builtIn }
+                    let imported = state.skills.filter { $0.group == .imported }
+                    let yours = state.skills.filter { $0.group == .yours }
+                    if !builtIn.isEmpty { groupSection(title: "Built in", skills: builtIn) }
+                    if !imported.isEmpty { groupSection(title: "Imported", skills: imported) }
+                    if !yours.isEmpty { groupSection(title: "Yours", skills: yours) }
                 }
                 .padding(.horizontal, 20)
                 .padding(.bottom, 24)
@@ -89,15 +95,17 @@ public struct SkillsView: View {
                             Spacer()
                             
                             // State badge: ON = local on localSoft, OFF = ink40 on fill
-                            Text(skill.isEnabled ? "ON" : "OFF")
-                                .font(NookTypography.badge)
-                                .foregroundColor(skill.isEnabled ? NookColors.local : NookColors.ink40)
-                                .padding(.horizontal, 7)
-                                .padding(.vertical, 3)
-                                .background(
-                                    RoundedRectangle(cornerRadius: NookRadius.tag)
-                                        .fill(skill.isEnabled ? NookColors.localSoft : NookColors.fill)
-                                )
+                            if currentChatSkillId == skill.id {
+                                Text("IN CHAT")
+                                    .font(NookTypography.badge)
+                                    .foregroundColor(NookColors.local)
+                                    .padding(.horizontal, 7)
+                                    .padding(.vertical, 3)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: NookRadius.tag)
+                                            .fill(NookColors.localSoft)
+                                    )
+                            }
                         }
                         .padding(14)
                         .background(
@@ -119,13 +127,26 @@ public struct SkillsView: View {
 
 public struct SkillDetailView: View {
     @State public var skill: Skill
+    public let isUsedInCurrentChat: Bool
     public let onBack: () -> Void
-    public let onToggleSkill: (Skill) -> Void
+    public let onTogglePermission: (Skill) -> Void
+    public let onUseInChat: (Skill) -> Void
+    public let onRemoveFromChat: () -> Void
     
-    public init(skill: Skill, onBack: @escaping () -> Void, onToggleSkill: @escaping (Skill) -> Void) {
+    public init(
+        skill: Skill,
+        isUsedInCurrentChat: Bool = false,
+        onBack: @escaping () -> Void,
+        onTogglePermission: @escaping (Skill) -> Void,
+        onUseInChat: @escaping (Skill) -> Void,
+        onRemoveFromChat: @escaping () -> Void
+    ) {
         self._skill = State(initialValue: skill)
+        self.isUsedInCurrentChat = isUsedInCurrentChat
         self.onBack = onBack
-        self.onToggleSkill = onToggleSkill
+        self.onTogglePermission = onTogglePermission
+        self.onUseInChat = onUseInChat
+        self.onRemoveFromChat = onRemoveFromChat
     }
     
     public var body: some View {
@@ -207,7 +228,13 @@ public struct SkillDetailView: View {
                                         Spacer()
                                         
                                         NookToggle(
-                                            isOn: $skill.permissions[idx].isGranted,
+                                            isOn: Binding(
+                                                get: { skill.permissions[idx].isGranted },
+                                                set: { newValue in
+                                                    skill.permissions[idx].isGranted = newValue
+                                                    onTogglePermission(skill)
+                                                }
+                                            ),
                                             style: .local,
                                             accessibilityLabel: "Grant \(skill.permissions[idx].tool)"
                                         )
@@ -231,10 +258,12 @@ public struct SkillDetailView: View {
                         }
                     }
                     
-                    // Toggle Enable Button
-                    NookPrimaryButton(title: skill.isEnabled ? "Turn off Skill" : "Turn on Skill") {
-                        skill.isEnabled.toggle()
-                        onToggleSkill(skill)
+                    NookPrimaryButton(title: isUsedInCurrentChat ? "Remove from this chat" : "Use in this chat") {
+                        if isUsedInCurrentChat {
+                            onRemoveFromChat()
+                        } else {
+                            onUseInChat(skill)
+                        }
                     }
                     .padding(.top, 6)
                 }
@@ -263,5 +292,10 @@ public final class ObservableSkillManager: ObservableObject {
         if let idx = skills.firstIndex(where: { $0.id == updated.id }) {
             skills[idx] = updated
         }
+    }
+
+    public func persist(_ updated: Skill) async {
+        await manager.replaceSkill(updated)
+        updateSkill(updated)
     }
 }

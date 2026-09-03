@@ -179,6 +179,12 @@ public enum NookDatabase {
             }
         }
 
+        migrator.registerMigration("v7_conversation_active_skill") { db in
+            try db.alter(table: "conversations") { table in
+                table.add(column: "active_skill_id", .text)
+            }
+        }
+
         try migrator.migrate(dbQueue)
     }
 
