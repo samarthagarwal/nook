@@ -331,6 +331,82 @@ final class AgentLoopTests: XCTestCase {
         XCTAssertEqual(output.text, "Hello.")
     }
 
+    /// Collapsed MCP names and the canonical form share one budget and one chip.
+    func testCollapsedMcpNameSharesBudgetAndChipWithCanonical() async throws {
+        let box = ScriptedSteps([
+            AgentGenerationResult(
+                text: "",
+                toolCalls: [
+                    AgentToolCall(
+                        name: "tavily_tavily_search",
+                        arguments: ["query": .string("nook app")]
+                    ),
+                    AgentToolCall(
+                        name: "tavily__tavily_search",
+                        arguments: ["query": .string("nook app")]
+                    ),
+                ]
+            ),
+            AgentGenerationResult(text: "Here is what I found."),
+        ])
+        let executed = CounterBox()
+        let chips = CounterBox()
+
+        let output = try await AgentLoop.run(
+            promptContext: Self.promptContext(),
+            request: Self.toolRequest(),
+            generateStep: { _, _ in box.next() },
+            execute: { name, _ in
+                executed.append(name)
+                return ToolExecutionResult(
+                    textForModel: "Search results for nook app…",
+                    displayText: "\(name) · 3 results",
+                    isExternal: true
+                )
+            },
+            onToolEvent: { _ in chips.increment() },
+            resolveName: { requested in
+                ToolNameResolver.resolve(
+                    requested,
+                    available: ["tavily__tavily_search", "calendar.search"]
+                )
+            }
+        )
+
+        XCTAssertEqual(executed.names, ["tavily__tavily_search"])
+        XCTAssertEqual(chips.count, 1)
+        XCTAssertEqual(output.text, "Here is what I found.")
+    }
+
+    /// Unknown names stay off the UI — observation only, no "Skipped unavailable" chip.
+    func testUnknownToolDoesNotEmitChip() async throws {
+        let box = ScriptedSteps([
+            AgentGenerationResult(
+                text: "",
+                toolCalls: [AgentToolCall(name: "not_a_tool", arguments: [:])]
+            ),
+            AgentGenerationResult(text: "I couldn't find a tool for that."),
+        ])
+        let chips = CounterBox()
+        let executed = CounterBox()
+
+        let output = try await AgentLoop.run(
+            promptContext: Self.promptContext(),
+            request: Self.toolRequest(),
+            generateStep: { _, _ in box.next() },
+            execute: { _, _ in
+                executed.increment()
+                return ToolExecutionResult(textForModel: "no", displayText: "no")
+            },
+            onToolEvent: { _ in chips.increment() },
+            resolveName: { _ in nil }
+        )
+
+        XCTAssertEqual(executed.count, 0)
+        XCTAssertEqual(chips.count, 0)
+        XCTAssertEqual(output.text, "I couldn't find a tool for that.")
+    }
+
     private static func promptContext() -> AssembledPromptContext {
         AssembledPromptContext(
             systemPrompt: "You are Nook.",

@@ -13,10 +13,8 @@ public struct AppRootView: View {
     @StateObject private var knowledgeState: ObservableKnowledgeEngine
     @StateObject private var skillState: ObservableSkillManager
     @StateObject private var mcpState: ObservableMCPState
-    @StateObject private var memoryState: ObservableMemoryState
-    
+
     private let knowledgeEngine: KnowledgeEngine
-    private let memoryEngine: MemoryEngine
     private let skillManager: SkillManager
     private let toolRegistry: ToolRegistry
     private let mcpClient: MCPClient
@@ -46,30 +44,26 @@ public struct AppRootView: View {
     @State private var documentPendingDelete: KnowledgeDocument? = nil
     @State private var conversationPendingDelete: Conversation? = nil
     @State private var serverPendingDelete: MCPServer? = nil
-    @State private var memoryPendingForget: MemoryItem? = nil
     @State private var isAddMCPServerOpen: Bool = false
     
     public init(
         knowledgeEngine: KnowledgeEngine = KnowledgeEngine(),
-        memoryEngine: MemoryEngine = MemoryEngine(),
         skillManager: SkillManager = SkillManager(),
         toolRegistry: ToolRegistry? = nil,
         mcpClient: MCPClient = MCPClient(),
         runtime: ModelRuntime? = nil
     ) {
         self.knowledgeEngine = knowledgeEngine
-        self.memoryEngine = memoryEngine
         self.skillManager = skillManager
         let resolvedRegistry = toolRegistry ?? ToolRegistry(knowledgeEngine: knowledgeEngine)
         self.toolRegistry = resolvedRegistry
         self.mcpClient = mcpClient
         self.mcpToolRegistrar = MCPToolRegistrar(client: mcpClient, registry: resolvedRegistry)
         _runtimeStore = StateObject(wrappedValue: ModelRuntimeStore(runtime: runtime))
-        
+
         _knowledgeState = StateObject(wrappedValue: ObservableKnowledgeEngine(engine: knowledgeEngine))
         _skillState = StateObject(wrappedValue: ObservableSkillManager(manager: skillManager))
         _mcpState = StateObject(wrappedValue: ObservableMCPState(client: mcpClient))
-        _memoryState = StateObject(wrappedValue: ObservableMemoryState(engine: memoryEngine))
     }
     
     public var body: some View {
@@ -317,25 +311,6 @@ public struct AppRootView: View {
                     }
                 }
                 
-                // Tab 5: Memory
-                if selectedTab == .memory {
-                    MemoryView(
-                        state: memoryState,
-                        onOpenSourceChat: { conversationId in
-                            self.selectedTab = .chat
-                            if let match = conversations.first(where: { $0.id == conversationId }) {
-                                openConversation(match)
-                            } else if let loaded = try? ChatStore.shared.fetchConversation(id: conversationId) {
-                                openConversation(loaded)
-                            } else {
-                                showToast("That chat is no longer on this iPhone.")
-                            }
-                        },
-                        onForgetMemory: { item in
-                            memoryPendingForget = item
-                        }
-                    )
-                }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
@@ -476,7 +451,6 @@ public struct AppRootView: View {
                 do {
                     try ChatStore.shared.deleteConversation(id: conversation.id)
                     conversations.removeAll { $0.id == conversation.id }
-                    memoryState.reload()
                     if activeSession?.conversation.id == conversation.id {
                         activeSession = nil
                         runtimeStore.releaseModelWhenIdle()
@@ -490,7 +464,7 @@ public struct AppRootView: View {
         } message: {
             if let conversation = conversationPendingDelete {
                 let title = ChatStore.plainText(from: conversation.title)
-                Text("“\(title)” will be removed from this iPhone. Memories from this chat will be removed too.")
+                Text("“\(title)” will be removed from this iPhone.")
             }
         }
         .alert(
@@ -518,25 +492,6 @@ public struct AppRootView: View {
             if let server = serverPendingDelete {
                 Text("“\(server.name)” will be disconnected and removed from this iPhone. You can add it again later.")
             }
-        }
-        .alert(
-            "Forget this memory?",
-            isPresented: Binding(
-                get: { memoryPendingForget != nil },
-                set: { if !$0 { memoryPendingForget = nil } }
-            )
-        ) {
-            Button("Cancel", role: .cancel) {
-                memoryPendingForget = nil
-            }
-            Button("Forget", role: .destructive) {
-                guard let item = memoryPendingForget else { return }
-                memoryPendingForget = nil
-                memoryState.forget(item: item)
-                showToast("Forgotten. The chat itself is untouched.")
-            }
-        } message: {
-            Text("Nook will stop using this derived memory. The original chat stays on this iPhone.")
         }
         .alert(
             "Delete collection?",
@@ -660,7 +615,6 @@ public struct AppRootView: View {
             conversation: convo,
             messages: messages,
             knowledgeEngine: knowledgeEngine,
-            memoryEngine: memoryEngine,
             skillManager: skillManager,
             toolRegistry: toolRegistry,
             mcpClient: mcpClient,

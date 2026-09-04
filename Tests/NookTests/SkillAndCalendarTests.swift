@@ -194,6 +194,7 @@ final class SkillAndCalendarTests: XCTestCase {
         let available: Set<String> = [
             RemindersCreateTool.toolName,
             CalendarSearchTool.toolName,
+            "tavily__tavily_search",
         ]
         XCTAssertEqual(
             ToolNameResolver.resolve("reminder.create", available: available),
@@ -204,6 +205,29 @@ final class SkillAndCalendarTests: XCTestCase {
             RemindersCreateTool.toolName
         )
         XCTAssertNil(ToolNameResolver.resolve("reminder.create", available: [CalendarSearchTool.toolName]))
+        // Gemma collapses MCP `server__tool` → `server_tool`.
+        XCTAssertEqual(
+            ToolNameResolver.resolve("tavily_tavily_search", available: available),
+            "tavily__tavily_search"
+        )
+        XCTAssertEqual(
+            ToolNameResolver.resolve("tavily_search", available: available),
+            "tavily__tavily_search"
+        )
+        // Exa's real tool is `web_search_exa`; Gemma often emits a hyphen.
+        let exaAvailable: Set<String> = ["exa_ai__web_search_exa"]
+        XCTAssertEqual(
+            ToolNameResolver.resolve("exa_ai__web_search-exa", available: exaAvailable),
+            "exa_ai__web_search_exa"
+        )
+        XCTAssertEqual(
+            ToolNameResolver.resolve("web_search-exa", available: exaAvailable),
+            "exa_ai__web_search_exa"
+        )
+        XCTAssertEqual(
+            ToolNameResolver.resolve("exa_ai_web_search_exa", available: exaAvailable),
+            "exa_ai__web_search_exa"
+        )
     }
 
     func testReminderDueTenMinutesBeforeGroundedMeeting() {

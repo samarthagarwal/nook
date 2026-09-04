@@ -8,7 +8,7 @@ import Foundation
 /// arguments. Every round either executes something new or exits, so the loop can
 /// never re-send an identical prompt.
 public enum AgentLoop {
-    /// Rounds in which the model may call a tool.
+    /// Default rounds in which the model may call a tool (used when request doesn't override).
     public static let maxToolRounds = 3
     /// How many times one tool may run in a single turn.
     public static let maxCallsPerTool = 2
@@ -28,13 +28,19 @@ public enum AgentLoop {
         request: AgentGenerationRequest,
         generateStep: @escaping @Sendable (AssembledPromptContext, AgentGenerationRequest) async throws -> AgentGenerationResult,
         execute: @escaping @Sendable (String, ToolArguments) async throws -> ToolExecutionResult,
-        onToolEvent: @escaping @Sendable (AgentToolEvent) -> Void
+        onToolEvent: @escaping @Sendable (AgentToolEvent) -> Void,
+        resolveName: (@Sendable (String) async -> String?)? = nil
     ) async throws -> Output {
         var context = promptContext
         var citations: [Citation] = []
         var observations: [String] = promptContext.toolResultSummaries
         var callCounts: [String: Int] = [:]
         var resolvedSignatures: Set<String> = []
+
+        // Honour a per-request tool-round cap if specified; fall back to the static default.
+        let effectiveMaxToolRounds = request.maxToolRounds > 0
+            ? request.maxToolRounds
+            : maxToolRounds
 
         // Plain chat: one unconstrained attempt, nothing to synthesise from.
         guard !request.toolSchemas.isEmpty else {
@@ -46,13 +52,21 @@ public enum AgentLoop {
             )
         }
 
-        toolPhase: for round in 0..<maxToolRounds {
+        toolPhase: for round in 0..<effectiveMaxToolRounds {
             if Task.isCancelled { throw CancellationError() }
             let step = try await generateStep(
                 context,
                 AgentGenerationRequest(toolSchemas: request.toolSchemas, maxToolRounds: 0)
             )
             citations.append(contentsOf: step.citations)
+
+            #if DEBUG
+            if step.toolCalls.isEmpty {
+                print("[NookDiag] AgentLoop round \(round): no tool call, text='\(step.text.prefix(120))'")
+            } else {
+                print("[NookDiag] AgentLoop round \(round): tool calls=\(step.toolCalls.map(\.name).joined(separator: ", "))")
+            }
+            #endif
 
             guard !step.toolCalls.isEmpty else {
                 let text = step.text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -65,28 +79,45 @@ public enum AgentLoop {
 
             var executedAny = false
             for call in step.toolCalls {
-                // Cheap exact-repeat skip. Only catches byte-identical arguments,
-                // which is why the budget below is the real backstop.
-                let signature = "\(call.name):\(Self.argumentKey(call.arguments))"
-                if resolvedSignatures.contains(signature) {
-                    print("[AgentLoop] \(call.name) already resolved with these arguments")
-                    continue
+                // Resolve before budgeting so `tavily_tavily_search` and
+                // `tavily__tavily_search` share one budget and one chip.
+                let resolvedName: String
+                if let resolveName {
+                    guard let mapped = await resolveName(call.name) else {
+                        print("[AgentLoop] Unknown tool \(call.name) — not showing a chip")
+                        observations.append(
+                            "Tool '\(call.name)' is unknown. Use an exact tool name from the list."
+                        )
+                        continue
+                    }
+                    if mapped != call.name {
+                        print("[AgentLoop] Resolved '\(call.name)' → '\(mapped)'")
+                    }
+                    resolvedName = mapped
+                } else {
+                    resolvedName = call.name
                 }
-                let count = callCounts[call.name, default: 0]
-                guard count < maxCallsPerTool else {
-                    print("[AgentLoop] \(call.name) over budget (\(count)/\(maxCallsPerTool))")
-                    continue
-                }
-                callCounts[call.name] = count + 1
-                print("[AgentLoop] Round \(round) \(call.name)")
 
-                let result = try await execute(call.name, call.arguments)
+                let signature = "\(resolvedName):\(Self.argumentKey(call.arguments))"
+                if resolvedSignatures.contains(signature) {
+                    print("[AgentLoop] \(resolvedName) already resolved with these arguments")
+                    continue
+                }
+                let count = callCounts[resolvedName, default: 0]
+                guard count < maxCallsPerTool else {
+                    print("[AgentLoop] \(resolvedName) over budget (\(count)/\(maxCallsPerTool))")
+                    continue
+                }
+                callCounts[resolvedName] = count + 1
+                print("[AgentLoop] Round \(round) \(resolvedName)")
+
+                let result = try await execute(resolvedName, call.arguments)
                 resolvedSignatures.insert(signature)
                 executedAny = true
                 citations.append(contentsOf: result.citations)
                 onToolEvent(
                     AgentToolEvent(
-                        toolName: call.name,
+                        toolName: resolvedName,
                         displayText: result.displayText,
                         citations: result.citations,
                         chunks: result.chunks,
@@ -103,7 +134,7 @@ public enum AgentLoop {
             }
 
             context = context.replacingToolResults(observations)
-            // Every call was over budget; another round would repeat this one.
+            // Every call was over budget / unknown; another round would repeat this one.
             if !executedAny { break toolPhase }
         }
 

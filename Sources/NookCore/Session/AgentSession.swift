@@ -12,12 +12,6 @@ public final class AgentSession: ObservableObject {
         _ onToolEvent: @escaping @Sendable (AgentToolEvent) -> Void
     ) async throws -> AgentGenerationResult
 
-    /// On-device generation used only for memory card extraction (text in → text out).
-    public typealias MemoryExtractHandler = @Sendable (
-        _ systemPrompt: String,
-        _ userPrompt: String
-    ) async throws -> String
-
     @Published public var conversation: Conversation
     @Published public var messages: [Message] = []
     @Published public var isStreaming: Bool = false
@@ -26,7 +20,6 @@ public final class AgentSession: ObservableObject {
     @Published public var toastMessage: String? = nil
 
     public let knowledgeEngine: KnowledgeEngine
-    public let memoryEngine: MemoryEngine
     public let skillManager: SkillManager
     public let toolRegistry: ToolRegistry
     public let mcpClient: MCPClient
@@ -39,7 +32,6 @@ public final class AgentSession: ObservableObject {
     private var turnGrantedLocalTools: Set<String> = []
     private var turnActiveSkill: Skill?
     private var catalogSkills: [Skill] = []
-    private var turnMemoryGrounding: String = ""
     private let chatStore: ChatStore
 
     public init(
@@ -47,7 +39,6 @@ public final class AgentSession: ObservableObject {
         messages: [Message] = [],
         chatStore: ChatStore = .shared,
         knowledgeEngine: KnowledgeEngine,
-        memoryEngine: MemoryEngine,
         skillManager: SkillManager,
         toolRegistry: ToolRegistry,
         mcpClient: MCPClient,
@@ -58,7 +49,6 @@ public final class AgentSession: ObservableObject {
         self.messages = messages
         self.chatStore = chatStore
         self.knowledgeEngine = knowledgeEngine
-        self.memoryEngine = memoryEngine
         self.skillManager = skillManager
         self.toolRegistry = toolRegistry
         self.mcpClient = mcpClient
@@ -102,8 +92,7 @@ public final class AgentSession: ObservableObject {
         text: String,
         attachedImageName: String? = nil,
         runtime: any Sendable,
-        streamHandler: @escaping AgentStreamHandler,
-        memoryExtractHandler: MemoryExtractHandler? = nil
+        streamHandler: @escaping AgentStreamHandler
     ) async {
         activeGenerationTask?.cancel()
 
@@ -131,10 +120,6 @@ public final class AgentSession: ObservableObject {
         isThinking = true
         isStreaming = false
 
-        let memoryHits = await memoryEngine.memoriesForChat(query: body)
-        let memoryEvidence = MemoryEngine.evidenceStrings(from: memoryHits)
-        turnMemoryGrounding = memoryEvidence.joined(separator: "\n")
-
         let knowledgeScope = conversation.activeKnowledgeScope
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
@@ -158,14 +143,11 @@ public final class AgentSession: ObservableObject {
             #endif
             await performAssistantStream(
                 request: await makeGenerationRequest(grantedLocalToolNames: turnGrantedLocalTools),
-                memoryEvidence: memoryEvidence,
                 systemPrompt: NookSystemPrompt.withSkills(
                     base: NookSystemPrompt.standard,
                     active: turnActiveSkill
                 ),
-                streamHandler: streamHandler,
-                userMessageForMemory: userMsg,
-                memoryExtractHandler: memoryExtractHandler
+                streamHandler: streamHandler
             )
             return
         }
@@ -174,14 +156,11 @@ public final class AgentSession: ObservableObject {
         guard registered.contains(DocumentsSearchTool.toolName) else {
             await performAssistantStream(
                 request: await makeGenerationRequest(grantedLocalToolNames: turnGrantedLocalTools),
-                memoryEvidence: memoryEvidence,
                 systemPrompt: NookSystemPrompt.withSkills(
                     base: NookSystemPrompt.standard,
                     active: turnActiveSkill
                 ),
-                streamHandler: streamHandler,
-                userMessageForMemory: userMsg,
-                memoryExtractHandler: memoryExtractHandler
+                streamHandler: streamHandler
             )
             return
         }
@@ -202,35 +181,27 @@ public final class AgentSession: ObservableObject {
 
             let evidenceNote: String
             let generationRequest: AgentGenerationRequest
-            // When Knowledge hits, do not inject Memory — small models latch onto MEMORY
-            // labels and ignore FAQ passages (e.g. "What is happening?" → world news).
-            let memoryForTurn: [String]
             let chunksForPrompt: [DocumentChunk]
             let citationsForUI: [Citation]
             if searchResult.chunks.isEmpty {
                 evidenceNote = searchResult.textForModel
                 generationRequest = await makeGenerationRequest(grantedLocalToolNames: turnGrantedLocalTools)
-                memoryForTurn = memoryEvidence
                 chunksForPrompt = []
                 citationsForUI = []
             } else {
-                // Top passages once — duplicating full text in toolResults bloated the prompt
-                // (~5–7k chars) and made answers dump entire FAQ sections.
                 chunksForPrompt = Array(searchResult.chunks.prefix(3))
                 citationsForUI = Self.deduplicatedCitations(Array(searchResult.citations.prefix(3)))
                 evidenceNote =
-                    "\(chunksForPrompt.count) passage(s) from scoped Knowledge are in context. " +
-                    "Answer the user's question briefly from the best matching passage. " +
-                    "Do not summarize every passage. Do not invent unrelated events."
-                generationRequest = await makeGenerationRequest(grantedLocalToolNames: turnGrantedLocalTools)
-                memoryForTurn = []
+                    "Scoped Knowledge searched: \(chunksForPrompt.count) passage(s) retrieved " +
+                    "(shown above as SOURCE blocks). " +
+                    "If they answer the user's question, respond concisely from the best match — " +
+                    "do not dump every passage and do not invent details. " +
+                    "If the user asks for something the passages don't cover, or asks for live/web data, " +
+                    "call an available tool (e.g. web search) — never say you cannot browse if a tool is listed."
                 #if DEBUG
-                print(
-                    "[AgentSession] Knowledge hits=\(searchResult.chunks.count) " +
-                    "(using \(chunksForPrompt.count)); tools stay on; " +
-                    "suppressing \(memoryEvidence.count) memory block(s) for this turn"
-                )
+                print("[NookDiag] Scoped chat hits=\(chunksForPrompt.count)")
                 #endif
+                generationRequest = await makeGenerationRequest(grantedLocalToolNames: turnGrantedLocalTools)
             }
 
             await performAssistantStream(
@@ -238,14 +209,11 @@ public final class AgentSession: ObservableObject {
                 evidenceChunks: chunksForPrompt,
                 toolResults: [evidenceNote],
                 forcedCitations: citationsForUI,
-                memoryEvidence: memoryForTurn,
                 systemPrompt: NookSystemPrompt.withSkills(
                     base: NookSystemPrompt.withRetrievedKnowledge,
                     active: turnActiveSkill
                 ),
-                streamHandler: streamHandler,
-                userMessageForMemory: userMsg,
-                memoryExtractHandler: memoryExtractHandler
+                streamHandler: streamHandler
             )
         } catch {
             print("[AgentSession] documents_search failed: \(error)")
@@ -302,6 +270,9 @@ public final class AgentSession: ObservableObject {
         }
         guard !allowed.isEmpty else { return .textOnly }
         let schemas = await toolRegistry.schemas(forAllowedNames: allowed)
+        #if DEBUG
+        print("[NookDiag] Offering tools: \(allowed.sorted().joined(separator: ", "))")
+        #endif
         return AgentGenerationRequest(toolSchemas: schemas, maxToolRounds: 0)
     }
 
@@ -337,11 +308,8 @@ public final class AgentSession: ObservableObject {
         evidenceChunks: [DocumentChunk] = [],
         toolResults: [String] = [],
         forcedCitations: [Citation] = [],
-        memoryEvidence: [String] = [],
         systemPrompt: String = NookSystemPrompt.standard,
-        streamHandler: @escaping AgentStreamHandler,
-        userMessageForMemory: Message? = nil,
-        memoryExtractHandler: MemoryExtractHandler? = nil
+        streamHandler: @escaping AgentStreamHandler
     ) async {
         isThinking = true
 
@@ -361,8 +329,7 @@ public final class AgentSession: ObservableObject {
             activeSkill: turnActiveSkill,
             evidenceChunks: evidenceChunks,
             chatHistory: messages.filter { $0.id != assistantMsgId },
-            toolResults: toolResults,
-            memoryEvidence: memoryEvidence
+            toolResults: toolResults
         )
 
         let registry = toolRegistry
@@ -372,7 +339,6 @@ public final class AgentSession: ObservableObject {
             .suffix(8)
             .map(\.content)
             .joined(separator: "\n")
-        let memoryGrounding = turnMemoryGrounding
         let toolGrounding = ToolGroundingBox()
         let toolExecutor: @Sendable (String, ToolArguments) async throws -> ToolExecutionResult = { name, arguments in
             print("[AgentSession] Tool requested: \(name)")
@@ -405,7 +371,7 @@ public final class AgentSession: ObservableObject {
                     !$0.lowercased().hasPrefix("reminders.create")
                 }
                 reminders.setGroundingText(
-                    ([userGrounding, memoryGrounding] + lookupResults)
+                    ([userGrounding] + lookupResults)
                         .filter { !$0.isEmpty }
                         .joined(separator: "\n")
                 )
@@ -464,6 +430,9 @@ public final class AgentSession: ObservableObject {
                         Task { @MainActor in
                             self.handleToolEvent(event, beforeAssistantId: assistantMsgId)
                         }
+                    },
+                    resolveName: { requested in
+                        await self.resolveToolName(requested)
                     }
                 )
 
@@ -494,20 +463,6 @@ public final class AgentSession: ObservableObject {
                     self.activeGenerationTask = nil
                 }
 
-                if let userMessageForMemory, let memoryExtractHandler {
-                    let title = await MainActor.run { self.conversation.title }
-                    let assistantForMemory = await MainActor.run { () -> Message? in
-                        self.messages.first(where: { $0.id == assistantMsgId })
-                    }
-                    if let assistantForMemory {
-                        await memoryEngine.processExchange(
-                            userMessage: userMessageForMemory,
-                            assistantMessage: assistantForMemory,
-                            conversationTitle: title,
-                            generate: memoryExtractHandler
-                        )
-                    }
-                }
             } catch is CancellationError {
                 await MainActor.run {
                     if let index = self.messages.firstIndex(where: { $0.id == assistantMsgId }),
@@ -579,7 +534,7 @@ public final class AgentSession: ObservableObject {
         }
     }
 
-    /// Maps a model-emitted tool name to a registered external tool id.
+    /// Maps a model-emitted tool name to a registered tool id (MCP namespaces included).
     private func resolveToolName(_ requested: String) async -> String? {
         if await toolRegistry.getTool(named: requested) != nil {
             return requested
@@ -589,12 +544,7 @@ public final class AgentSession: ObservableObject {
             print("[AgentSession] Mapped '\(requested)' → \(mapped)")
             return mapped
         }
-        // Bare MCP name (e.g. tavily_search) → unique namespaced match.
-        let suffix = "__\(requested)"
-        let matches = available.filter {
-            $0 == requested || $0.hasSuffix(suffix)
-        }
-        return matches.count == 1 ? matches.first : nil
+        return nil
     }
 
     private func enabledModelFacingToolNames() async -> [String] {

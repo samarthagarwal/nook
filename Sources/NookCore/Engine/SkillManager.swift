@@ -22,7 +22,7 @@ public actor SkillManager {
                 """,
                 permissions: [
                     SkillPermission(tool: "calendar.search", what: "Read your calendar", isGranted: true),
-                    SkillPermission(tool: "memory.search", what: "Search past conversations", isGranted: true)
+                    SkillPermission(tool: "conversation.search", what: "Search past conversations", isGranted: true),
                 ]
             ),
         ]

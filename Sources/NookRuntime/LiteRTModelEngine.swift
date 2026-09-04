@@ -7,8 +7,10 @@ import NookCore
 /// are not Sendable under Swift 6.
 final class LiteRTModelEngine: @unchecked Sendable {
     /// Total context window for LiteRT-LM (input + reserved generation headroom).
-    /// Kept modest for on-device memory; still well above prior 1024 that broke MCP chats.
-    private static let engineContextTokens = 4096
+    /// 8192 matches Gemma 4 E2B's training context and ContextBudgetConfig.totalContextLimit.
+    /// Modern iPhones (A16+) handle this comfortably; the runtime falls back to CPU if GPU
+    /// mmap fails under pressure, which avoids OOM rather than crashing.
+    private static let engineContextTokens = 8192
 
     private let lock = NSLock()
     private var engine: Engine?
@@ -77,7 +79,7 @@ final class LiteRTModelEngine: @unchecked Sendable {
         promptContext: AssembledPromptContext,
         request: AgentGenerationRequest = .textOnly,
         toolExecutor: (@Sendable (String, ToolArguments) async throws -> ToolExecutionResult)? = nil,
-        maxOutputTokens: Int = 512,
+        maxOutputTokens: Int = 768,
         onToken: @escaping @Sendable (String) -> Void,
         onToolEvent: (@Sendable (AgentToolEvent) -> Void)? = nil
     ) async throws -> AgentGenerationResult {

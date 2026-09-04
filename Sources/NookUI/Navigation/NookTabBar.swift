@@ -6,8 +6,7 @@ public enum NookTab: String, CaseIterable, Identifiable {
     case knowledge = "Knowledge"
     case skills = "Skills"
     case connect = "Connect"
-    case memory = "Memory"
-    
+
     public var id: String { rawValue }
 
     /// Small SF Symbol shown above the tab label.
@@ -17,7 +16,6 @@ public enum NookTab: String, CaseIterable, Identifiable {
         case .knowledge: return "book.closed"
         case .skills: return "sparkles"
         case .connect: return "link"
-        case .memory: return "brain.head.profile"
         }
     }
 }

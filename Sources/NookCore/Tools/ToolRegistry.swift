@@ -266,6 +266,7 @@ public actor ToolRegistry {
 
     public init(
         knowledgeEngine: KnowledgeEngine? = nil,
+        chatStore: ChatStore = .shared,
         calendarReader: (any CalendarEventReading)? = nil,
         reminderWriter: (any ReminderWriting)? = nil
     ) {
@@ -274,6 +275,7 @@ public actor ToolRegistry {
             documentsSearchTool = tool
             registeredTools[DocumentsSearchTool.toolName] = tool
         }
+        registeredTools[ConversationSearchTool.toolName] = ConversationSearchTool(chatStore: chatStore)
         let calendar = CalendarSearchTool(reader: calendarReader ?? EventKitCalendarReader())
         registeredTools[CalendarSearchTool.toolName] = calendar
         let reminders = RemindersCreateTool(writer: reminderWriter ?? EventKitReminderWriter())

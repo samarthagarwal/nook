@@ -139,36 +139,6 @@ public enum AlwaysOfferedLocalTools {
     }
 }
 
-/// Maps a model-emitted tool name onto an offered tool (common misspellings).
-public enum ToolNameResolver {
-    private static let aliases: [String: String] = [
-        "reminder.create": RemindersCreateTool.toolName,
-        "reminder": RemindersCreateTool.toolName,
-        "reminders": RemindersCreateTool.toolName,
-        "create.reminder": RemindersCreateTool.toolName,
-        "calendar": CalendarSearchTool.toolName,
-        "calendars.search": CalendarSearchTool.toolName,
-    ]
-
-    public static func resolve(_ requested: String, available: Set<String>) -> String? {
-        let trimmed = requested.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        if available.contains(trimmed) { return trimmed }
-        let folded = trimmed.lowercased()
-        if let exact = available.first(where: { $0.lowercased() == folded }) {
-            return exact
-        }
-        if let alias = aliases[folded], available.contains(alias) {
-            return alias
-        }
-        let suffixMatches = available.filter {
-            let lower = $0.lowercased()
-            return lower.hasSuffix(".\(folded)") || lower.hasSuffix("__\(folded)")
-        }
-        return suffixMatches.count == 1 ? suffixMatches.first : nil
-    }
-}
-
 /// On-device Reminders write — registered as `reminders.create`.
 public final class RemindersCreateTool: @unchecked Sendable, AgentTool {
     public static let toolName = "reminders.create"

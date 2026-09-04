@@ -131,6 +131,37 @@ public final class ChatStore: @unchecked Sendable {
         }
     }
 
+    /// Full-text search across user and assistant messages.
+    /// Returns up to `limit` matching messages, newest first.
+    public func searchMessages(query: String, limit: Int = 8) throws -> [Message] {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return [] }
+        let tokens = trimmed.lowercased()
+            .split { !$0.isLetter && !$0.isNumber }
+            .map(String.init)
+            .filter { $0.count >= 2 }
+            .prefix(12)
+        guard !tokens.isEmpty else { return [] }
+        return try dbQueue.read { db in
+            let clauses = tokens.map { _ in "lower(content) LIKE ?" }.joined(separator: " OR ")
+            var args = StatementArguments()
+            for tok in tokens { args += ["%\(tok)%"] }
+            args += [limit]
+            let rows = try Row.fetchAll(
+                db,
+                sql: """
+                    SELECT * FROM messages
+                    WHERE role IN ('user', 'assistant')
+                      AND (\(clauses))
+                    ORDER BY created_at DESC
+                    LIMIT ?
+                    """,
+                arguments: args
+            )
+            return try rows.map { try message(from: $0) }
+        }
+    }
+
     public func saveMessage(_ message: Message) throws {
         let citationsJSON = try encodeJSON(message.citations)
         let externalToolJSON = try message.externalToolData.map { try encodeJSON($0) }

@@ -33,6 +33,12 @@ public actor MemoryEngine {
         return fitted
     }
 
+    /// Raw message excerpts relevant to `query`, for use by ConversationSearchTool.
+    /// Returns at most `limit` entries; each entry is (body, conversationId, createdAt).
+    public func searchExcerpts(query: String, limit: Int = 6) -> [(body: String, conversationId: String, createdAt: Date)] {
+        (try? store.fetchExcerpts(query: query, limit: limit)) ?? []
+    }
+
     public func forget(memoryId: String) {
         try? store.forget(memoryId: memoryId)
     }
@@ -120,8 +126,11 @@ public actor MemoryEngine {
                 provenance: candidate.provenance,
                 createdAt: sourceMessage.createdAt
             )
+            // Embed the quote so we can later filter cards by topical distance from
+            // retrieved knowledge passages, rather than suppressing all memory in scoped chats.
+            let embedding = KnowledgeEmbedder.embed(candidate.quote)
             do {
-                _ = try store.insertCard(item)
+                _ = try store.insertCard(item, embedding: embedding)
             } catch {
                 print("[MemoryEngine] Failed to insert card: \(error)")
             }
@@ -134,6 +143,73 @@ public actor MemoryEngine {
             }
         } catch {
             print("[MemoryEngine] Failed to mark extracted: \(error)")
+        }
+    }
+
+    /// Filters memory cards by topical distance from retrieved knowledge passages.
+    ///
+    /// Cards whose embedding is too similar to the top retrieved chunk are dropped —
+    /// they cover the same topic and would compete with the passage for the model's
+    /// attention. Cards on unrelated topics (preferences, names, projects, etc.) are kept.
+    ///
+    /// Cards without a stored embedding (pre-v8 or NLEmbedding unavailable) are kept
+    /// unconditionally so old memory is never silently discarded.
+    ///
+    /// - Parameters:
+    ///   - cards: The candidate memory items fetched for this query.
+    ///   - retrievedChunks: Knowledge passages retrieved this turn (top chunk used for scoring).
+    ///   - conflictThreshold: Cosine similarity above which a card is considered conflicting (default 0.35).
+    public func memoriesRelevantTo(
+        cards: [MemoryItem],
+        retrievedChunks: [DocumentChunk],
+        conflictThreshold: Float = 0.35
+    ) -> [MemoryItem] {
+        guard !cards.isEmpty, !retrievedChunks.isEmpty else { return cards }
+
+        // Embed only the top chunk — it's the one the model will weight most heavily.
+        guard let chunkVector = KnowledgeEmbedder.embed(retrievedChunks[0].text) else {
+            // NLEmbedding unavailable — keep all cards rather than silently dropping them.
+            return cards
+        }
+
+        return cards.filter { card in
+            guard let cardVector = store.fetchEmbedding(memoryId: card.id) else {
+                // No stored embedding (card predates v8 migration) → keep it.
+                return true
+            }
+            let similarity = KnowledgeEmbedder.cosineSimilarity(cardVector, chunkVector)
+            let keep = similarity < conflictThreshold
+            if !keep {
+                print("[MemoryEngine] Suppressing card '\(card.subject)' (similarity=\(String(format: "%.2f", similarity)) ≥ \(conflictThreshold))")
+            }
+            return keep
+        }
+    }
+
+    /// Processes all unextracted user+assistant exchange pairs in a message list.
+    /// Call this on chat open to catch any exchanges that were missed (e.g. app was
+    /// force-quit before the background extraction task fired).
+    public func processUnextractedExchanges(
+        in messages: [Message],
+        conversationTitle: String,
+        generate: @Sendable (_ systemPrompt: String, _ userPrompt: String) async throws -> String
+    ) async {
+        // Walk pairs: for each user message not yet extracted, find the immediately
+        // following assistant reply and process the exchange.
+        for (index, message) in messages.enumerated() {
+            guard message.role == .user else { continue }
+            let done = (try? store.hasExtracted(messageId: message.id)) ?? false
+            if done { continue }
+            // Find the assistant reply that directly follows this user turn.
+            let nextIndex = index + 1
+            guard nextIndex < messages.count, messages[nextIndex].role == .assistant else { continue }
+            let assistantMessage = messages[nextIndex]
+            await processExchange(
+                userMessage: message,
+                assistantMessage: assistantMessage,
+                conversationTitle: conversationTitle,
+                generate: generate
+            )
         }
     }
 

@@ -18,8 +18,13 @@ enum LiteRTPromptBuilder {
         if let skill = context.activeSkillInstructions, !skill.isEmpty {
             instructionParts.append("Active skill instructions:\n\(skill)")
         }
-        if !context.retrievedEvidence.isEmpty {
-            let evidence = context.retrievedEvidence.joined(separator: "\n\n")
+        // Split evidence into knowledge chunks (SOURCE prefix) and memory blocks (MEMORY prefix)
+        // so each gets framing that matches what the model expects from the system prompt.
+        let knowledgeBlocks = context.retrievedEvidence.filter { $0.hasPrefix("SOURCE") }
+        let memoryBlocks = context.retrievedEvidence.filter { $0.hasPrefix("MEMORY") }
+
+        if !knowledgeBlocks.isEmpty {
+            let evidence = knowledgeBlocks.joined(separator: "\n\n")
             instructionParts.append(
                 """
                 Retrieved knowledge — verbatim passages from the user's scoped collections. \
@@ -28,13 +33,25 @@ enum LiteRTPromptBuilder {
                 """
             )
         }
+        if !memoryBlocks.isEmpty {
+            let memories = memoryBlocks.joined(separator: "\n\n")
+            instructionParts.append(
+                """
+                Past-chat MEMORY — context from previous conversations. \
+                Use these to personalise your answer where relevant. \
+                Do NOT echo or repeat these blocks in your reply; synthesise naturally.
+                \(memories)
+                """
+            )
+        }
         if !context.toolResultSummaries.isEmpty {
             let tools = context.toolResultSummaries.joined(separator: "\n")
             instructionParts.append(
                 """
-                Tool results from this turn. If another listed tool is needed, call it. \
-                Otherwise answer the user from these results. Do not claim you lack access \
-                to a tool that is listed or that just returned results:
+                Context gathered this turn (do not repeat verbatim). \
+                Use it to answer the user if relevant. \
+                If the user needs something not covered here, call the appropriate listed tool — \
+                never say you cannot use a tool that is listed:
                 \(tools)
                 """
             )
@@ -92,7 +109,7 @@ enum LiteRTPromptBuilder {
 
         Pick the tool whose name/description best matches the user's request. \
         Use an exact name from this list — never a Skill name. \
-        Tool names look like server__tool (for example exa__web_search_exa). \
+        Tool names use dot notation: server.tool_name (for example exa.web_search_exa). \
         Do not call a tool that is not in this list. \
         Never invent a datetime — copy yyyy-MM-dd HH:mm from the user or a tool result, \
         or stop and ask.
@@ -103,7 +120,8 @@ enum LiteRTPromptBuilder {
         JSON is also accepted:
         {"name":"TOOL_NAME","arguments":{"query":"..."}}
 
-        Replace TOOL_NAME with an exact name from the list above. Keep arguments minimal.
+        Replace TOOL_NAME with an exact name from the list above (including the server prefix). \
+        Keep arguments minimal.
 
         After tool results are provided, answer normally from those results. Never say you cannot \
         browse the web, search online, or use a tool that is listed above or that just returned results. \
@@ -133,6 +151,14 @@ enum LiteRTPromptBuilder {
             paramNames = properties.keys.sorted()
         }
         var line = name
+        // Show the bare tool name (without server prefix) as a reminder so the model
+        // knows what the suffix looks like, which helps when reproducing `server.tool_name`.
+        if let dotIndex = name.firstIndex(of: ".") {
+            let shortName = String(name[name.index(after: dotIndex)...])
+            if !shortName.isEmpty {
+                line += " (short: \(shortName))"
+            }
+        }
         if !shortDescription.isEmpty {
             line += ": \(shortDescription)"
         }

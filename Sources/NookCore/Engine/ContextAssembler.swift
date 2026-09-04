@@ -70,12 +70,11 @@ public struct ContextAssembler: Sendable {
         activeSkill: Skill?,
         evidenceChunks: [DocumentChunk],
         chatHistory: [Message],
-        toolResults: [String],
-        memoryEvidence: [String] = []
+        toolResults: [String]
     ) -> AssembledPromptContext {
         // 1. Truncate / fit System prompt
         let fittedSystem = truncate(text: baseSystemPrompt, maxTokens: config.systemInstructionsCap)
-        
+
         // 2. Inject SKILL.md only when this chat has an explicit Skill.
         var fittedSkill: String? = nil
         if let skill = activeSkill {
@@ -84,8 +83,8 @@ public struct ContextAssembler: Sendable {
                 fittedSkill = truncate(text: body, maxTokens: config.activeSkillCap)
             }
         }
-        
-        // 3. Fit Evidence — Knowledge first, then Memory (Knowledge must win when both present)
+
+        // 3. Fit Evidence — Knowledge chunks
         var fittedEvidence: [String] = []
         var evidenceTokens = 0
         for chunk in evidenceChunks {
@@ -98,15 +97,6 @@ public struct ContextAssembler: Sendable {
             } else {
                 break
             }
-        }
-        let memoryBudget = min(MemoryEngine.chatInjectMaxTokens, max(0, config.evidenceCap - evidenceTokens))
-        var memoryTokens = 0
-        for block in memoryEvidence {
-            let cost = ContextAssembler.estimateTokens(for: block)
-            if memoryTokens + cost > memoryBudget { break }
-            fittedEvidence.append(block)
-            memoryTokens += cost
-            evidenceTokens += cost
         }
         
         // 4. Fit Tool Results

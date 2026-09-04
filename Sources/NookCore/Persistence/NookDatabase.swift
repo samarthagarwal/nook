@@ -185,6 +185,15 @@ public enum NookDatabase {
             }
         }
 
+        migrator.registerMigration("v8_memory_card_embeddings") { db in
+            // Stores NLEmbedding sentence vector (Float32 blob) for each memory card.
+            // Used to filter cards that conflict with retrieved knowledge passages,
+            // replacing the blunt full-suppression of memory in scoped chats.
+            try db.alter(table: "memory_cards") { table in
+                table.add(column: "embedding", .blob)
+            }
+        }
+
         try migrator.migrate(dbQueue)
     }
 

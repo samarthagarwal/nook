@@ -126,10 +126,13 @@ public final class MemoryStore: @unchecked Sendable {
             .map(\.item)
     }
 
-    public func insertCard(_ item: MemoryItem) throws -> Bool {
+    public func insertCard(_ item: MemoryItem, embedding: [Float]? = nil) throws -> Bool {
         let normalizedQuote = Self.normalizeQuote(item.quote)
         let normalizedSubject = Self.normalizeSubject(item.subject)
         guard !normalizedQuote.isEmpty, !normalizedSubject.isEmpty else { return false }
+        let embeddingData: Data? = embedding.map { vector in
+            vector.withUnsafeBufferPointer { Data(buffer: $0) }
+        }
         return try dbQueue.write { db in
             // Exact message+quote (including forgotten) — never recreate that pair.
             if try Row.fetchOne(
@@ -160,8 +163,9 @@ public final class MemoryStore: @unchecked Sendable {
                 sql: """
                     INSERT INTO memory_cards (
                         id, subject, kind, quote, quote_normalized,
-                        conversation_id, message_id, source_label, is_forgotten, created_at, provenance
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        conversation_id, message_id, source_label, is_forgotten, created_at, provenance,
+                        embedding
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                 arguments: [
                     item.id,
@@ -175,9 +179,36 @@ public final class MemoryStore: @unchecked Sendable {
                     item.isForgotten,
                     item.createdAt,
                     item.provenance.rawValue,
+                    embeddingData,
                 ]
             )
             return true
+        }
+    }
+
+    /// Returns the stored NLEmbedding vector for a memory card, or nil if not yet embedded
+    /// (cards created before v8 migration, or when NLEmbedding was unavailable).
+    public func fetchEmbedding(memoryId: String) -> [Float]? {
+        let data: Data?
+        do {
+            data = try dbQueue.read { db in
+                guard let row = try Row.fetchOne(
+                    db,
+                    sql: "SELECT embedding FROM memory_cards WHERE id = ?",
+                    arguments: [memoryId]
+                ) else {
+                    return nil
+                }
+                return row["embedding"] as Data?
+            }
+        } catch {
+            return nil
+        }
+        guard let data, !data.isEmpty, data.count.isMultiple(of: MemoryLayout<Float>.size) else {
+            return nil
+        }
+        return data.withUnsafeBytes { raw in
+            Array(raw.bindMemory(to: Float.self))
         }
     }
 
@@ -218,6 +249,66 @@ public final class MemoryStore: @unchecked Sendable {
                 arguments: [messageId, trimmed]
             )
         }
+    }
+
+    /// Returns raw message excerpt bodies matching a query, ordered by FTS rank.
+    ///
+    /// Resolution order:
+    /// 1. FTS match on `memory_excerpts_fts` (fastest, rank-ordered).
+    /// 2. Excerpts whose `message_id` belongs to a card that LIKE-matches the query
+    ///    (handles conversations extracted before the current session, where cards exist
+    ///    but the FTS index was seeded from a different code path).
+    /// 3. LIKE search directly on excerpt bodies.
+    public func fetchExcerpts(query: String, limit: Int = 6) throws -> [(body: String, conversationId: String, createdAt: Date)] {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // 1. FTS
+        if !trimmed.isEmpty, let ftsQuery = Self.ftsMatchQuery(from: trimmed) {
+            let rows: [(body: String, conversationId: String, createdAt: Date)] = try dbQueue.read { db in
+                let sql = """
+                    SELECT e.body, e.conversation_id, e.created_at
+                    FROM memory_excerpts_fts f
+                    JOIN memory_excerpts e ON e.message_id = f.message_id
+                    WHERE f MATCH ?
+                    ORDER BY bm25(memory_excerpts_fts)
+                    LIMIT ?
+                    """
+                return try Row.fetchAll(db, sql: sql, arguments: [ftsQuery, limit]).map {
+                    (body: $0["body"] as String,
+                     conversationId: $0["conversation_id"] as String,
+                     createdAt: $0["created_at"] as Date)
+                }
+            }
+            if !rows.isEmpty { return rows }
+        }
+
+        // 2. Token LIKE on excerpt bodies — OR across tokens so a partial match surfaces results.
+        if !trimmed.isEmpty {
+            let tokens = Self.contentTokens(from: trimmed)
+            if !tokens.isEmpty {
+                let rows: [(body: String, conversationId: String, createdAt: Date)] = try dbQueue.read { db in
+                    let clauses = tokens.map { _ in "lower(body) LIKE ?" }.joined(separator: " OR ")
+                    var args = StatementArguments()
+                    for tok in tokens { args += ["%\(tok)%"] }
+                    args += [limit]
+                    let sql = """
+                        SELECT body, conversation_id, created_at
+                        FROM memory_excerpts
+                        WHERE \(clauses)
+                        ORDER BY created_at DESC
+                        LIMIT ?
+                        """
+                    return try Row.fetchAll(db, sql: sql, arguments: args).map {
+                        (body: $0["body"] as String,
+                         conversationId: $0["conversation_id"] as String,
+                         createdAt: $0["created_at"] as Date)
+                    }
+                }
+                if !rows.isEmpty { return rows }
+            }
+        }
+
+        return []
     }
 
     public func hasExtracted(messageId: String) throws -> Bool {
