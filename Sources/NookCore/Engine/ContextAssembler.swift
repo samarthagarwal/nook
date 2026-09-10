@@ -10,13 +10,13 @@ public struct ContextBudgetConfig: Sendable {
     public let outputReserve: Int
     
     public init(
-        totalContextLimit: Int = 8192,
-        systemInstructionsCap: Int = 1000,
-        activeSkillCap: Int = 1000,
-        recentChatCap: Int = 2000,
-        evidenceCap: Int = 2500,
-        toolResultsCap: Int = 1000,
-        outputReserve: Int = 1692
+        totalContextLimit: Int = 16384,
+        systemInstructionsCap: Int = 1200,
+        activeSkillCap: Int = 1500,
+        recentChatCap: Int = 4000,
+        evidenceCap: Int = 5000,
+        toolResultsCap: Int = 2000,
+        outputReserve: Int = 2000
     ) {
         self.totalContextLimit = totalContextLimit
         self.systemInstructionsCap = systemInstructionsCap

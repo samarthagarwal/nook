@@ -7,10 +7,10 @@ import NookCore
 /// are not Sendable under Swift 6.
 final class LiteRTModelEngine: @unchecked Sendable {
     /// Total context window for LiteRT-LM (input + reserved generation headroom).
-    /// 8192 matches Gemma 4 E2B's training context and ContextBudgetConfig.totalContextLimit.
-    /// Modern iPhones (A16+) handle this comfortably; the runtime falls back to CPU if GPU
-    /// mmap fails under pressure, which avoids OOM rather than crashing.
-    private static let engineContextTokens = 8192
+    /// 16384 doubles the usable working room vs the original 8k while staying well
+    /// within Gemma 4 E2B's 32k training context. Modern iPhones (A16+) handle this
+    /// comfortably; the runtime falls back to CPU if GPU mmap fails under pressure.
+    private static let engineContextTokens = 16384
 
     private let lock = NSLock()
     private var engine: Engine?
@@ -143,6 +143,9 @@ final class LiteRTModelEngine: @unchecked Sendable {
         _ = toolExecutor
         _ = onToolEvent
         let proseOnly = request.responseMode == .proseOnly
+        // Only stream tokens for prose (answer) turns — tool-call turns must
+        // accumulate the full output before parsing, so streaming is suppressed.
+        let isToolTurn = !request.toolSchemas.isEmpty
         var assembled: String
         do {
             assembled = try await generateOnce(
@@ -150,7 +153,7 @@ final class LiteRTModelEngine: @unchecked Sendable {
                 toolSchemas: request.toolSchemas,
                 proseOnly: proseOnly,
                 maxOutputTokens: max(maxOutputTokens, 384),
-                streamTokens: false,
+                streamTokens: !isToolTurn,
                 onToken: onToken
             )
         } catch {
@@ -165,7 +168,7 @@ final class LiteRTModelEngine: @unchecked Sendable {
                 toolSchemas: [],
                 proseOnly: false,
                 maxOutputTokens: max(maxOutputTokens, 384),
-                streamTokens: false,
+                streamTokens: true,
                 onToken: onToken
             )
         }
@@ -179,6 +182,10 @@ final class LiteRTModelEngine: @unchecked Sendable {
             )
         }
         let visible = LiteRTToolCallParser.visibleText(from: assembled)
+        // Tokens were already streamed for prose turns — avoid double-emit.
+        if !isToolTurn {
+            return AgentGenerationResult(text: visible.isEmpty ? assembled : visible)
+        }
         if !visible.isEmpty {
             onToken(visible)
             return AgentGenerationResult(text: visible)
@@ -387,13 +394,12 @@ final class LiteRTModelEngine: @unchecked Sendable {
 
     /// Keep prompt inside the engine context window (leave headroom for generation).
     private static func trimContext(_ context: AssembledPromptContext) -> AssembledPromptContext {
-        let evidence = context.retrievedEvidence.prefix(3).map { truncate($0, maxChars: 900) }
-        let tools = context.toolResultSummaries.prefix(2).map { truncate($0, maxChars: 1_500) }
-        let messages = context.recentMessages.suffix(4).map(truncateMessage(_:))
+        let evidence = context.retrievedEvidence.prefix(6).map { truncate($0, maxChars: 2_000) }
+        let tools = context.toolResultSummaries.prefix(4).map { truncate($0, maxChars: 3_000) }
+        let messages = context.recentMessages.suffix(10).map(truncateMessage(_:))
         return AssembledPromptContext(
-            // Knowledge grounding lives in the system prompt — 1000 chars was cutting it off.
-            systemPrompt: truncate(context.systemPrompt, maxChars: 2_800),
-            activeSkillInstructions: context.activeSkillInstructions.map { truncate($0, maxChars: 800) },
+            systemPrompt: truncate(context.systemPrompt, maxChars: 5_000),
+            activeSkillInstructions: context.activeSkillInstructions.map { truncate($0, maxChars: 1_600) },
             retrievedEvidence: Array(evidence),
             recentMessages: Array(messages),
             toolResultSummaries: Array(tools),
