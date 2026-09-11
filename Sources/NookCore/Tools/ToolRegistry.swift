@@ -268,7 +268,10 @@ public actor ToolRegistry {
         knowledgeEngine: KnowledgeEngine? = nil,
         chatStore: ChatStore = .shared,
         calendarReader: (any CalendarEventReading)? = nil,
-        reminderWriter: (any ReminderWriting)? = nil
+        calendarWriter: (any CalendarEventWriting)? = nil,
+        reminderWriter: (any ReminderWriting)? = nil,
+        reminderReader: (any ReminderReading)? = nil,
+        contactSearcher: (any ContactSearching)? = nil
     ) {
         if let knowledgeEngine {
             let tool = DocumentsSearchTool(knowledgeEngine: knowledgeEngine)
@@ -276,10 +279,11 @@ public actor ToolRegistry {
             registeredTools[DocumentsSearchTool.toolName] = tool
         }
         registeredTools[ConversationSearchTool.toolName] = ConversationSearchTool(chatStore: chatStore)
-        let calendar = CalendarSearchTool(reader: calendarReader ?? EventKitCalendarReader())
-        registeredTools[CalendarSearchTool.toolName] = calendar
-        let reminders = RemindersCreateTool(writer: reminderWriter ?? EventKitReminderWriter())
-        registeredTools[RemindersCreateTool.toolName] = reminders
+        registeredTools[CalendarSearchTool.toolName] = CalendarSearchTool(reader: calendarReader ?? EventKitCalendarReader())
+        registeredTools[CalendarCreateTool.toolName] = CalendarCreateTool(writer: calendarWriter ?? EventKitCalendarWriter())
+        registeredTools[RemindersCreateTool.toolName] = RemindersCreateTool(writer: reminderWriter ?? EventKitReminderWriter())
+        registeredTools[RemindersListTool.toolName] = RemindersListTool(reader: reminderReader ?? EventKitReminderReader())
+        registeredTools[ContactsSearchTool.toolName] = ContactsSearchTool(searcher: contactSearcher ?? CNContactSearcher())
     }
 
     /// Binds the conversation's Knowledge scope for `documents_search` this turn.

@@ -27,6 +27,8 @@ public enum MLXPlatformSupport {
             return "LiteRTModelRuntime (device)"
         case .mlx:
             return useMLXInference ? "MLXModelRuntime (device)" : "ScriptedModelRuntime"
+        case .cloud:
+            return "OpenAIModelRuntime"
         }
         #endif
         #else
@@ -35,6 +37,8 @@ public enum MLXPlatformSupport {
             return "LiteRTModelRuntime (macOS)"
         case .mlx:
             return "MLXModelRuntime (macOS)"
+        case .cloud:
+            return "OpenAIModelRuntime"
         }
         #endif
     }

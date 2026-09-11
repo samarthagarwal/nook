@@ -9,7 +9,7 @@ public final class ModelRuntimeStore: ObservableObject {
     @Published public private(set) var thermalAdvice: ThermalStateMonitor.Advice = .normal
     @Published public var statusMessage: String?
 
-    public let runtime: any ModelRuntime
+    @Published public private(set) var runtime: any ModelRuntime
 
     private var downloadTask: Task<Void, Error>?
     private var modelNeedsReload = false
@@ -23,6 +23,13 @@ public final class ModelRuntimeStore: ObservableObject {
         if case .downloading = downloadState { return true }
         return false
     }
+
+    /// True when the active runtime is the cloud (OpenAI) backend.
+    /// Derived from persisted preference; updates whenever `runtime` is swapped.
+    public var isCloudEnabled: Bool { AppPreferences.cloudEnabled }
+
+    /// Label for the active cloud model (e.g. "gpt-4o-mini"), or empty string when local.
+    public var cloudModelLabel: String { AppPreferences.openAIModel }
 
     public init(runtime: (any ModelRuntime)? = nil) {
         ModelCatalog.migrateDownloadedTiersIfNeeded()
@@ -184,6 +191,22 @@ public final class ModelRuntimeStore: ObservableObject {
         Task {
             await runtime.releaseLoadedModel()
         }
+    }
+
+    /// Switch to the OpenAI cloud runtime and persist the settings.
+    public func switchToCloud(apiKey: String, model: String) {
+        AppPreferences.cloudEnabled  = true
+        AppPreferences.openAIAPIKey  = apiKey
+        AppPreferences.openAIModel   = model
+        runtime = OpenAIModelRuntime(apiKey: apiKey, model: model, activeTier: activeTier)
+        downloadState = runtime.downloadState
+    }
+
+    /// Switch back to the on-device LiteRT runtime and persist the preference.
+    public func switchToLocal() {
+        AppPreferences.cloudEnabled = false
+        runtime = ModelRuntimeFactory.make(activeTier: activeTier)
+        downloadState = runtime.downloadState
     }
 
     public func cancelGeneration() {

@@ -11,7 +11,9 @@ public enum AgentLoop {
     /// Default rounds in which the model may call a tool (used when request doesn't override).
     public static let maxToolRounds = 3
     /// How many times one tool may run in a single turn.
-    public static let maxCallsPerTool = 2
+    /// 1 is enough — if the first call returns results, calling the same tool
+    /// again with a slightly different query is almost always redundant.
+    public static let maxCallsPerTool = 1
 
     public struct Output: Sendable {
         public let text: String

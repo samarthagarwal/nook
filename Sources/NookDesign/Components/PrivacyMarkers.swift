@@ -35,17 +35,28 @@ public struct PrivacyRing: View {
 
 public struct ModelBadge: View {
     private let tierName: String
-    
-    public init(tierName: String = "Balanced") {
+    private let isCloud: Bool
+    private let cloudModel: String
+
+    public init(tierName: String = "Balanced", isCloud: Bool = false, cloudModel: String = "") {
         self.tierName = tierName
+        self.isCloud = isCloud
+        self.cloudModel = cloudModel
     }
-    
+
     public var body: some View {
         HStack(spacing: 5) {
-            PrivacyDot(accessibilityText: "\(tierName) runs on device")
-            Text("\(tierName) · on device")
-                .font(NookTypography.badge)
-                .foregroundColor(NookColors.ink70)
+            if isCloud {
+                PrivacyRing(accessibilityText: "Cloud model")
+                Text("\(cloudModel) · cloud")
+                    .font(NookTypography.badge)
+                    .foregroundColor(NookColors.ink70)
+            } else {
+                PrivacyDot(accessibilityText: "\(tierName) runs on device")
+                Text("\(tierName) · on device")
+                    .font(NookTypography.badge)
+                    .foregroundColor(NookColors.ink70)
+            }
         }
     }
 }

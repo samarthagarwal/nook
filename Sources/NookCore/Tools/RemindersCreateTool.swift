@@ -27,6 +27,9 @@ public extension ReminderWriting {
 }
 
 public final class EventKitReminderWriter: @unchecked Sendable, ReminderWriting {
+    // Shared store — same XPC-connection fix as CalendarCreateTool.
+    private let store = EKEventStore()
+
     public init() {}
 
     public func requestAccess() async throws -> Bool {
@@ -40,38 +43,36 @@ public final class EventKitReminderWriter: @unchecked Sendable, ReminderWriting 
             default:
                 break
             }
-            return try await EKEventStore().requestFullAccessToReminders()
+            return try await store.requestFullAccessToReminders()
         } else {
             if status == .authorized { return true }
             if status == .denied || status == .restricted { return false }
-            return try await EKEventStore().requestAccess(to: .reminder)
+            return try await store.requestAccess(to: .reminder)
         }
     }
 
     public func create(_ draft: ReminderDraft) async throws -> String {
-        try await MainActor.run {
-            let store = EKEventStore()
-            let list = try Self.reminderList(in: store)
-            let reminder = EKReminder(eventStore: store)
-            reminder.title = draft.title
-            reminder.notes = draft.notes
-            reminder.calendar = list
-            if let due = draft.due {
-                var components = Calendar.current.dateComponents(
-                    [.year, .month, .day, .hour, .minute],
-                    from: due
-                )
-                components.timeZone = TimeZone.current
-                reminder.dueDateComponents = components
-                reminder.addAlarm(EKAlarm(absoluteDate: due))
-            }
-            try store.save(reminder, commit: true)
-            return list.title
+        // EKEventStore.save() is thread-safe — no MainActor.run needed.
+        let list = try Self.reminderList(in: store)
+        let reminder = EKReminder(eventStore: store)
+        reminder.title = draft.title
+        reminder.notes = draft.notes
+        reminder.calendar = list
+        if let due = draft.due {
+            var components = Calendar.current.dateComponents(
+                [.year, .month, .day, .hour, .minute],
+                from: due
+            )
+            components.timeZone = TimeZone.current
+            reminder.dueDateComponents = components
+            reminder.addAlarm(EKAlarm(absoluteDate: due))
         }
+        try store.save(reminder, commit: true)
+        return list.title
     }
 
     public func listContainingDuplicate(of draft: ReminderDraft) async throws -> String? {
-        let store = EKEventStore()
+        let store = self.store
         let predicate = store.predicateForIncompleteReminders(
             withDueDateStarting: nil,
             ending: nil,
@@ -131,8 +132,15 @@ public final class EventKitReminderWriter: @unchecked Sendable, ReminderWriting 
 }
 
 /// Local tools the model may call without a Skill grant.
+/// All on-device action tools belong here — they don't send data off-device
+/// and should always be available regardless of which Skill is active.
 public enum AlwaysOfferedLocalTools {
-    public static let names: Set<String> = [RemindersCreateTool.toolName]
+    public static let names: Set<String> = [
+        RemindersCreateTool.toolName,   // reminders.create
+        "calendar.create",              // CalendarCreateTool
+        "reminders.list",               // RemindersListTool
+        "contacts.search",              // ContactsSearchTool
+    ]
 
     public static func contains(_ name: String) -> Bool {
         names.contains(name)
@@ -146,6 +154,8 @@ public final class RemindersCreateTool: @unchecked Sendable, AgentTool {
     public var name: String { Self.toolName }
     public let description = """
         Create an iPhone reminder when the user asks to be reminded or add a to-do. \
+        Do NOT use for meetings, appointments, calls, or events with a start time — \
+        use calendar.create for those. \
         Do not ask for confirmation. Never invent due — use today, tomorrow, tonight, \
         in 10 minutes, or yyyy-MM-dd HH:mm copied from the user or a lookup. \
         If the time is unknown, look it up or ask. Never say the reminder was set \

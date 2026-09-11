@@ -250,9 +250,12 @@ public final class LiteRTModelRuntime: ModelRuntime, @unchecked Sendable {
             return
         }
         do {
-            // Large Gemma packages often fail GPU mmap under pressure — prefer CPU when tight.
+            // Force CPU only when memory is genuinely critical (<1 GB free).
+            // The old 2 GB threshold was too aggressive — DeviceMemoryBudget.availableBytes
+            // can report conservatively, causing CPU loads even with 3+ GB allocatable,
+            // which loses the GPU mmap speed advantage without any safety benefit.
             let forceCPU = activeTier.id == "balanced"
-                && DeviceMemoryBudget.availableBytes < 2_000_000_000
+                && DeviceMemoryBudget.availableBytes < 1_000_000_000
             try await engine.load(modelPath: path, forceCPU: forceCPU)
             setDownloadState(.ready)
         } catch {
@@ -282,7 +285,7 @@ public final class LiteRTModelRuntime: ModelRuntime, @unchecked Sendable {
     }
 
     private func forceCPUPreferred(for tier: ModelTier) -> Bool {
-        tier.id == "balanced" && DeviceMemoryBudget.availableBytes < 2_000_000_000
+        tier.id == "balanced" && DeviceMemoryBudget.availableBytes < 1_000_000_000
     }
 
     private func installBackgroundUnload() {

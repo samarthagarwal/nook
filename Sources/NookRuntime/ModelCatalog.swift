@@ -35,7 +35,7 @@ enum ModelCatalog {
 
     static func spec(for tier: ModelTier) -> TierSpec {
         switch NookInferenceConfig.backend {
-        case .litert:
+        case .litert, .cloud:
             return litertSpec(for: tier)
         case .mlx:
             return mlxSpec(for: tier)

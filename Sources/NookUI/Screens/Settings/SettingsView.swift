@@ -10,12 +10,12 @@ public struct SettingsView: View {
     public let onExportData: () -> Void
     public let onEraseAllLocalData: () -> Void
     public let onClose: () -> Void
-    
+
     @State private var keepOnDevice: Bool = true
     @State private var logOutgoing: Bool = true
     @State private var shareUsage: Bool = false
     @State private var showEraseConfirmation: Bool = false
-    
+
     public init(
         activeTier: Binding<ModelTier>,
         onOpenModels: @escaping () -> Void,
@@ -118,7 +118,9 @@ public struct SettingsView: View {
                         VStack(spacing: 8) {
                             navRow(
                                 title: "Models and storage",
-                                sub: "\(activeTier.name) in use · ~4.5 GB catalog",
+                                sub: AppPreferences.cloudEnabled
+                                    ? "Cloud · OpenAI \(AppPreferences.openAIModel)"
+                                    : "\(activeTier.name) in use · ~4.5 GB catalog",
                                 action: onOpenModels
                             )
                             navRow(

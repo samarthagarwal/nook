@@ -30,6 +30,7 @@ public enum RetrievalAgent {
         case searchConversations(query: String)
         case searchKnowledge(query: String)
         case searchWeb(query: String)
+        case searchCalendar(query: String)
         case refine(source: String, query: String)
         case askUser(question: String)
         case answer
@@ -46,130 +47,181 @@ public enum RetrievalAgent {
         var scratchpadLine: String { "[\(action)] → \(summary)" }
     }
 
-    /// Execute the full retrieval-then-answer flow.
+    // MARK: - Plan API
+
+    /// Result of the planner loop — evidence to pass into the answer turn.
+    public struct PlanResult: Sendable {
+        /// Full retrieved texts to inject as tool results in the answer context.
+        public let evidenceTexts: [String]
+        public let citations: [Citation]
+        /// Non-nil when the model chose `ask_user` — caller should surface this
+        /// directly rather than running an answer turn.
+        public let askUserQuestion: String?
+    }
+
+    /// Run the planner loop and return collected evidence without generating an answer.
+    /// The caller assembles the answer context and handles streaming.
     ///
     /// - Parameters:
     ///   - question: The user's natural-language question.
     ///   - availableActions: Which retrieval actions are currently enabled.
-    ///   - executeRetrieval: Closure that runs a `PlannerAction` and returns a
-    ///     `(summary, fullText)` pair — summary goes in the scratchpad, fullText
-    ///     goes into the answer context.
-    ///   - generatePlannerStep: Runs one generation against the planner context.
-    ///     Must return the raw model text (no streaming needed here).
-    ///   - generateAnswer: Runs the final answer generation with the assembled
-    ///     evidence; this call *does* stream tokens.
-    /// - Returns: The final answer text and any citations.
-    public static func run(
+    ///   - executeRetrieval: Runs one `PlannerAction`; returns summary (scratchpad)
+    ///     and fullText (answer context).
+    ///   - generatePlannerStep: Runs one model generation. Receives
+    ///     `(systemPrompt, userMessage)` separately so the caller can build a proper
+    ///     `AssembledPromptContext`. Returns raw model output — no streaming needed.
+    ///   - onRetrievalStarted: Optional callback fired before each retrieval for
+    ///     progress UI.
+    public static func plan(
         question: String,
         availableActions: Set<AvailableAction>,
         executeRetrieval: @escaping @Sendable (PlannerAction) async throws -> RetrievalResult,
-        generatePlannerStep: @escaping @Sendable (String) async throws -> String,
-        generateAnswer: @escaping @Sendable ([String]) async throws -> AgentLoop.Output
-    ) async throws -> AgentLoop.Output {
+        generatePlannerStep: @escaping @Sendable (_ system: String, _ user: String) async throws -> String,
+        onRetrievalStarted: (@Sendable (PlannerAction) -> Void)? = nil
+    ) async throws -> PlanResult {
         var scratchpad: [ScrapbookEntry] = []
         var collectedEvidence: [String] = []
+        var collectedCitations: [Citation] = []
         var triedSignatures: Set<String> = []
 
         for iteration in 0..<maxIterations {
             if Task.isCancelled { throw CancellationError() }
 
-            let prompt = buildPlannerPrompt(
+            let (system, user) = buildPlannerContext(
                 question: question,
                 availableActions: availableActions,
                 scratchpad: scratchpad
             )
 
-            let raw = try await generatePlannerStep(prompt)
+            let raw = try await generatePlannerStep(system, user)
             let action = parsePlannerAction(from: raw)
 
-            print("[RetrievalAgent] Iteration \(iteration): \(raw.prefix(120))")
+            print("[RetrievalAgent] Iteration \(iteration) raw='\(raw.prefix(120))' → \(labelFor(action))")
 
             switch action {
             case .answer:
-                break
+                return PlanResult(
+                    evidenceTexts: collectedEvidence,
+                    citations: collectedCitations,
+                    askUserQuestion: nil
+                )
 
             case .askUser(let q):
-                // Surface the question directly — stop looping.
-                return AgentLoop.Output(text: q, citations: [])
+                return PlanResult(
+                    evidenceTexts: collectedEvidence,
+                    citations: collectedCitations,
+                    askUserQuestion: q
+                )
 
-            case .searchConversations(let query),
-                 .searchKnowledge(let query),
-                 .searchWeb(let query),
-                 .refine(_, let query):
+            case .searchConversations, .searchKnowledge, .searchWeb, .searchCalendar, .refine:
                 let sig = signatureFor(action)
                 guard !triedSignatures.contains(sig) else {
-                    print("[RetrievalAgent] Already tried \(sig) — stopping early")
-                    break
+                    print("[RetrievalAgent] Already tried \(sig) — stopping")
+                    return PlanResult(
+                        evidenceTexts: collectedEvidence,
+                        citations: collectedCitations,
+                        askUserQuestion: nil
+                    )
                 }
                 triedSignatures.insert(sig)
+                onRetrievalStarted?(action)
 
                 do {
                     let result = try await executeRetrieval(action)
-                    scratchpad.append(ScrapbookEntry(
-                        action: labelFor(action),
-                        summary: result.summary
-                    ))
+                    scratchpad.append(ScrapbookEntry(action: labelFor(action), summary: result.summary))
                     if !result.fullText.isEmpty {
                         collectedEvidence.append(result.fullText)
                     }
+                    collectedCitations.append(contentsOf: result.citations)
                 } catch {
                     scratchpad.append(ScrapbookEntry(
                         action: labelFor(action),
                         summary: "failed: \(error.localizedDescription)"
                     ))
                 }
-                continue
             }
-
-            // Either .answer was chosen or we hit a duplicate — proceed to answer.
-            break
         }
 
-        return try await generateAnswer(collectedEvidence)
+        // Max iterations reached — answer with whatever was collected.
+        return PlanResult(
+            evidenceTexts: collectedEvidence,
+            citations: collectedCitations,
+            askUserQuestion: nil
+        )
     }
 
-    // MARK: - Planner prompt
+    // MARK: - Planner context builder
 
-    private static func buildPlannerPrompt(
+    /// Returns `(system, user)` for one planner step.
+    /// Split so the caller can construct a proper `AssembledPromptContext`
+    /// with the user part as a `Message` in `recentMessages`.
+    static func buildPlannerContext(
         question: String,
         availableActions: Set<AvailableAction>,
         scratchpad: [ScrapbookEntry]
-    ) -> String {
-        var parts: [String] = []
+    ) -> (system: String, user: String) {
+        let clock = DateFormatter()
+        clock.dateStyle = .full
+        clock.timeStyle = .short
+        let dateStamp = clock.string(from: Date())
 
-        parts.append("""
-        You are a retrieval planner. Decide what to do next to answer the user's question.
-        Output ONLY one action from the list below — nothing else.
-        """)
+        var systemParts: [String] = [
+            """
+            Current local date and time: \(dateStamp).
+
+            Choose the next retrieval action. Output ONLY one line — \
+            copy the format exactly from the examples below, replacing \
+            the example query with a real query for the user's question. \
+            Do not add explanation or punctuation.
+            """
+        ]
 
         var actionLines: [String] = []
         if availableActions.contains(.conversations) {
-            actionLines.append("search_conversations: <query>")
+            actionLines.append("search_conversations: recent project work")
         }
         if availableActions.contains(.knowledge) {
-            actionLines.append("search_knowledge: <query>")
+            actionLines.append("search_knowledge: quarterly report summary")
         }
         if availableActions.contains(.web) {
-            actionLines.append("search_web: <query>")
+            actionLines.append("search_web: Swift concurrency async await")
+        }
+        if availableActions.contains(.calendar) {
+            actionLines.append("search_calendar: meetings today")
         }
         if availableActions.contains(.refine) {
-            actionLines.append("refine: <source> | <new_query>")
+            actionLines.append("refine: conversations | better query here")
         }
-        actionLines.append("ask_user: <clarifying question>")
         actionLines.append("answer")
 
-        parts.append("Actions:\n" + actionLines.joined(separator: "\n"))
-        parts.append("Question: \(question)")
+        systemParts.append("Available actions:\n" + actionLines.joined(separator: "\n"))
 
-        if !scratchpad.isEmpty {
-            let log = scratchpad.map(\.scratchpadLine).joined(separator: "\n")
-            parts.append("Already tried:\n\(log)")
+        var userParts: [String] = ["Question: \(question)"]
+        if scratchpad.isEmpty {
+            userParts.append("Nothing tried yet.")
         } else {
-            parts.append("Nothing tried yet.")
+            let log = scratchpad.map(\.scratchpadLine).joined(separator: "\n")
+            userParts.append("Already tried:\n\(log)")
+            // Nudge the model to stop searching once it has retrieved something.
+            userParts.append("You have collected results. Only search again if a completely different source would help. Otherwise output: answer")
         }
+        userParts.append("Next action:")
 
-        parts.append("Next action:")
-        return parts.joined(separator: "\n\n")
+        return (
+            system: systemParts.joined(separator: "\n\n"),
+            user: userParts.joined(separator: "\n\n")
+        )
+    }
+
+    // MARK: - Helpers
+
+    /// Remove duplicate citations (same document + section) preserving order.
+    public static func deduplicateCitations(_ citations: [Citation]) -> [Citation] {
+        var seen = Set<String>()
+        return citations.filter { c in
+            let key = "\(c.sourceDocument)|\(c.pageOrSection)".lowercased()
+            return seen.insert(key).inserted
+        }
     }
 
     // MARK: - Action parsing
@@ -195,6 +247,10 @@ public enum RetrievalAgent {
             let q = extractPayload(line, after: "search_web:")
             return q.isEmpty ? .answer : .searchWeb(query: q)
         }
+        if lower.hasPrefix("search_calendar:") {
+            let q = extractPayload(line, after: "search_calendar:")
+            return q.isEmpty ? .answer : .searchCalendar(query: q)
+        }
         if lower.hasPrefix("refine:") {
             let payload = extractPayload(line, after: "refine:")
             let parts = payload.components(separatedBy: "|")
@@ -203,8 +259,8 @@ public enum RetrievalAgent {
             return (source.isEmpty || query.isEmpty) ? .answer : .refine(source: source, query: query)
         }
         if lower.hasPrefix("ask_user:") {
-            let q = extractPayload(line, after: "ask_user:")
-            return q.isEmpty ? .answer : .askUser(question: q)
+            // Planner should not ask users — treat as "answer now".
+            return .answer
         }
         // "answer" or anything unrecognised → proceed to answer turn
         return .answer
@@ -220,6 +276,7 @@ public enum RetrievalAgent {
         case .searchConversations(let q): return "search_conversations(\(q))"
         case .searchKnowledge(let q): return "search_knowledge(\(q))"
         case .searchWeb(let q): return "search_web(\(q))"
+        case .searchCalendar(let q): return "search_calendar(\(q))"
         case .refine(let s, let q): return "refine(\(s), \(q))"
         case .askUser(let q): return "ask_user(\(q))"
         case .answer: return "answer"
@@ -251,5 +308,6 @@ public enum AvailableAction: Hashable, Sendable {
     case conversations
     case knowledge
     case web
+    case calendar
     case refine
 }

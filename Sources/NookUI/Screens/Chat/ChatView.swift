@@ -347,10 +347,17 @@ public struct ChatView: View {
                     .multilineTextAlignment(.center)
                 
                 HStack(spacing: 4) {
-                    PrivacyDot()
-                    Text("on device")
-                        .font(NookTypography.badge)
-                        .foregroundColor(NookColors.ink45)
+                    if runtimeStore.isCloudEnabled {
+                        PrivacyRing(accessibilityText: "Cloud model")
+                        Text(runtimeStore.cloudModelLabel + " · cloud")
+                            .font(NookTypography.badge)
+                            .foregroundColor(NookColors.ink45)
+                    } else {
+                        PrivacyDot()
+                        Text("on device")
+                            .font(NookTypography.badge)
+                            .foregroundColor(NookColors.ink45)
+                    }
                 }
             }
             .frame(maxWidth: .infinity)

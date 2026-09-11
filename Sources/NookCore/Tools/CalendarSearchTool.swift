@@ -35,6 +35,10 @@ public protocol CalendarEventReading: Sendable {
 }
 
 public final class EventKitCalendarReader: @unchecked Sendable, CalendarEventReading {
+    // Shared store — EventKit's XPC connection is per-instance; throwaway stores
+    // cause "XPC connection was invalidated" and zero-calendar reads.
+    private let store = EKEventStore()
+
     public init() {}
 
     public func requestAccess() async throws -> Bool {
@@ -48,18 +52,16 @@ public final class EventKitCalendarReader: @unchecked Sendable, CalendarEventRea
             default:
                 break
             }
-            return try await EKEventStore().requestFullAccessToEvents()
+            return try await store.requestFullAccessToEvents()
         } else {
             if status == .authorized { return true }
             if status == .denied || status == .restricted { return false }
-            return try await EKEventStore().requestAccess(to: .event)
+            return try await store.requestAccess(to: .event)
         }
     }
 
     public func events(from start: Date, to end: Date) async throws -> [CalendarEventSnapshot] {
-        // A new store after permission — the instance used for requestAccess often
-        // still reports zero calendars until it is recreated.
-        let store = EKEventStore()
+        let store = self.store
         let calendars = store.calendars(for: .event)
         let predicate = store.predicateForEvents(
             withStart: start,

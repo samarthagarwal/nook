@@ -10,13 +10,24 @@ public struct ModelsView: View {
     @State private var tierError: String?
     @State private var switchingTierId: String?
     @State private var storageBreakdown: StorageBreakdown = .empty
+    @State private var showCloudDetail: Bool = false
 
     public init(runtimeStore: ModelRuntimeStore, onBack: @escaping () -> Void) {
         self.runtimeStore = runtimeStore
         self.onBack = onBack
     }
-    
+
     public var body: some View {
+        if showCloudDetail {
+            CloudModelView(runtimeStore: runtimeStore) {
+                showCloudDetail = false
+            }
+        } else {
+            localView
+        }
+    }
+
+    private var localView: some View {
         VStack(spacing: 0) {
             // Header
             VStack(alignment: .leading, spacing: 6) {
@@ -30,7 +41,7 @@ public struct ModelsView: View {
                     .foregroundColor(NookColors.ink45)
                 }
                 .buttonStyle(.plain)
-                
+
                 Text("Models and storage")
                     .font(NookTypography.detailTitle)
                     .foregroundColor(NookColors.ink)
@@ -46,7 +57,7 @@ public struct ModelsView: View {
                     // Curated Model Cards
                     VStack(spacing: 10) {
                         ForEach(ModelTier.standardTiers) { tier in
-                            let isSelected = runtimeStore.activeTier.id == tier.id
+                            let isSelected = runtimeStore.activeTier.id == tier.id && !AppPreferences.cloudEnabled
                             let isSwitching = switchingTierId == tier.id
                             Button(action: {
                                 guard switchingTierId == nil else { return }
@@ -108,6 +119,56 @@ public struct ModelsView: View {
                             .buttonStyle(.plain)
                             .disabled(isSwitching)
                         }
+                    }
+
+                    // Cloud nav row
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("CLOUD")
+                            .nookEyebrow()
+                            .foregroundColor(NookColors.ink40)
+
+                        Button(action: { showCloudDetail = true }) {
+                            HStack {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("OpenAI")
+                                        .font(.system(size: 16, weight: AppPreferences.cloudEnabled ? .medium : .regular))
+                                        .foregroundColor(NookColors.ink)
+                                    Text(AppPreferences.cloudEnabled
+                                         ? "\(AppPreferences.openAIModel) · queries leave device"
+                                         : "Route generation to a cloud model")
+                                        .font(NookTypography.cardSub)
+                                        .foregroundColor(NookColors.ink62)
+                                }
+                                Spacer()
+                                if AppPreferences.cloudEnabled {
+                                    Text("IN USE")
+                                        .font(NookTypography.badge)
+                                        .foregroundColor(NookColors.external)
+                                        .padding(.horizontal, 6)
+                                        .padding(.vertical, 2.5)
+                                        .background(
+                                            RoundedRectangle(cornerRadius: NookRadius.tag)
+                                                .fill(NookColors.externalSoft)
+                                        )
+                                } else {
+                                    Image(systemName: "chevron.right")
+                                        .font(.system(size: 12, weight: .semibold))
+                                        .foregroundColor(NookColors.ink40)
+                                }
+                            }
+                            .padding(16)
+                            .background(
+                                RoundedRectangle(cornerRadius: NookRadius.cardLg)
+                                    .fill(NookColors.surface)
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: NookRadius.cardLg)
+                                    .strokeBorder(AppPreferences.cloudEnabled ? NookColors.external : NookColors.hairline,
+                                                  lineWidth: AppPreferences.cloudEnabled ? 1.5 : 1)
+                            )
+                            .nookCardShadow()
+                        }
+                        .buttonStyle(.plain)
                     }
 
                     if case .downloading(let progress, let transfer) = runtimeStore.downloadState {
@@ -289,6 +350,197 @@ public struct ModelsView: View {
         default:
             return "Loading into memory… \(Int(progress * 100))%"
         }
+    }
+}
+
+// MARK: - Cloud model subscreen
+
+public struct CloudModelView: View {
+    @ObservedObject public var runtimeStore: ModelRuntimeStore
+    public let onBack: () -> Void
+
+    @State private var cloudEnabled: Bool = AppPreferences.cloudEnabled
+    @State private var apiKeyInput: String = AppPreferences.openAIAPIKey
+    @State private var selectedModel: String = AppPreferences.openAIModel
+
+    public init(runtimeStore: ModelRuntimeStore, onBack: @escaping () -> Void) {
+        self.runtimeStore = runtimeStore
+        self.onBack = onBack
+    }
+
+    public var body: some View {
+        VStack(spacing: 0) {
+            // Header
+            VStack(alignment: .leading, spacing: 6) {
+                Button(action: onBack) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 14, weight: .medium))
+                        Text("Models and storage")
+                            .font(NookTypography.body)
+                    }
+                    .foregroundColor(NookColors.ink45)
+                }
+                .buttonStyle(.plain)
+
+                HStack {
+                    Text("OpenAI")
+                        .font(NookTypography.detailTitle)
+                        .foregroundColor(NookColors.ink)
+                    if cloudEnabled {
+                        Text("IN USE")
+                            .font(NookTypography.badge)
+                            .foregroundColor(NookColors.external)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2.5)
+                            .background(
+                                RoundedRectangle(cornerRadius: NookRadius.tag)
+                                    .fill(NookColors.externalSoft)
+                            )
+                    }
+                }
+                .padding(.top, 4)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 18)
+            .padding(.top, 16)
+            .padding(.bottom, 16)
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    // Enable toggle card
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("INFERENCE")
+                            .nookEyebrow()
+                            .foregroundColor(NookColors.ink40)
+
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Use cloud model")
+                                    .font(NookTypography.rowTitle)
+                                    .foregroundColor(NookColors.ink)
+                                Text(cloudEnabled
+                                     ? "Queries leave this device and are sent to OpenAI"
+                                     : "All inference stays on-device")
+                                    .font(NookTypography.meta)
+                                    .foregroundColor(NookColors.ink55)
+                            }
+                            Spacer()
+                            NookToggle(isOn: cloudToggleBinding, style: .local, accessibilityLabel: "Use cloud model")
+                        }
+                        .padding(14)
+                        .background(RoundedRectangle(cornerRadius: NookRadius.card).fill(NookColors.surface))
+                        .overlay(RoundedRectangle(cornerRadius: NookRadius.card).strokeBorder(NookColors.hairline, lineWidth: 1))
+                        .nookCardShadow()
+                    }
+
+                    // API key + model picker — shown only when cloud is on
+                    if cloudEnabled {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("CREDENTIALS")
+                                .nookEyebrow()
+                                .foregroundColor(NookColors.ink40)
+
+                            // API key
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("OpenAI API key")
+                                    .font(NookTypography.meta)
+                                    .foregroundColor(NookColors.ink55)
+                                SecureField("sk-...", text: $apiKeyInput)
+                                    .font(NookTypography.rowTitle)
+                                    .foregroundColor(NookColors.ink)
+                                    .autocorrectionDisabled()
+                                    .textInputAutocapitalization(.never)
+                                    .onSubmit { saveCloud() }
+                            }
+                            .padding(14)
+                            .background(RoundedRectangle(cornerRadius: NookRadius.card).fill(NookColors.surface))
+                            .overlay(RoundedRectangle(cornerRadius: NookRadius.card).strokeBorder(NookColors.hairline, lineWidth: 1))
+                            .nookCardShadow()
+                        }
+
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("MODEL")
+                                .nookEyebrow()
+                                .foregroundColor(NookColors.ink40)
+
+                            VStack(spacing: 0) {
+                                ForEach(AppPreferences.availableOpenAIModels, id: \.id) { model in
+                                    modelRow(model)
+                                }
+                            }
+                            .padding(.horizontal, 14)
+                            .background(RoundedRectangle(cornerRadius: NookRadius.card).fill(NookColors.surface))
+                            .overlay(RoundedRectangle(cornerRadius: NookRadius.card).strokeBorder(NookColors.hairline, lineWidth: 1))
+                            .nookCardShadow()
+                        }
+
+                        Button(action: saveCloud) {
+                            HStack {
+                                Spacer()
+                                Text("Save")
+                                    .font(NookTypography.rowTitle)
+                                    .foregroundColor(apiKeyInput.hasPrefix("sk-") ? NookColors.inkOnDark : NookColors.ink55)
+                                Spacer()
+                            }
+                            .padding(14)
+                            .background(
+                                RoundedRectangle(cornerRadius: NookRadius.card)
+                                    .fill(apiKeyInput.hasPrefix("sk-") ? NookColors.ink : NookColors.fill)
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(!apiKeyInput.hasPrefix("sk-"))
+                    }
+                }
+                .padding(.horizontal, 18)
+                .padding(.bottom, 24)
+            }
+        }
+        .background(NookColors.paper.ignoresSafeArea())
+    }
+
+    private var cloudToggleBinding: Binding<Bool> {
+        Binding(
+            get: { cloudEnabled },
+            set: { enabled in
+                cloudEnabled = enabled
+                if !enabled {
+                    runtimeStore.switchToLocal()
+                }
+            }
+        )
+    }
+
+    @ViewBuilder
+    private func modelRow(_ model: (id: String, label: String)) -> some View {
+        Button {
+            selectedModel = model.id
+        } label: {
+            HStack {
+                Text(model.label)
+                    .font(NookTypography.rowTitle)
+                    .foregroundColor(NookColors.ink)
+                Spacer()
+                if selectedModel == model.id {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(NookColors.external)
+                }
+            }
+            .padding(.vertical, 12)
+        }
+        .buttonStyle(.plain)
+        if model.id != AppPreferences.availableOpenAIModels.last?.id {
+            Divider()
+        }
+    }
+
+    private func saveCloud() {
+        let key = apiKeyInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard key.hasPrefix("sk-") else { return }
+        runtimeStore.switchToCloud(apiKey: key, model: selectedModel)
+        onBack()
     }
 }
 

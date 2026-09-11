@@ -139,9 +139,10 @@ public final class AgentSession: ObservableObject {
 
         if knowledgeScope.isEmpty {
             #if DEBUG
-            print("[AgentSession] No Knowledge scope — chat without documents_search")
+            print("[AgentSession] No Knowledge scope — running agentic retrieval loop")
             #endif
-            await performAssistantStream(
+            await performAgenticAssistantStream(
+                question: body,
                 request: await makeGenerationRequest(grantedLocalToolNames: turnGrantedLocalTools),
                 systemPrompt: NookSystemPrompt.withSkills(
                     base: NookSystemPrompt.standard,
@@ -300,6 +301,174 @@ public final class AgentSession: ObservableObject {
             self.pendingApproval = payload
             self.isThinking = false
             self.isStreaming = false
+        }
+    }
+
+    // MARK: - Agentic retrieval path
+
+    /// Runs the `RetrievalAgent` planner loop to decide which sources to consult
+    /// before generating the final answer.  Evidence collected by the planner is
+    /// passed as `toolResults` into the normal `performAssistantStream` path.
+    private func performAgenticAssistantStream(
+        question: String,
+        request: AgentGenerationRequest,
+        systemPrompt: String,
+        streamHandler: @escaping AgentStreamHandler
+    ) async {
+        // 1. Determine which retrieval actions are available.
+        let registeredTools = await toolRegistry.allToolNames()
+        var available: Set<AvailableAction> = []
+        if registeredTools.contains(ConversationSearchTool.toolName) { available.insert(.conversations) }
+        if registeredTools.contains(DocumentsSearchTool.toolName)   { available.insert(.knowledge) }
+        if registeredTools.contains(CalendarSearchTool.toolName)    { available.insert(.calendar) }
+        let webToolName = registeredTools.first { $0.contains("web") && $0.contains("search") }
+        if webToolName != nil { available.insert(.web) }
+        available.insert(.refine)  // always available (meta-action over earlier results)
+
+        let conversationId = conversation.id
+        let registry = toolRegistry
+        let assembler = contextAssembler
+        let activeSkill = turnActiveSkill
+
+        // 2. Planner step — minimal context, silent streaming.
+        let generatePlannerStep: @Sendable (String, String) async throws -> String = {
+            [weak self] system, user in
+            guard let self else { throw CancellationError() }
+            let plannerMsg = Message(
+                conversationId: conversationId,
+                role: .user,
+                content: user
+            )
+            let plannerContext = await MainActor.run {
+                assembler.assemble(
+                    baseSystemPrompt: system,
+                    activeSkill: activeSkill,
+                    evidenceChunks: [],
+                    chatHistory: [plannerMsg],
+                    toolResults: []
+                )
+            }
+            let accumulator = TokenAccumulator()
+            _ = try await streamHandler(
+                plannerContext,
+                .textOnly,
+                { _, _ in ToolExecutionResult(textForModel: "", displayText: "skipped") },
+                { token in accumulator.append(token) },
+                { _ in }
+            )
+            return accumulator.result
+        }
+
+        // 3. Retrieval dispatch — maps PlannerAction → tool call + inserts a tool chip.
+        let executeRetrieval: @Sendable (RetrievalAgent.PlannerAction) async throws -> RetrievalResult = {
+            [weak self] action in
+            let (toolName, arguments) = Self.retrievalDispatch(
+                action: action, webToolName: webToolName
+            )
+            guard let toolName else {
+                return RetrievalResult(summary: "no tool available", fullText: "", citations: [])
+            }
+            let result = try await registry.execute(toolName: toolName, arguments: arguments)
+            // Show a chip only when retrieval found something.
+            // Use displayText (accurate for local tools) for the label; fall back to a
+            // short format for MCP tools whose displayText may be the raw response body.
+            let chipLabel = result.isExternal
+                ? "\(toolName) · \(result.chunks.count) result(s)"
+                : result.displayText
+            let isEmptyResult = chipLabel.lowercased().contains("no result")
+                || result.textForModel.lowercased().hasPrefix("no ")
+                || result.textForModel.lowercased().hasPrefix("no past")
+            if !isEmptyResult, !chipLabel.isEmpty {
+                await MainActor.run { [weak self] in
+                    guard let self else { return }
+                    let chip = Message(
+                        conversationId: self.conversation.id,
+                        role: .localTool,
+                        content: "",
+                        localToolText: chipLabel
+                    )
+                    self.messages.append(chip)
+                    self.persist(message: chip)
+                }
+            }
+            let summary = result.displayText.isEmpty
+                ? "retrieved \(result.chunks.count) result(s)"
+                : String(result.displayText.prefix(80))
+            return RetrievalResult(
+                summary: summary,
+                fullText: result.textForModel,
+                citations: result.citations
+            )
+        }
+
+        // 4. Run the planner loop.
+        let planResult: RetrievalAgent.PlanResult
+        do {
+            planResult = try await RetrievalAgent.plan(
+                question: question,
+                availableActions: available,
+                executeRetrieval: executeRetrieval,
+                generatePlannerStep: generatePlannerStep,
+                onRetrievalStarted: { action in
+                    print("[AgentSession] Retrieval: \(action)")
+                }
+            )
+        } catch {
+            print("[AgentSession] RetrievalAgent.plan failed: \(error) — falling back to direct stream")
+            await performAssistantStream(
+                request: request,
+                systemPrompt: systemPrompt,
+                streamHandler: streamHandler
+            )
+            return
+        }
+
+        // 5. Answer turn with collected evidence injected as tool results.
+        // Always pass the full request so action tools (calendar.search, reminders.create)
+        // remain available even when the planner already retrieved context.
+        // The model won't redundantly re-search sources whose results are already injected.
+        let answerRequest = request
+        let answerSystemPrompt = planResult.evidenceTexts.isEmpty
+            ? systemPrompt
+            : NookSystemPrompt.withSkills(
+                base: NookSystemPrompt.withRetrievedKnowledge,
+                active: turnActiveSkill
+            )
+        await performAssistantStream(
+            request: answerRequest,
+            toolResults: planResult.evidenceTexts,
+            forcedCitations: RetrievalAgent.deduplicateCitations(planResult.citations),
+            systemPrompt: answerSystemPrompt,
+            streamHandler: streamHandler
+        )
+    }
+
+    /// Maps a `PlannerAction` to the tool name + arguments to execute.
+    private nonisolated static func retrievalDispatch(
+        action: RetrievalAgent.PlannerAction,
+        webToolName: String?
+    ) -> (toolName: String?, arguments: ToolArguments) {
+        switch action {
+        case .searchConversations(let query):
+            return (ConversationSearchTool.toolName, ["query": .string(query)])
+        case .searchKnowledge(let query):
+            return (DocumentsSearchTool.toolName, ["query": .string(query)])
+        case .searchWeb(let query):
+            return (webToolName, ["query": .string(query)])
+        case .searchCalendar(let query):
+            return (CalendarSearchTool.toolName, ["query": .string(query)])
+        case .refine(let source, let query):
+            let lower = source.lowercased()
+            if lower.contains("conversation") {
+                return (ConversationSearchTool.toolName, ["query": .string(query)])
+            } else if lower.contains("knowledge") || lower.contains("document") {
+                return (DocumentsSearchTool.toolName, ["query": .string(query)])
+            } else if lower.contains("web") {
+                return (webToolName, ["query": .string(query)])
+            }
+            return (nil, [:])
+        case .answer, .askUser:
+            return (nil, [:])
         }
     }
 
@@ -612,6 +781,24 @@ public final class AgentSession: ObservableObject {
         } catch {
             print("[AgentSession] Failed to persist message: \(error)")
         }
+    }
+}
+
+/// Thread-safe token accumulator for planner steps (silent generation).
+private final class TokenAccumulator: @unchecked Sendable {
+    private let lock = NSLock()
+    private var stored = ""
+
+    var result: String {
+        lock.lock()
+        defer { lock.unlock() }
+        return stored
+    }
+
+    func append(_ token: String) {
+        lock.lock()
+        stored += token
+        lock.unlock()
     }
 }
 

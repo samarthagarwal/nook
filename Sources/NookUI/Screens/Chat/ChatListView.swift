@@ -5,14 +5,18 @@ import NookCore
 public struct ChatListView: View {
     @Binding public var conversations: [Conversation]
     public let activeTier: ModelTier
+    public let cloudEnabled: Bool
+    public let cloudModel: String
     public let onSelectConversation: (Conversation) -> Void
     public let onNewChat: () -> Void
     public let onOpenSettings: () -> Void
     public let onDeleteConversation: (Conversation) -> Void
-    
+
     public init(
         conversations: Binding<[Conversation]>,
         activeTier: ModelTier = ModelTier.recommended,
+        cloudEnabled: Bool = false,
+        cloudModel: String = "",
         onSelectConversation: @escaping (Conversation) -> Void,
         onNewChat: @escaping () -> Void,
         onOpenSettings: @escaping () -> Void,
@@ -20,6 +24,8 @@ public struct ChatListView: View {
     ) {
         self._conversations = conversations
         self.activeTier = activeTier
+        self.cloudEnabled = cloudEnabled
+        self.cloudModel = cloudModel
         self.onSelectConversation = onSelectConversation
         self.onNewChat = onNewChat
         self.onOpenSettings = onOpenSettings
@@ -35,7 +41,7 @@ public struct ChatListView: View {
                         .font(NookTypography.tabRootTitle)
                         .foregroundColor(NookColors.ink)
                     
-                    ModelBadge(tierName: activeTier.name)
+                    ModelBadge(tierName: activeTier.name, isCloud: cloudEnabled, cloudModel: cloudModel)
                 }
                 
                 Spacer()

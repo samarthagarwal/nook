@@ -45,8 +45,14 @@ public enum NookSystemPrompt {
     }
 
     /// After the app has already searched scoped Knowledge — grounding first, keep answers short.
-    public static let withRetrievedKnowledge = """
+    public static var withRetrievedKnowledge: String {
+        let clock = DateFormatter()
+        clock.dateStyle = .full
+        clock.timeStyle = .short
+        return """
         You are Nook on the user's iPhone. Scoped Knowledge was already searched this turn.
+
+        Current local date and time: \(clock.string(from: Date())).
 
         Answer the user's question from the retrieved passages when they are relevant. \
         Prefer the single best-matching passage. Be brief (a few sentences) unless they ask for detail. \
@@ -65,6 +71,7 @@ public enum NookSystemPrompt {
 
         \(replyStyle)
         """
+    }
 
     /// Injects SKILL.md only when the user invoked a Skill for this chat.
     public static func withSkills(

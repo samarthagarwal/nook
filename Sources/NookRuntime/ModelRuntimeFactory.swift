@@ -19,6 +19,12 @@ public enum ModelRuntimeFactory {
                 return MLXModelRuntime(activeTier: activeTier)
             }
             return ScriptedModelRuntime(activeTier: activeTier)
+        case .cloud:
+            return OpenAIModelRuntime(
+                apiKey: NookInferenceConfig.openAIKey,
+                model: NookInferenceConfig.openAIModel,
+                activeTier: activeTier
+            )
         }
     }
 }

@@ -178,6 +178,8 @@ public struct AppRootView: View {
                         ChatListView(
                             conversations: $conversations,
                             activeTier: runtimeStore.activeTier,
+                            cloudEnabled: runtimeStore.isCloudEnabled,
+                            cloudModel: runtimeStore.cloudModelLabel,
                             onSelectConversation: { convo in
                                 openConversation(convo)
                             },
