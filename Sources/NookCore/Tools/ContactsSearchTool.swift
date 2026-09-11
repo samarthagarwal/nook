@@ -41,8 +41,7 @@ public final class CNContactSearcher: @unchecked Sendable, ContactSearching {
     public func search(query: String) async throws -> [ContactSnapshot] {
         let store = CNContactStore()
         let keysToFetch: [CNKeyDescriptor] = [
-            CNContactGivenNameKey as CNKeyDescriptor,
-            CNContactFamilyNameKey as CNKeyDescriptor,
+            CNContactFormatter.descriptorForRequiredKeys(for: .fullName),
             CNContactOrganizationNameKey as CNKeyDescriptor,
             CNContactEmailAddressesKey as CNKeyDescriptor,
             CNContactPhoneNumbersKey as CNKeyDescriptor,
