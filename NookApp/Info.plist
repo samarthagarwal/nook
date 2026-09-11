@@ -35,6 +35,8 @@
 	<string>Nook adds reminders on this iPhone when you ask it to.</string>
 	<key>NSRemindersFullAccessUsageDescription</key>
 	<string>Nook adds reminders on this iPhone when you ask it to.</string>
+	<key>NSContactsUsageDescription</key>
+	<string>Nook looks up contacts on this iPhone when a Skill you turned on needs it.</string>
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
