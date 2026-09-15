@@ -153,7 +153,9 @@ public final class RemindersCreateTool: @unchecked Sendable, AgentTool {
 
     public var name: String { Self.toolName }
     public let description = """
-        Create an iPhone reminder when the user asks to be reminded or add a to-do. \
+        Create an iPhone reminder when the user asks to be reminded, add a to-do, \
+        task, checklist, or todo list. One reminder per item — ask for the items \
+        if they only asked whether you can make a list. \
         Do NOT use for meetings, appointments, calls, or events with a start time — \
         use calendar.create for those. \
         Do not ask for confirmation. Never invent due — use today, tomorrow, tonight, \

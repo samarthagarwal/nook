@@ -34,6 +34,38 @@ final class AgentLoopTests: XCTestCase {
         XCTAssertEqual(output.text, "You have a vendor sync at 2pm.")
     }
 
+    func testCapabilityRefusalIsReplacedByContactResult() async throws {
+        let box = ScriptedSteps([
+            AgentGenerationResult(
+                text: "",
+                toolCalls: [AgentToolCall(name: "contacts.search", arguments: ["query": .string("Suruchi")])]
+            ),
+            AgentGenerationResult(
+                text: "I am sorry, but as an AI, I do not have access to your personal contacts or any of your private data on your device."
+            ),
+        ])
+
+        let output = try await AgentLoop.run(
+            promptContext: Self.promptContext(),
+            request: Self.toolRequest(),
+            generateStep: { _, _ in box.next() },
+            execute: { _, _ in
+                ToolExecutionResult(
+                    textForModel: """
+                    Found 1 contact(s) for "Suruchi":
+                    • Suruchi · +1 555 0100
+                    """,
+                    displayText: "contacts.search · 1 result"
+                )
+            },
+            onToolEvent: { _ in }
+        )
+
+        XCTAssertTrue(output.text.contains("Suruchi"))
+        XCTAssertTrue(output.text.contains("555"))
+        XCTAssertFalse(output.text.lowercased().contains("do not have access"))
+    }
+
     func testFinishedToolEndsTurnWithToolText() async throws {
         let box = ScriptedSteps([
             AgentGenerationResult(

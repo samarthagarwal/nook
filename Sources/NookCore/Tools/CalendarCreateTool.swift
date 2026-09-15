@@ -85,8 +85,10 @@ public final class CalendarCreateTool: @unchecked Sendable, AgentTool {
     public var name: String { Self.toolName }
     public let description = """
         Create a calendar event when the user asks to schedule a meeting, appointment, call, \
-        or any time-bounded event. Use this — not reminders.create — whenever a specific \
-        start time is involved. Requires title and start. End defaults to 1 hour after start.
+        or another event with a real clock time (yyyy-MM-dd HH:mm). \
+        Never use this for a to-do, task, checklist, or todo list — those are reminders.create. \
+        Do not invent a start of "today" or a date without a time. \
+        Requires title and start. End defaults to 1 hour after start.
         """
     public let isExternal = false
     public let requiresApprovalByDefault = false

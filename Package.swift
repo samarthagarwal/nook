@@ -16,11 +16,14 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/ml-explore/mlx-swift", from: "0.31.6"),
-        // 3.31.4 still builds K/V on Gemma 4 VLM shared layers (E2B layer 15 fails to load).
-        // Pin through mlx-swift-lm#384 until the next tagged release.
+        // Gemma 4 VLM KV-shared layers are fixed on main (#390). Newer than
+        // 68947cc also matches the iOS 27 FoundationModels SDK (the older pin
+        // fails to compile MLXFoundationModels).
         .package(
             url: "https://github.com/ml-explore/mlx-swift-lm",
-            revision: "68947ccdca79bcf7a26dc220f73caa060369513c"
+            revision: "3e6ea1ede1596f05c1715d6b82567619276e98f0",
+            // Default trait is unused by Nook; keep it off when SPM honors it.
+            traits: []
         ),
         .package(url: "https://github.com/huggingface/swift-huggingface", from: "0.9.0"),
         .package(url: "https://github.com/huggingface/swift-transformers", from: "1.3.0"),

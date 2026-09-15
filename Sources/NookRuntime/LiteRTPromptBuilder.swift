@@ -46,15 +46,26 @@ enum LiteRTPromptBuilder {
         }
         if !context.toolResultSummaries.isEmpty {
             let tools = context.toolResultSummaries.joined(separator: "\n")
-            instructionParts.append(
-                """
-                Context gathered this turn (do not repeat verbatim). \
-                Use it to answer the user if relevant. \
-                If the user needs something not covered here, call the appropriate listed tool — \
-                never say you cannot use a tool that is listed:
-                \(tools)
-                """
-            )
+            if toolSchemas.isEmpty {
+                instructionParts.append(
+                    """
+                    Lookups already ran on this iPhone. The results below are the user's data. \
+                    Answer from them. Never claim you lack access to contacts, calendar, \
+                    reminders, or past chats when a result is listed:
+                    \(tools)
+                    """
+                )
+            } else {
+                instructionParts.append(
+                    """
+                    Context gathered this turn (do not repeat verbatim). \
+                    Use it to answer the user if relevant. \
+                    If the user needs something not covered here, call the appropriate listed tool — \
+                    never say you cannot use a tool that is listed:
+                    \(tools)
+                    """
+                )
+            }
         }
         if let toolsBlock = toolsInstruction(from: toolSchemas) {
             instructionParts.append(toolsBlock)

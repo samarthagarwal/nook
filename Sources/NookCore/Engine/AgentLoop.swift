@@ -153,7 +153,10 @@ public enum AgentLoop {
         citations.append(contentsOf: answer.citations)
         let text = answer.text.trimmingCharacters(in: .whitespacesAndNewlines)
         if !text.isEmpty {
-            return Output(text: text, citations: citations)
+            return Output(
+                text: Self.preferGroundedAnswer(modelText: text, observations: observations),
+                citations: citations
+            )
         }
 
         return Output(text: Self.deterministicAnswer(from: observations), citations: citations)
@@ -168,12 +171,52 @@ public enum AgentLoop {
     /// Positive phrasing, and no tool name — naming the tool on an answer turn
     /// primes the model to call it again.
     static let synthesisInstruction =
-        "Use the information above to answer the user in one or two short sentences."
+        "The lookup already ran on this iPhone. Answer from those results in one or two short sentences. " +
+        "If a name, phone, email, or event is listed, report it. " +
+        "Never claim you lack access to data that is already listed."
 
     /// Observations carry no `toolName:` prefix: that reads as a call site and is
     /// the strongest cue for the model to emit another one.
     static func observation(for result: ToolExecutionResult) -> String {
         result.textForModel.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Small on-device models often refuse ("I cannot access your contacts")
+    /// after a lookup already returned rows. Prefer the rows over the refusal.
+    static func preferGroundedAnswer(modelText: String, observations: [String]) -> String {
+        guard looksLikeCapabilityRefusal(modelText) else { return modelText }
+        if let contacts = observations.first(where: { $0.contains("Found ") && $0.localizedCaseInsensitiveContains("contact") }) {
+            return replyFromBullets(in: contacts, empty: contacts)
+        }
+        if let calendar = observations.reversed().first(where: { $0.contains("Calendar events") }) {
+            return plainCalendarReply(from: calendar)
+        }
+        return deterministicAnswer(from: observations)
+    }
+
+    static func looksLikeCapabilityRefusal(_ text: String) -> Bool {
+        let lower = text.lowercased()
+        return lower.contains("do not have access")
+            || lower.contains("don't have access")
+            || lower.contains("cannot access")
+            || lower.contains("can't access")
+            || lower.contains("cannot check your")
+            || lower.contains("can't check your")
+            || lower.contains("as an ai")
+            || lower.contains("as an artificial intelligence")
+    }
+
+    private static func replyFromBullets(in block: String, empty: String) -> String {
+        let lines = block
+            .components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { $0.hasPrefix("•") }
+        if lines.isEmpty { return empty }
+        if lines.count == 1 {
+            let detail = lines[0].dropFirst().trimmingCharacters(in: .whitespaces)
+            return "Here's what I found: \(detail)"
+        }
+        return "Here's what I found:\n\n" + lines.joined(separator: "\n")
     }
 
     /// Last resort when the model produced no prose at all.

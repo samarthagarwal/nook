@@ -7,10 +7,10 @@ import NookCore
 /// are not Sendable under Swift 6.
 final class LiteRTModelEngine: @unchecked Sendable {
     /// Total context window for LiteRT-LM (input + reserved generation headroom).
-    /// 16384 doubles the usable working room vs the original 8k while staying well
-    /// within Gemma 4 E2B's 32k training context. Modern iPhones (A16+) handle this
-    /// comfortably; the runtime falls back to CPU if GPU mmap fails under pressure.
-    private static let engineContextTokens = 16384
+    /// This is the KV-cache size reserved at engine init — not the Swift assembler
+    /// budget. 4096 matches the Fast tier's compiled `ekv4096` and stays in the
+    /// range that is stable on iOS Gemma 4 (16k over-allocates and OOMs / crashes).
+    private static let engineContextTokens = 4096
 
     private let lock = NSLock()
     private var engine: Engine?
@@ -392,14 +392,15 @@ final class LiteRTModelEngine: @unchecked Sendable {
         print("[LiteRT] Cleared compilation cache at \(cache.path)")
     }
 
-    /// Keep prompt inside the engine context window (leave headroom for generation).
+    /// Keep prompt inside the 4096 engine window. Target ~2.8k input tokens so
+    /// generation (default 768) and tool-schema instructions still fit.
     private static func trimContext(_ context: AssembledPromptContext) -> AssembledPromptContext {
-        let evidence = context.retrievedEvidence.prefix(6).map { truncate($0, maxChars: 2_000) }
-        let tools = context.toolResultSummaries.prefix(4).map { truncate($0, maxChars: 3_000) }
-        let messages = context.recentMessages.suffix(10).map(truncateMessage(_:))
+        let evidence = context.retrievedEvidence.prefix(4).map { truncate($0, maxChars: 800) }
+        let tools = context.toolResultSummaries.prefix(3).map { truncate($0, maxChars: 1_000) }
+        let messages = context.recentMessages.suffix(6).map(truncateMessage(_:))
         return AssembledPromptContext(
-            systemPrompt: truncate(context.systemPrompt, maxChars: 5_000),
-            activeSkillInstructions: context.activeSkillInstructions.map { truncate($0, maxChars: 1_600) },
+            systemPrompt: truncate(context.systemPrompt, maxChars: 2_800),
+            activeSkillInstructions: context.activeSkillInstructions.map { truncate($0, maxChars: 1_200) },
             retrievedEvidence: Array(evidence),
             recentMessages: Array(messages),
             toolResultSummaries: Array(tools),
@@ -409,12 +410,12 @@ final class LiteRTModelEngine: @unchecked Sendable {
 
     private static func truncateMessage(_ message: NookCore.Message) -> NookCore.Message {
         var copy = message
-        copy.content = truncate(message.content, maxChars: 600)
+        copy.content = truncate(message.content, maxChars: 400)
         if let local = message.localToolText {
-            copy.localToolText = truncate(local, maxChars: 300)
+            copy.localToolText = truncate(local, maxChars: 200)
         }
         if let external = message.externalToolData {
-            let clipped = truncate(external.lines.joined(separator: "\n"), maxChars: 400)
+            let clipped = truncate(external.lines.joined(separator: "\n"), maxChars: 250)
             copy.externalToolData = ExternalToolExecution(
                 toolName: external.toolName,
                 lines: clipped.components(separatedBy: "\n"),
