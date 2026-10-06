@@ -98,6 +98,8 @@ public enum AgentLoop {
             }
 
             var executedAny = false
+            var finishedWritesThisStep = 0
+            var needsUserTexts: [String] = []
             for call in step.toolCalls {
                 // Resolve before budgeting so `tavily_tavily_search` and
                 // `tavily__tavily_search` share one budget and one chip.
@@ -146,19 +148,25 @@ public enum AgentLoop {
                     )
                 )
                 observations.append(Self.observation(for: result))
-                if let line = Self.writeConfirmationLine(from: result.textForModel) {
-                    writeConfirmations.append(line)
+                if result.disposition == .finished {
+                    writeConfirmations.append(Self.confirmationLine(from: result.textForModel))
+                    finishedWritesThisStep += 1
                 }
-
-                // Missing input / permission — stop so the user can answer.
                 if result.disposition == .needsUser {
-                    return Output(text: result.textForModel, citations: citations)
+                    needsUserTexts.append(Self.confirmationLine(from: result.textForModel))
                 }
-                // `.finished` is per item, not per turn: keep sibling writes
-                // (three todos) and later rounds (LiteRT emits one call at a time).
             }
 
             context = context.replacingToolResults(observations)
+            if !needsUserTexts.isEmpty {
+                // Siblings already ran. The user has to answer — do not start
+                // another model round.
+                let parts = writeConfirmations + needsUserTexts
+                return Output(text: parts.joined(separator: "\n"), citations: citations)
+            }
+            // A batched write already answered this turn. One write still
+            // continues so LiteRT can emit the next item on the next round.
+            if finishedWritesThisStep > 1 { break toolPhase }
             // Every call was over budget / unknown; another round would repeat this one.
             if !executedAny { break toolPhase }
         }
@@ -189,12 +197,12 @@ public enum AgentLoop {
         return Output(text: Self.deterministicAnswer(from: observations), citations: citations)
     }
 
-    static func writeConfirmationLine(from text: String) -> String? {
+    /// First non-empty line of a `.finished` / `.needsUser` tool result.
+    static func confirmationLine(from text: String) -> String {
         text.components(separatedBy: .newlines)
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .first { line in
-                line.hasPrefix("Created reminder") || line.hasPrefix("Created calendar event")
-            }
+            .first { !$0.isEmpty }
+            ?? text.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     static func joinedWriteConfirmations(_ lines: [String]) -> String? {
@@ -261,10 +269,6 @@ public enum AgentLoop {
 
     /// Last resort when the model produced no prose at all.
     static func deterministicAnswer(from observations: [String]) -> String {
-        let created = observations.compactMap { writeConfirmationLine(from: $0) }
-        if !created.isEmpty {
-            return created.joined(separator: "\n")
-        }
         if let calendar = observations.reversed().first(where: { $0.contains("Calendar events") }) {
             return plainCalendarReply(from: calendar)
         }

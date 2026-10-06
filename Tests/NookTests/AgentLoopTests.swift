@@ -212,11 +212,15 @@ final class AgentLoopTests: XCTestCase {
             )
         ])
         let executed = CounterBox()
+        let generateCount = CounterBox()
 
         let output = try await AgentLoop.run(
             promptContext: Self.promptContext(),
             request: Self.toolRequest(),
-            generateStep: { _, _ in box.next() },
+            generateStep: { _, _ in
+                generateCount.increment()
+                return box.next()
+            },
             execute: { name, arguments in
                 executed.append(name)
                 let title = arguments["title"]?.stringValue ?? ""
@@ -230,9 +234,88 @@ final class AgentLoopTests: XCTestCase {
         )
 
         XCTAssertEqual(executed.count, 3)
+        XCTAssertEqual(generateCount.count, 1, "a batched write must not start another model round")
         XCTAssertTrue(output.text.contains("Milk"), output.text)
         XCTAssertTrue(output.text.contains("Eggs"), output.text)
         XCTAssertTrue(output.text.contains("Bread"), output.text)
+    }
+
+    /// `.needsUser` on one item must not drop the rest of the step.
+    func testNeedsUserStillRunsSiblingWrites() async throws {
+        let box = ScriptedSteps([
+            AgentGenerationResult(
+                text: "",
+                toolCalls: [
+                    AgentToolCall(name: "reminders.create", arguments: [:]),
+                    AgentToolCall(name: "reminders.create", arguments: ["title": .string("Milk")]),
+                    AgentToolCall(name: "reminders.create", arguments: ["title": .string("Eggs")]),
+                ]
+            ),
+            AgentGenerationResult(text: "should not run"),
+        ])
+        let titles = CounterBox()
+        let generateCount = CounterBox()
+
+        let output = try await AgentLoop.run(
+            promptContext: Self.promptContext(),
+            request: Self.toolRequest(),
+            generateStep: { _, _ in
+                generateCount.increment()
+                return box.next()
+            },
+            execute: { _, arguments in
+                let title = arguments["title"]?.stringValue ?? ""
+                if title.isEmpty {
+                    return ToolExecutionResult(
+                        textForModel: "reminders.create needs a title. Ask the user what to remind them about.",
+                        displayText: "reminders.create · missing title",
+                        disposition: .needsUser
+                    )
+                }
+                titles.append(title)
+                return ToolExecutionResult(
+                    textForModel: "Created reminder “\(title)” in the “Reminders” list on this iPhone.",
+                    displayText: "reminders.create · \(title)",
+                    disposition: .finished
+                )
+            },
+            onToolEvent: { _ in }
+        )
+
+        XCTAssertEqual(titles.names, ["Milk", "Eggs"])
+        XCTAssertEqual(generateCount.count, 1)
+        XCTAssertTrue(output.text.contains("Milk"), output.text)
+        XCTAssertTrue(output.text.contains("Eggs"), output.text)
+        XCTAssertTrue(output.text.contains("needs a title"), output.text)
+        XCTAssertFalse(output.text.contains("should not run"))
+    }
+
+    /// Confirmations come from `.finished`, not an English "Created …" prefix.
+    func testFinishedConfirmationUsesToolTextWithoutCreatedPrefix() async throws {
+        let box = ScriptedSteps([
+            AgentGenerationResult(
+                text: "",
+                toolCalls: [AgentToolCall(name: "reminders.create", arguments: ["title": .string("Milk")])]
+            ),
+            AgentGenerationResult(text: "should not run"),
+        ])
+
+        let output = try await AgentLoop.run(
+            promptContext: Self.promptContext(),
+            request: Self.toolRequest(),
+            generateStep: { _, _ in box.next() },
+            execute: { _, _ in
+                ToolExecutionResult(
+                    textForModel: "Saved “Milk” to Reminders.",
+                    displayText: "reminders.create · Milk",
+                    disposition: .finished
+                )
+            },
+            onToolEvent: { _ in }
+        )
+
+        XCTAssertEqual(output.text, "Saved “Milk” to Reminders.")
+        XCTAssertFalse(output.text.contains("should not run"))
     }
 
     /// LiteRT typically emits one call per round — later writes must still run.
@@ -285,11 +368,15 @@ final class AgentLoopTests: XCTestCase {
             )
         ])
         let executed = CounterBox()
+        let generateCount = CounterBox()
 
         let output = try await AgentLoop.run(
             promptContext: Self.promptContext(),
             request: Self.toolRequest(),
-            generateStep: { _, _ in box.next() },
+            generateStep: { _, _ in
+                generateCount.increment()
+                return box.next()
+            },
             execute: { name, arguments in
                 executed.append(name)
                 let title = arguments["title"]?.stringValue ?? ""
@@ -310,6 +397,7 @@ final class AgentLoopTests: XCTestCase {
         )
 
         XCTAssertEqual(executed.names, ["reminders.create", "calendar.create"])
+        XCTAssertEqual(generateCount.count, 1)
         XCTAssertTrue(output.text.contains("Created reminder"), output.text)
         XCTAssertTrue(output.text.contains("Created calendar event"), output.text)
     }
