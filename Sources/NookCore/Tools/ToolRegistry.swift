@@ -106,7 +106,8 @@ public enum ToolDisposition: Sendable, Equatable {
     case completed
     /// End the turn and show this text (or ask the user).
     case needsUser
-    /// End the turn and show this text — the tool already answered.
+    /// This item is done (created, already existed). Sibling writes in the
+    /// same turn still run; the loop confirms from these texts.
     case finished
     /// Observation goes back; do not auto-retry this same call.
     case failed

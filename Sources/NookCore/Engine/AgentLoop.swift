@@ -2,18 +2,29 @@ import Foundation
 
 /// One ReAct loop for a user turn. Runtimes only generate a single step.
 ///
-/// The turn runs in two phases: a bounded tool phase, then at most one synthesis
-/// attempt. Repeats are bounded by a per-tool call budget rather than by argument
+/// The turn runs a bounded tool phase, then at most one synthesis attempt
+/// unless write tools already produced confirmations. Repeats are bounded by a
+/// per-tool call budget (reads: 1, writes: several) rather than by argument
 /// equality, because a model that re-emits a call rarely re-emits identical
 /// arguments. Every round either executes something new or exits, so the loop can
 /// never re-send an identical prompt.
 public enum AgentLoop {
     /// Default rounds in which the model may call a tool (used when request doesn't override).
     public static let maxToolRounds = 3
-    /// How many times one tool may run in a single turn.
+    /// How many times one read tool may run in a single turn.
     /// 1 is enough — if the first call returns results, calling the same tool
     /// again with a slightly different query is almost always redundant.
     public static let maxCallsPerTool = 1
+    /// Write tools (`.create`) may run once per item — milk, eggs, bread — in one turn.
+    public static let maxCallsPerWriteTool = 8
+
+    static func maxCalls(for toolName: String) -> Int {
+        isWriteTool(toolName) ? maxCallsPerWriteTool : maxCallsPerTool
+    }
+
+    static func isWriteTool(_ name: String) -> Bool {
+        name.hasSuffix(".create")
+    }
 
     public struct Output: Sendable {
         public let text: String
@@ -38,6 +49,7 @@ public enum AgentLoop {
         var observations: [String] = promptContext.toolResultSummaries
         var callCounts: [String: Int] = [:]
         var resolvedSignatures: Set<String> = []
+        var writeConfirmations: [String] = []
 
         // Honour a per-request tool-round cap if specified; fall back to the static default.
         let effectiveMaxToolRounds = request.maxToolRounds > 0
@@ -71,9 +83,15 @@ public enum AgentLoop {
             #endif
 
             guard !step.toolCalls.isEmpty else {
+                if let confirmation = Self.joinedWriteConfirmations(writeConfirmations) {
+                    return Output(text: confirmation, citations: citations)
+                }
                 let text = step.text.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !text.isEmpty {
-                    return Output(text: text, citations: citations)
+                    return Output(
+                        text: Self.preferGroundedAnswer(modelText: text, observations: observations),
+                        citations: citations
+                    )
                 }
                 // Nothing usable — stop asking for a call and go answer.
                 break toolPhase
@@ -106,8 +124,9 @@ public enum AgentLoop {
                     continue
                 }
                 let count = callCounts[resolvedName, default: 0]
-                guard count < maxCallsPerTool else {
-                    print("[AgentLoop] \(resolvedName) over budget (\(count)/\(maxCallsPerTool))")
+                let budget = maxCalls(for: resolvedName)
+                guard count < budget else {
+                    print("[AgentLoop] \(resolvedName) over budget (\(count)/\(budget))")
                     continue
                 }
                 callCounts[resolvedName] = count + 1
@@ -127,17 +146,25 @@ public enum AgentLoop {
                     )
                 )
                 observations.append(Self.observation(for: result))
+                if let line = Self.writeConfirmationLine(from: result.textForModel) {
+                    writeConfirmations.append(line)
+                }
 
-                // The tool already answered the user (or needs them). End the turn
-                // now — do not run the rest of this step's calls.
-                if result.disposition == .finished || result.disposition == .needsUser {
+                // Missing input / permission — stop so the user can answer.
+                if result.disposition == .needsUser {
                     return Output(text: result.textForModel, citations: citations)
                 }
+                // `.finished` is per item, not per turn: keep sibling writes
+                // (three todos) and later rounds (LiteRT emits one call at a time).
             }
 
             context = context.replacingToolResults(observations)
             // Every call was over budget / unknown; another round would repeat this one.
             if !executedAny { break toolPhase }
+        }
+
+        if let confirmation = Self.joinedWriteConfirmations(writeConfirmations) {
+            return Output(text: confirmation, citations: citations)
         }
 
         // One synthesis attempt. `proseOnly` lets a runtime forbid tool syntax
@@ -160,6 +187,19 @@ public enum AgentLoop {
         }
 
         return Output(text: Self.deterministicAnswer(from: observations), citations: citations)
+    }
+
+    static func writeConfirmationLine(from text: String) -> String? {
+        text.components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { line in
+                line.hasPrefix("Created reminder") || line.hasPrefix("Created calendar event")
+            }
+    }
+
+    static func joinedWriteConfirmations(_ lines: [String]) -> String? {
+        guard !lines.isEmpty else { return nil }
+        return lines.joined(separator: "\n")
     }
 
     static func argumentKey(_ arguments: ToolArguments) -> String {
@@ -221,11 +261,9 @@ public enum AgentLoop {
 
     /// Last resort when the model produced no prose at all.
     static func deterministicAnswer(from observations: [String]) -> String {
-        if let created = observations.reversed().first(where: { $0.contains("Created reminder") }),
-           let line = created
-            .components(separatedBy: .newlines)
-            .first(where: { $0.contains("Created reminder") }) {
-            return line.trimmingCharacters(in: .whitespacesAndNewlines)
+        let created = observations.compactMap { writeConfirmationLine(from: $0) }
+        if !created.isEmpty {
+            return created.joined(separator: "\n")
         }
         if let calendar = observations.reversed().first(where: { $0.contains("Calendar events") }) {
             return plainCalendarReply(from: calendar)
