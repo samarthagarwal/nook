@@ -110,7 +110,18 @@ public final class AudioRecorder: ObservableObject {
             throw AudioRecorderError.alreadyRecording
         }
         
+        // IMPORTANT: Configure audio session BEFORE creating engine on iOS
+        #if os(iOS)
+        let audioSession = AVAudioSession.sharedInstance()
+        try audioSession.setCategory(.record, mode: .measurement, options: [])
+        try audioSession.setActive(true)
+        #endif
+        
         let engine = AVAudioEngine()
+        
+        // Prepare engine first before accessing inputNode
+        engine.prepare()
+        
         let input = engine.inputNode
         let format = input.outputFormat(forBus: 0)
         
@@ -152,7 +163,6 @@ public final class AudioRecorder: ObservableObject {
         // Store writer for later use (file writing disabled for now to isolate crash)
         _ = writer
         
-        engine.prepare()
         try engine.start()
         
         self.audioEngine = engine
