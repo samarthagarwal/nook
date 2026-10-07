@@ -141,9 +141,10 @@ public final class VoiceSession: ObservableObject {
         // Start audio recording (save to file for WhisperKit)
         audioFileURL = try audioRecorder.startRecording(saveToFile: true)
         
-        // Get audio format from recorder
-        let engine = AVAudioEngine()
-        let format = engine.inputNode.outputFormat(forBus: 0)
+        // Get audio format from the recorder's engine (don't create a second engine!)
+        guard let format = audioRecorder.currentFormat else {
+            throw VoiceSessionError.noAudioRecorded
+        }
         
         // Start live transcription
         try liveTranscriber.startTranscribing(audioFormat: format)

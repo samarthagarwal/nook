@@ -38,6 +38,9 @@ public final class AudioRecorder: ObservableObject {
     private var startTime: Date?
     private var durationTimer: Timer?
     
+    /// The audio format of the current recording (available after startRecording)
+    public private(set) var currentFormat: AVAudioFormat?
+    
     /// Callback for audio buffers (used by LiveTranscriber)
     public var onAudioBuffer: (@Sendable (AVAudioPCMBuffer, AVAudioTime) -> Void)?
     
@@ -137,6 +140,7 @@ public final class AudioRecorder: ObservableObject {
         
         self.audioEngine = engine
         self.inputNode = input
+        self.currentFormat = format
         self.startTime = Date()
         self.state = .recording
         
@@ -163,6 +167,7 @@ public final class AudioRecorder: ObservableObject {
         inputNode = nil
         audioFile = nil
         audioFileURL = nil
+        currentFormat = nil
         startTime = nil
         duration = 0
         state = .idle
