@@ -91,6 +91,7 @@ public final class AgentSession: ObservableObject {
     public func sendMessage(
         text: String,
         attachedImageName: String? = nil,
+        wasDictated: Bool = false,
         runtime: any Sendable,
         streamHandler: @escaping AgentStreamHandler
     ) async {
@@ -111,7 +112,8 @@ public final class AgentSession: ObservableObject {
             conversationId: conversation.id,
             role: .user,
             content: body,
-            attachedImageName: attachedImageName
+            attachedImageName: attachedImageName,
+            wasDictated: wasDictated
         )
         messages.append(userMsg)
         trimDisplayedMessages()

@@ -469,6 +469,11 @@ public struct ChatView: View {
                             RoundedRectangle(cornerRadius: 16)
                                 .fill(NookColors.ink)
                         )
+                    
+                    // Show dictated badge if message was created via voice
+                    if message.wasDictated {
+                        DictatedBadge()
+                    }
                 }
             }
             
@@ -627,12 +632,12 @@ public struct ChatView: View {
         Task {
             let textToSend = text
             let imageToSend = img
-            let _ = dictated  // TODO: Track dictated messages in Message model
             do {
                 try await runtimeStore.prepareForGenerationIfNeeded()
                 await session.sendMessage(
                     text: textToSend,
                     attachedImageName: imageToSend,
+                    wasDictated: dictated,
                     runtime: runtimeStore.runtime,
                     streamHandler: { promptContext, request, toolExecutor, tokenCallback, toolEventCallback in
                         try await runtimeStore.runtime.generateStreaming(

@@ -56,6 +56,8 @@ public struct Message: Identifiable, Codable, Equatable, Sendable {
     public var localToolText: String?
     public var externalToolData: ExternalToolExecution?
     public let createdAt: Date
+    /// Indicates if this user message was created via voice dictation
+    public var wasDictated: Bool
     
     public init(
         id: String = UUID().uuidString,
@@ -66,7 +68,8 @@ public struct Message: Identifiable, Codable, Equatable, Sendable {
         attachedImageName: String? = nil,
         localToolText: String? = nil,
         externalToolData: ExternalToolExecution? = nil,
-        createdAt: Date = Date()
+        createdAt: Date = Date(),
+        wasDictated: Bool = false
     ) {
         self.id = id
         self.conversationId = conversationId
@@ -77,6 +80,7 @@ public struct Message: Identifiable, Codable, Equatable, Sendable {
         self.localToolText = localToolText
         self.externalToolData = externalToolData
         self.createdAt = createdAt
+        self.wasDictated = wasDictated
     }
 }
 
