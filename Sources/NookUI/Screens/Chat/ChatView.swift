@@ -289,6 +289,9 @@ public struct ChatView: View {
                                 wasDictated = true
                                 voiceMode = .hasResult
                             } catch {
+                                print("[Voice] Transcription failed: \(error)")
+                                runtimeStore.presentStatus("Transcription failed: \(error.localizedDescription)")
+                                voiceSession.reset()
                                 voiceMode = .idle
                             }
                         }

@@ -169,7 +169,14 @@ public final class VoiceSession: ObservableObject {
         // Start WhisperKit final transcription
         state = .transcribing(progress: 0)
         
-        let whisperResult = try await whisperTranscriber.transcribe(audioURL: audioURL)
+        let whisperResult: WhisperTranscriber.TranscriptionOutput
+        do {
+            whisperResult = try await whisperTranscriber.transcribe(audioURL: audioURL)
+        } catch {
+            // Reset state on transcription failure
+            state = .error("Transcription failed: \(error.localizedDescription)")
+            throw error
+        }
         
         let result = TranscriptionResult(
             text: whisperResult.text,
