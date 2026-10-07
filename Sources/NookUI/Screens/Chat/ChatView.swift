@@ -273,10 +273,10 @@ public struct ChatView: View {
             }
 
             // Voice recording UI or normal composer
-            if voiceMode == .recording, let voiceSession = voiceSession, let levelMeter = audioLevelMeter {
+            if voiceMode == .recording, let voiceSession = voiceSession {
                 VoiceComposer(
                     session: voiceSession,
-                    levelMeter: levelMeter,
+                    levelMeter: audioLevelMeter,
                     onCancel: {
                         voiceSession.discardRecording()
                         voiceMode = .idle

@@ -6,7 +6,7 @@ import NookVoice
 /// Shows live transcript, waveform, timer, and cancel/confirm controls.
 public struct VoiceComposer: View {
     @ObservedObject var session: VoiceSession
-    @ObservedObject var levelMeter: AudioLevelMeter
+    var levelMeter: AudioLevelMeter?
     
     let onCancel: () -> Void
     let onConfirm: () -> Void
@@ -15,7 +15,7 @@ public struct VoiceComposer: View {
     
     public init(
         session: VoiceSession,
-        levelMeter: AudioLevelMeter,
+        levelMeter: AudioLevelMeter?,
         onCancel: @escaping () -> Void,
         onConfirm: @escaping () -> Void
     ) {
@@ -99,9 +99,14 @@ public struct VoiceComposer: View {
                 }
                 .buttonStyle(.plain)
                 
-                // Waveform
-                CompactVoiceWaveform(levelMeter: levelMeter)
-                    .frame(maxWidth: .infinity)
+                // Waveform or placeholder
+                if let levelMeter = levelMeter {
+                    CompactVoiceWaveform(levelMeter: levelMeter)
+                        .frame(maxWidth: .infinity)
+                } else {
+                    // Simple placeholder when no level meter
+                    Spacer()
+                }
                 
                 // Confirm button
                 Button(action: onConfirm) {
