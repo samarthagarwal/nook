@@ -31,32 +31,10 @@ public final class AudioRecorder: ObservableObject {
     @Published public private(set) var duration: TimeInterval = 0
     @Published public private(set) var audioLevel: AudioLevel = AudioLevel(average: 0, peak: 0)
     
-    private var audioEngine: AVAudioEngine?
-    private var inputNode: AVAudioInputNode?
+    private var simpleRecorder: AVAudioRecorder?
     private var audioFileURL: URL?
     private var startTime: Date?
     private var durationTimer: Timer?
-    
-    // Thread-safe wrapper for audio file writing (accessed from audio thread)
-    private var audioFileWriter: AudioFileWriter?
-    
-    // Holder for callbacks that can be updated after recording starts
-    private let callbackHolder = AudioCallbackHolder()
-    
-    /// The audio format of the current recording (available after startRecording)
-    public private(set) var currentFormat: AVAudioFormat?
-    
-    /// Callback for audio buffers (used by LiveTranscriber) - called on audio thread!
-    public var onAudioBuffer: (@Sendable (AVAudioPCMBuffer, AVAudioTime) -> Void)? {
-        get { callbackHolder.bufferCallback }
-        set { callbackHolder.bufferCallback = newValue }
-    }
-    
-    /// Callback for audio level updates (used for waveform visualization)
-    public var onAudioLevel: (@Sendable (AudioLevel) -> Void)? {
-        get { callbackHolder.levelCallback }
-        set { callbackHolder.levelCallback = newValue }
-    }
     
     public init() {}
     
@@ -110,63 +88,36 @@ public final class AudioRecorder: ObservableObject {
             throw AudioRecorderError.alreadyRecording
         }
         
-        // IMPORTANT: Configure audio session BEFORE creating engine on iOS
+        // Configure audio session for recording on iOS
         #if os(iOS)
         let audioSession = AVAudioSession.sharedInstance()
-        try audioSession.setCategory(.record, mode: .measurement, options: [])
+        try audioSession.setCategory(.record, mode: .default, options: [])
         try audioSession.setActive(true)
         #endif
         
-        let engine = AVAudioEngine()
+        // Create temporary file for recording
+        let tempDir = FileManager.default.temporaryDirectory
+        let fileName = "nook_recording_\(UUID().uuidString).m4a"
+        let fileURL = tempDir.appendingPathComponent(fileName)
         
-        // Access inputNode FIRST (this implicitly creates/connects it)
-        let input = engine.inputNode
-        let format = input.outputFormat(forBus: 0)
+        // Recording settings - AAC for smaller file size, good quality for speech
+        let settings: [String: Any] = [
+            AVFormatIDKey: kAudioFormatMPEG4AAC,
+            AVSampleRateKey: 44100.0,
+            AVNumberOfChannelsKey: 1,
+            AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue
+        ]
         
-        // Validate format
-        guard format.sampleRate > 0, format.channelCount > 0 else {
-            throw AudioRecorderError.invalidAudioFormat
+        // Use AVAudioRecorder - simpler API, handles threading internally
+        let recorder = try AVAudioRecorder(url: fileURL, settings: settings)
+        recorder.isMeteringEnabled = true
+        
+        guard recorder.record() else {
+            throw AudioRecorderError.permissionDenied
         }
         
-        var fileURL: URL? = nil
-        var writer: AudioFileWriter? = nil
-        
-        if saveToFile {
-            // Create temporary file for recording
-            let tempDir = FileManager.default.temporaryDirectory
-            let fileName = "nook_recording_\(UUID().uuidString).m4a"
-            fileURL = tempDir.appendingPathComponent(fileName)
-            
-            // Create audio file with AAC encoding for smaller size
-            let settings: [String: Any] = [
-                AVFormatIDKey: kAudioFormatMPEG4AAC,
-                AVSampleRateKey: format.sampleRate,
-                AVNumberOfChannelsKey: format.channelCount,
-                AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue
-            ]
-            
-            let audioFile = try AVAudioFile(forWriting: fileURL!, settings: settings)
-            writer = AudioFileWriter(file: audioFile)
-            audioFileURL = fileURL
-        }
-        
-        self.audioFileWriter = writer
-        
-        // Install tap on input node - this callback runs on the REALTIME audio thread!
-        // TESTING: Empty callback to isolate the crash
-        input.installTap(onBus: 0, bufferSize: 1024, format: format) { _, _ in
-            // Empty - just testing if basic audio engine works
-        }
-        
-        // Store writer for later use (file writing disabled for now to isolate crash)
-        _ = writer
-        
-        engine.prepare()
-        try engine.start()
-        
-        self.audioEngine = engine
-        self.inputNode = input
-        self.currentFormat = format
+        self.simpleRecorder = recorder
+        self.audioFileURL = fileURL
         self.startTime = Date()
         self.state = .recording
         
@@ -183,17 +134,17 @@ public final class AudioRecorder: ObservableObject {
         
         stopDurationTimer()
         
-        inputNode?.removeTap(onBus: 0)
-        audioEngine?.stop()
+        simpleRecorder?.stop()
+        
+        #if os(iOS)
+        try? AVAudioSession.sharedInstance().setActive(false)
+        #endif
         
         let url = audioFileURL
         
         // Reset state
-        audioEngine = nil
-        inputNode = nil
-        audioFileWriter = nil
+        simpleRecorder = nil
         audioFileURL = nil
-        currentFormat = nil
         startTime = nil
         duration = 0
         state = .idle
@@ -214,7 +165,7 @@ public final class AudioRecorder: ObservableObject {
     /// Pauses recording (if supported).
     public func pauseRecording() {
         guard state == .recording else { return }
-        audioEngine?.pause()
+        simpleRecorder?.pause()
         stopDurationTimer()
         state = .paused
     }
@@ -222,47 +173,29 @@ public final class AudioRecorder: ObservableObject {
     /// Resumes recording after pause.
     public func resumeRecording() throws {
         guard state == .paused else { return }
-        try audioEngine?.start()
+        simpleRecorder?.record()
         startDurationTimer()
         state = .recording
     }
     
     // MARK: - Private
     
-    /// Calculate audio level from buffer - static so it can be called from audio thread
-    private nonisolated static func calculateAudioLevel(_ buffer: AVAudioPCMBuffer) -> AudioLevel {
-        guard let channelData = buffer.floatChannelData else {
-            return AudioLevel(average: 0, peak: 0)
-        }
-        
-        let channelDataValue = channelData.pointee
-        let channelDataValueArray = stride(
-            from: 0,
-            to: Int(buffer.frameLength),
-            by: buffer.stride
-        ).map { channelDataValue[$0] }
-        
-        let sum = channelDataValueArray.reduce(0) { $0 + abs($1) }
-        let average = sum / Float(buffer.frameLength)
-        let peak = channelDataValueArray.map { abs($0) }.max() ?? 0
-        
-        // Normalize to 0-1 range (assuming typical audio levels)
-        let normalizedAverage = min(average * 2, 1.0)
-        let normalizedPeak = min(peak, 1.0)
-        
-        return AudioLevel(average: normalizedAverage, peak: normalizedPeak)
-    }
-    
     private func startDurationTimer() {
-        // Use DispatchQueue.main for timer to avoid Task creation overhead
         durationTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
-            guard let self = self else { return }
-            // Timer callbacks on main thread when scheduled on main RunLoop
-            DispatchQueue.main.async { [weak self] in
+            Task { @MainActor [weak self] in
                 guard let self = self, let start = self.startTime else { return }
                 self.duration = Date().timeIntervalSince(start)
-                // Poll latest level from thread-safe holder
-                self.audioLevel = self.callbackHolder.latestLevel
+                
+                // Update audio level from AVAudioRecorder metering
+                if let recorder = self.simpleRecorder {
+                    recorder.updateMeters()
+                    let avgPower = recorder.averagePower(forChannel: 0)
+                    let peakPower = recorder.peakPower(forChannel: 0)
+                    // Convert dB to 0-1 range (dB is typically -160 to 0)
+                    let normalizedAvg = max(0, (avgPower + 50) / 50)
+                    let normalizedPeak = max(0, (peakPower + 50) / 50)
+                    self.audioLevel = AudioLevel(average: normalizedAvg, peak: normalizedPeak)
+                }
             }
         }
     }
@@ -291,75 +224,6 @@ public enum AudioRecorderError: LocalizedError {
             return "Invalid audio format from microphone"
         case .permissionDenied:
             return "Microphone permission denied"
-        }
-    }
-}
-
-// MARK: - AudioFileWriter
-
-/// Wrapper for AVAudioFile writing from the audio tap.
-/// The audio tap callback is called sequentially, so no lock is needed.
-final class AudioFileWriter: @unchecked Sendable {
-    private let file: AVAudioFile
-    
-    init(file: AVAudioFile) {
-        self.file = file
-    }
-    
-    func write(_ buffer: AVAudioPCMBuffer) {
-        // No lock - audio tap callbacks are sequential
-        try? file.write(from: buffer)
-    }
-}
-
-// MARK: - AudioCallbackHolder
-
-/// Holds audio callbacks as a reference type so they can be updated after capture.
-/// Thread-safe for access from audio thread.
-final class AudioCallbackHolder: @unchecked Sendable {
-    private let lock = NSLock()
-    
-    private var _bufferCallback: (@Sendable (AVAudioPCMBuffer, AVAudioTime) -> Void)?
-    private var _levelCallback: (@Sendable (AudioRecorder.AudioLevel) -> Void)?
-    private var _latestLevel: AudioRecorder.AudioLevel = .init(average: 0, peak: 0)
-    
-    var bufferCallback: (@Sendable (AVAudioPCMBuffer, AVAudioTime) -> Void)? {
-        get {
-            lock.lock()
-            defer { lock.unlock() }
-            return _bufferCallback
-        }
-        set {
-            lock.lock()
-            defer { lock.unlock() }
-            _bufferCallback = newValue
-        }
-    }
-    
-    var levelCallback: (@Sendable (AudioRecorder.AudioLevel) -> Void)? {
-        get {
-            lock.lock()
-            defer { lock.unlock() }
-            return _levelCallback
-        }
-        set {
-            lock.lock()
-            defer { lock.unlock() }
-            _levelCallback = newValue
-        }
-    }
-    
-    /// Latest audio level - written from audio thread, read from main thread via timer
-    var latestLevel: AudioRecorder.AudioLevel {
-        get {
-            lock.lock()
-            defer { lock.unlock() }
-            return _latestLevel
-        }
-        set {
-            lock.lock()
-            defer { lock.unlock() }
-            _latestLevel = newValue
         }
     }
 }
