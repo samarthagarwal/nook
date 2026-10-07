@@ -3,6 +3,7 @@ import UniformTypeIdentifiers
 import NookDesign
 import NookCore
 import NookRuntime
+import NookVoice
 
 public struct AppRootView: View {
     @State private var isOnboardingComplete: Bool = AppPreferences.isOnboardingComplete
@@ -13,6 +14,11 @@ public struct AppRootView: View {
     @StateObject private var knowledgeState: ObservableKnowledgeEngine
     @StateObject private var skillState: ObservableSkillManager
     @StateObject private var mcpState: ObservableMCPState
+    
+    // Voice Input
+    @StateObject private var voiceSession: VoiceSession
+    @StateObject private var audioLevelMeter: AudioLevelMeter = AudioLevelMeter()
+    private let whisperTranscriber: WhisperTranscriber
 
     private let knowledgeEngine: KnowledgeEngine
     private let skillManager: SkillManager
@@ -64,6 +70,14 @@ public struct AppRootView: View {
         _knowledgeState = StateObject(wrappedValue: ObservableKnowledgeEngine(engine: knowledgeEngine))
         _skillState = StateObject(wrappedValue: ObservableSkillManager(manager: skillManager))
         _mcpState = StateObject(wrappedValue: ObservableMCPState(client: mcpClient))
+        
+        // Voice input setup
+        let transcriber = WhisperTranscriber()
+        self.whisperTranscriber = transcriber
+        _voiceSession = StateObject(wrappedValue: VoiceSession(
+            mode: .chat,
+            whisperTranscriber: transcriber
+        ))
     }
     
     public var body: some View {
@@ -146,6 +160,8 @@ public struct AppRootView: View {
                             session: session,
                             runtimeStore: runtimeStore,
                             skills: skillState.skills,
+                            voiceSession: voiceSession,
+                            audioLevelMeter: audioLevelMeter,
                             onBack: {
                                 // Empty drafts were never written; delete is a no-op cleanup.
                                 if let session = self.activeSession, session.messages.isEmpty {
