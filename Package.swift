@@ -11,6 +11,7 @@ let package = Package(
         .library(name: "NookDesign", targets: ["NookDesign"]),
         .library(name: "NookCore", targets: ["NookCore"]),
         .library(name: "NookRuntime", targets: ["NookRuntime"]),
+        .library(name: "NookVoice", targets: ["NookVoice"]),
         .library(name: "NookUI", targets: ["NookUI"]),
         .executable(name: "NookCLI", targets: ["NookCLI"])
     ],
@@ -30,7 +31,8 @@ let package = Package(
         .package(url: "https://github.com/groue/GRDB.swift", from: "7.0.0"),
         // Local shallow checkout — remote URL mirror is multi‑GB and stalls Xcode resolve.
         // Committed remote: .package(url: "https://github.com/google-ai-edge/LiteRT-LM", from: "0.16.0")
-        .package(path: "/tmp/LiteRT-LM")
+        .package(path: "/tmp/LiteRT-LM"),
+        .package(url: "https://github.com/argmaxinc/WhisperKit", branch: "main")
     ],
     targets: [
         .target(
@@ -62,8 +64,15 @@ let package = Package(
             ]
         ),
         .target(
+            name: "NookVoice",
+            dependencies: [
+                "NookCore",
+                .product(name: "WhisperKit", package: "WhisperKit")
+            ]
+        ),
+        .target(
             name: "NookUI",
-            dependencies: ["NookDesign", "NookCore", "NookRuntime"]
+            dependencies: ["NookDesign", "NookCore", "NookRuntime", "NookVoice"]
         ),
         .executableTarget(
             name: "NookCLI",
