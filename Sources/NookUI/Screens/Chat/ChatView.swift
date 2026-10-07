@@ -288,6 +288,8 @@ public struct ChatView: View {
                                 inputText = result.text
                                 wasDictated = true
                                 voiceMode = .hasResult
+                                // Reset session so mic can be used again
+                                voiceSession.reset()
                             } catch {
                                 print("[Voice] Transcription failed: \(error)")
                                 runtimeStore.presentStatus("Transcription failed: \(error.localizedDescription)")
