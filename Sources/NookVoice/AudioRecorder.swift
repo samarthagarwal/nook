@@ -110,6 +110,13 @@ public final class AudioRecorder: ObservableObject {
             throw AudioRecorderError.alreadyRecording
         }
         
+        // Configure audio session for recording (iOS only)
+        #if os(iOS)
+        let audioSession = AVAudioSession.sharedInstance()
+        try audioSession.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .allowBluetooth])
+        try audioSession.setActive(true)
+        #endif
+        
         let engine = AVAudioEngine()
         let input = engine.inputNode
         let format = input.outputFormat(forBus: 0)
@@ -189,6 +196,11 @@ public final class AudioRecorder: ObservableObject {
         
         inputNode?.removeTap(onBus: 0)
         audioEngine?.stop()
+        
+        // Deactivate audio session (iOS only)
+        #if os(iOS)
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        #endif
         
         let url = audioFileURL
         

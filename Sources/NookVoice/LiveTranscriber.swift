@@ -103,7 +103,11 @@ public final class LiveTranscriber: ObservableObject {
         // Create recognition request
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.shouldReportPartialResults = true
-        request.requiresOnDeviceRecognition = true  // Privacy: on-device only
+        
+        // Prefer on-device recognition for privacy, but fall back to server if unavailable
+        if recognizer.supportsOnDeviceRecognition {
+            request.requiresOnDeviceRecognition = true
+        }
         
         // Enable automatic punctuation if available
         if #available(iOS 16.0, macOS 13.0, *) {
@@ -112,7 +116,7 @@ public final class LiveTranscriber: ObservableObject {
         
         self.recognitionRequest = request
         
-        // Start recognition task
+        // Start recognition task on the main queue to avoid threading issues
         recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
             Task { @MainActor [weak self] in
                 self?.handleRecognitionResult(result, error: error)
