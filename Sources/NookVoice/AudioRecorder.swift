@@ -40,14 +40,23 @@ public final class AudioRecorder: ObservableObject {
     // Thread-safe wrapper for audio file writing (accessed from audio thread)
     private var audioFileWriter: AudioFileWriter?
     
+    // Holder for callbacks that can be updated after recording starts
+    private let callbackHolder = AudioCallbackHolder()
+    
     /// The audio format of the current recording (available after startRecording)
     public private(set) var currentFormat: AVAudioFormat?
     
     /// Callback for audio buffers (used by LiveTranscriber) - called on audio thread!
-    public var onAudioBuffer: (@Sendable (AVAudioPCMBuffer, AVAudioTime) -> Void)?
+    public var onAudioBuffer: (@Sendable (AVAudioPCMBuffer, AVAudioTime) -> Void)? {
+        get { callbackHolder.bufferCallback }
+        set { callbackHolder.bufferCallback = newValue }
+    }
     
     /// Callback for audio level updates (used for waveform visualization)
-    public var onAudioLevel: (@Sendable (AudioLevel) -> Void)?
+    public var onAudioLevel: (@Sendable (AudioLevel) -> Void)? {
+        get { callbackHolder.levelCallback }
+        set { callbackHolder.levelCallback = newValue }
+    }
     
     public init() {}
     
@@ -132,22 +141,23 @@ public final class AudioRecorder: ObservableObject {
             audioFileURL = fileURL
         }
         
-        // Capture callbacks for use on audio thread
-        let bufferCallback = self.onAudioBuffer
-        let levelCallback = self.onAudioLevel
         self.audioFileWriter = writer
         
+        // Capture the callback holder (not the callbacks themselves) so updates are visible
+        let holder = self.callbackHolder
+        
         // Install tap on input node - this callback runs on the audio thread!
-        input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self, writer] buffer, time in
+        input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self, writer, holder] buffer, time in
             // Write to file directly on audio thread (thread-safe)
             writer?.write(buffer)
             
             // Call buffer callback directly on audio thread (SFSpeechAudioBufferRecognitionRequest.append is thread-safe)
-            bufferCallback?(buffer, time)
+            // Access through holder so callback updates after startRecording() are visible
+            holder.bufferCallback?(buffer, time)
             
             // Calculate level and send to MainActor for UI
             let level = Self.calculateAudioLevel(buffer)
-            levelCallback?(level)
+            holder.levelCallback?(level)
             
             // Update UI on MainActor
             Task { @MainActor [weak self] in
@@ -300,5 +310,42 @@ final class AudioFileWriter: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         try? file.write(from: buffer)
+    }
+}
+
+// MARK: - AudioCallbackHolder
+
+/// Holds audio callbacks as a reference type so they can be updated after capture.
+/// Thread-safe for access from audio thread.
+final class AudioCallbackHolder: @unchecked Sendable {
+    private let lock = NSLock()
+    
+    private var _bufferCallback: (@Sendable (AVAudioPCMBuffer, AVAudioTime) -> Void)?
+    private var _levelCallback: (@Sendable (AudioRecorder.AudioLevel) -> Void)?
+    
+    var bufferCallback: (@Sendable (AVAudioPCMBuffer, AVAudioTime) -> Void)? {
+        get {
+            lock.lock()
+            defer { lock.unlock() }
+            return _bufferCallback
+        }
+        set {
+            lock.lock()
+            defer { lock.unlock() }
+            _bufferCallback = newValue
+        }
+    }
+    
+    var levelCallback: (@Sendable (AudioRecorder.AudioLevel) -> Void)? {
+        get {
+            lock.lock()
+            defer { lock.unlock() }
+            return _levelCallback
+        }
+        set {
+            lock.lock()
+            defer { lock.unlock() }
+            _levelCallback = newValue
+        }
     }
 }
