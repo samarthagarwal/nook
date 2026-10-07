@@ -33,15 +33,17 @@ public final class AudioRecorder: ObservableObject {
     
     private var audioEngine: AVAudioEngine?
     private var inputNode: AVAudioInputNode?
-    private var audioFile: AVAudioFile?
     private var audioFileURL: URL?
     private var startTime: Date?
     private var durationTimer: Timer?
     
+    // Thread-safe wrapper for audio file writing (accessed from audio thread)
+    private var audioFileWriter: AudioFileWriter?
+    
     /// The audio format of the current recording (available after startRecording)
     public private(set) var currentFormat: AVAudioFormat?
     
-    /// Callback for audio buffers (used by LiveTranscriber)
+    /// Callback for audio buffers (used by LiveTranscriber) - called on audio thread!
     public var onAudioBuffer: (@Sendable (AVAudioPCMBuffer, AVAudioTime) -> Void)?
     
     /// Callback for audio level updates (used for waveform visualization)
@@ -109,6 +111,7 @@ public final class AudioRecorder: ObservableObject {
         }
         
         var fileURL: URL? = nil
+        var writer: AudioFileWriter? = nil
         
         if saveToFile {
             // Create temporary file for recording
@@ -124,14 +127,31 @@ public final class AudioRecorder: ObservableObject {
                 AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue
             ]
             
-            audioFile = try AVAudioFile(forWriting: fileURL!, settings: settings)
+            let audioFile = try AVAudioFile(forWriting: fileURL!, settings: settings)
+            writer = AudioFileWriter(file: audioFile)
             audioFileURL = fileURL
         }
         
-        // Install tap on input node
-        input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, time in
+        // Capture callbacks for use on audio thread
+        let bufferCallback = self.onAudioBuffer
+        let levelCallback = self.onAudioLevel
+        self.audioFileWriter = writer
+        
+        // Install tap on input node - this callback runs on the audio thread!
+        input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self, writer] buffer, time in
+            // Write to file directly on audio thread (thread-safe)
+            writer?.write(buffer)
+            
+            // Call buffer callback directly on audio thread (SFSpeechAudioBufferRecognitionRequest.append is thread-safe)
+            bufferCallback?(buffer, time)
+            
+            // Calculate level and send to MainActor for UI
+            let level = Self.calculateAudioLevel(buffer)
+            levelCallback?(level)
+            
+            // Update UI on MainActor
             Task { @MainActor [weak self] in
-                self?.processAudioBuffer(buffer, time: time)
+                self?.audioLevel = level
             }
         }
         
@@ -165,7 +185,7 @@ public final class AudioRecorder: ObservableObject {
         // Reset state
         audioEngine = nil
         inputNode = nil
-        audioFile = nil
+        audioFileWriter = nil
         audioFileURL = nil
         currentFormat = nil
         startTime = nil
@@ -203,22 +223,8 @@ public final class AudioRecorder: ObservableObject {
     
     // MARK: - Private
     
-    private func processAudioBuffer(_ buffer: AVAudioPCMBuffer, time: AVAudioTime) {
-        // Write to file if recording to file
-        if let audioFile = audioFile {
-            try? audioFile.write(from: buffer)
-        }
-        
-        // Calculate audio levels for waveform
-        let level = calculateAudioLevel(buffer)
-        self.audioLevel = level
-        
-        // Notify callbacks synchronously - the callbacks handle their own threading
-        onAudioBuffer?(buffer, time)
-        onAudioLevel?(level)
-    }
-    
-    private func calculateAudioLevel(_ buffer: AVAudioPCMBuffer) -> AudioLevel {
+    /// Calculate audio level from buffer - static so it can be called from audio thread
+    private nonisolated static func calculateAudioLevel(_ buffer: AVAudioPCMBuffer) -> AudioLevel {
         guard let channelData = buffer.floatChannelData else {
             return AudioLevel(average: 0, peak: 0)
         }
@@ -275,5 +281,24 @@ public enum AudioRecorderError: LocalizedError {
         case .permissionDenied:
             return "Microphone permission denied"
         }
+    }
+}
+
+// MARK: - AudioFileWriter
+
+/// Thread-safe wrapper for AVAudioFile writing.
+/// Can be safely called from the audio thread.
+final class AudioFileWriter: @unchecked Sendable {
+    private let file: AVAudioFile
+    private let lock = NSLock()
+    
+    init(file: AVAudioFile) {
+        self.file = file
+    }
+    
+    func write(_ buffer: AVAudioPCMBuffer) {
+        lock.lock()
+        defer { lock.unlock() }
+        try? file.write(from: buffer)
     }
 }
