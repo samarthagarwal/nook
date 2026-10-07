@@ -602,9 +602,13 @@ public struct ChatView: View {
     
     private func startVoiceRecording() {
         guard let voiceSession = voiceSession else { return }
-        
+
         Task {
             do {
+                // Show loading state if model needs to download
+                if !voiceSession.isWhisperReady {
+                    runtimeStore.presentStatus("Loading speech model…")
+                }
                 try await voiceSession.startRecording()
                 voiceMode = .recording
             } catch {
