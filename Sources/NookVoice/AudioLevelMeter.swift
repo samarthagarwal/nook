@@ -38,7 +38,7 @@ public final class AudioLevelMeter: ObservableObject {
     ///   - barCount: Number of bars in the waveform visualization.
     ///   - smoothingFactor: Smoothing applied to level changes (0-1, higher = smoother).
     ///   - peakDecayRate: How quickly the peak indicator decays (per second).
-    public init(barCount: Int = 20, smoothingFactor: Float = 0.3, peakDecayRate: Float = 0.5) {
+    public init(barCount: Int = 12, smoothingFactor: Float = 0.7, peakDecayRate: Float = 2.0) {
         self.barCount = barCount
         self.smoothingFactor = smoothingFactor
         self.peakDecayRate = peakDecayRate
