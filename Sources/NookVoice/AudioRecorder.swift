@@ -22,7 +22,7 @@ public final class AudioRecorder: ObservableObject {
         case undetermined
     }
     
-    public struct AudioLevel: Sendable {
+    public struct AudioLevel: Sendable, Equatable {
         public let average: Float  // 0.0 to 1.0
         public let peak: Float     // 0.0 to 1.0
     }

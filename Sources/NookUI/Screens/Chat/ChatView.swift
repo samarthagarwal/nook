@@ -137,6 +137,11 @@ public struct ChatView: View {
             .presentationBackground(NookColors.surface)
             .interactiveDismissDisabled()
         }
+        .onChange(of: voiceSession?.audioLevel) { _, level in
+            if let level = level {
+                audioLevelMeter?.update(with: level)
+            }
+        }
     }
 
     private func scrollChatToBottom(proxy: ScrollViewProxy, animated: Bool = true) {
