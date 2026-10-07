@@ -606,6 +606,17 @@ public struct AppRootView: View {
                 showToast("\(runtimeStore.activeTier.name) is ready.")
             }
         }
+        .task {
+            // Preload WhisperKit model in background so voice recording is instant
+            if !whisperTranscriber.isModelLoaded {
+                do {
+                    try await whisperTranscriber.loadModel(.base)
+                    print("[Voice] WhisperKit model preloaded")
+                } catch {
+                    print("[Voice] Failed to preload WhisperKit: \(error)")
+                }
+            }
+        }
     }
     
     private static var markdownImportTypes: [UTType] {
