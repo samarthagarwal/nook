@@ -119,9 +119,7 @@ public final class AudioRecorder: ObservableObject {
         
         let engine = AVAudioEngine()
         
-        // Prepare engine first before accessing inputNode
-        engine.prepare()
-        
+        // Access inputNode FIRST (this implicitly creates/connects it)
         let input = engine.inputNode
         let format = input.outputFormat(forBus: 0)
         
@@ -163,6 +161,7 @@ public final class AudioRecorder: ObservableObject {
         // Store writer for later use (file writing disabled for now to isolate crash)
         _ = writer
         
+        engine.prepare()
         try engine.start()
         
         self.audioEngine = engine
