@@ -138,25 +138,11 @@ public final class VoiceSession: ObservableObject {
         tentativeText = ""
         duration = 0
         
-        // Start audio recording (save to file for WhisperKit)
+        // Start live transcription first (it manages its own audio engine for preview)
+        try liveTranscriber.startTranscribing()
+        
+        // Start audio recording (save to file for WhisperKit final transcription)
         audioFileURL = try audioRecorder.startRecording(saveToFile: true)
-        
-        // Get audio format from the recorder's engine (don't create a second engine!)
-        guard let format = audioRecorder.currentFormat else {
-            throw VoiceSessionError.noAudioRecorded
-        }
-        
-        // Start live transcription
-        try liveTranscriber.startTranscribing(audioFormat: format)
-        
-        // Connect audio recorder to live transcriber
-        // Capture the recognition request directly - its append() is thread-safe
-        // Using nonisolated(unsafe) because SFSpeechAudioBufferRecognitionRequest.append() 
-        // is documented as thread-safe but the type isn't marked Sendable
-        nonisolated(unsafe) let request = liveTranscriber.recognitionRequest
-        audioRecorder.onAudioBuffer = { buffer, _ in
-            request?.append(buffer)
-        }
         
         state = .recording
     }

@@ -4,6 +4,7 @@ import Foundation
 
 /// Real-time speech transcription using Apple's Speech framework.
 /// Provides streaming transcription with partial (tentative) and final results.
+/// Uses its own AVAudioEngine to avoid conflicts with other audio code.
 @MainActor
 public final class LiveTranscriber: ObservableObject {
     
@@ -41,10 +42,11 @@ public final class LiveTranscriber: ObservableObject {
     @Published public private(set) var finalizedText: String = ""
     
     private var recognizer: SFSpeechRecognizer?
-    /// The current recognition request. Thread-safe for appending audio buffers.
-    public private(set) var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
+    private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
     private var recognitionTask: SFSpeechRecognitionTask?
-    private var audioFormat: AVAudioFormat?
+    
+    // LiveTranscriber manages its own audio engine to avoid conflicts
+    private var audioEngine: AVAudioEngine?
     
     /// Locale for speech recognition. Defaults to device locale.
     public var locale: Locale {
@@ -79,9 +81,9 @@ public final class LiveTranscriber: ObservableObject {
         recognizer?.isAvailable ?? false
     }
     
-    /// Starts live transcription.
-    /// - Parameter audioFormat: The format of audio buffers that will be appended.
-    public func startTranscribing(audioFormat: AVAudioFormat) throws {
+    /// Starts live transcription with its own audio engine.
+    /// This is self-contained - no need to feed audio buffers externally.
+    public func startTranscribing() throws {
         guard state == .idle else {
             throw LiveTranscriberError.alreadyTranscribing
         }
@@ -97,8 +99,6 @@ public final class LiveTranscriber: ObservableObject {
         tentativeText = ""
         finalizedText = ""
         segments = []
-        
-        self.audioFormat = audioFormat
         
         // Create recognition request
         let request = SFSpeechAudioBufferRecognitionRequest()
@@ -116,7 +116,21 @@ public final class LiveTranscriber: ObservableObject {
         
         self.recognitionRequest = request
         
-        // Start recognition task on the main queue to avoid threading issues
+        // Set up audio engine for live transcription
+        let engine = AVAudioEngine()
+        let inputNode = engine.inputNode
+        let recordingFormat = inputNode.outputFormat(forBus: 0)
+        
+        // Install tap to feed audio to speech recognizer
+        inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { [weak request] buffer, _ in
+            request?.append(buffer)
+        }
+        
+        engine.prepare()
+        try engine.start()
+        self.audioEngine = engine
+        
+        // Start recognition task
         recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
             Task { @MainActor [weak self] in
                 self?.handleRecognitionResult(result, error: error)
@@ -126,25 +140,22 @@ public final class LiveTranscriber: ObservableObject {
         state = .transcribing
     }
     
-    /// Appends an audio buffer to the recognition request.
-    /// Call this from AudioRecorder's onAudioBuffer callback.
-    public func appendAudioBuffer(_ buffer: AVAudioPCMBuffer) {
-        guard state == .transcribing else { return }
-        recognitionRequest?.append(buffer)
-    }
-    
     /// Stops transcription and finalizes results.
     public func stopTranscribing() {
         guard state == .transcribing || state == .starting else { return }
         
         state = .stopping
         
+        // Stop audio engine first
+        audioEngine?.inputNode.removeTap(onBus: 0)
+        audioEngine?.stop()
+        audioEngine = nil
+        
         recognitionRequest?.endAudio()
         recognitionTask?.cancel()
         
         recognitionRequest = nil
         recognitionTask = nil
-        audioFormat = nil
         
         // Move any remaining tentative text to finalized
         if !tentativeText.isEmpty {
