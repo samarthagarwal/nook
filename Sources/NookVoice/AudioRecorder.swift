@@ -154,22 +154,18 @@ public final class AudioRecorder: ObservableObject {
         let holder = self.callbackHolder
         
         // Install tap on input node - this callback runs on the audio thread!
-        input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self, writer, holder] buffer, time in
+        // IMPORTANT: Do NOT create Tasks or do heavy work here - realtime audio thread!
+        input.installTap(onBus: 0, bufferSize: 1024, format: format) { [writer, holder] buffer, time in
             // Write to file directly on audio thread (thread-safe)
             writer?.write(buffer)
             
-            // Call buffer callback directly on audio thread (SFSpeechAudioBufferRecognitionRequest.append is thread-safe)
-            // Access through holder so callback updates after startRecording() are visible
+            // Call buffer callback directly on audio thread
             holder.bufferCallback?(buffer, time)
             
-            // Calculate level and send to MainActor for UI
+            // Calculate and store level (thread-safe holder will be polled by timer)
             let level = Self.calculateAudioLevel(buffer)
+            holder.latestLevel = level
             holder.levelCallback?(level)
-            
-            // Update UI on MainActor
-            Task { @MainActor [weak self] in
-                self?.audioLevel = level
-            }
         }
         
         engine.prepare()
@@ -270,10 +266,15 @@ public final class AudioRecorder: ObservableObject {
     }
     
     private func startDurationTimer() {
-        durationTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
-            Task { @MainActor [weak self] in
+        // Use DispatchQueue.main for timer to avoid Task creation overhead
+        durationTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
+            guard let self = self else { return }
+            // Timer callbacks on main thread when scheduled on main RunLoop
+            DispatchQueue.main.async { [weak self] in
                 guard let self = self, let start = self.startTime else { return }
                 self.duration = Date().timeIntervalSince(start)
+                // Poll latest level from thread-safe holder
+                self.audioLevel = self.callbackHolder.latestLevel
             }
         }
     }
@@ -334,6 +335,7 @@ final class AudioCallbackHolder: @unchecked Sendable {
     
     private var _bufferCallback: (@Sendable (AVAudioPCMBuffer, AVAudioTime) -> Void)?
     private var _levelCallback: (@Sendable (AudioRecorder.AudioLevel) -> Void)?
+    private var _latestLevel: AudioRecorder.AudioLevel = .init(average: 0, peak: 0)
     
     var bufferCallback: (@Sendable (AVAudioPCMBuffer, AVAudioTime) -> Void)? {
         get {
@@ -358,6 +360,20 @@ final class AudioCallbackHolder: @unchecked Sendable {
             lock.lock()
             defer { lock.unlock() }
             _levelCallback = newValue
+        }
+    }
+    
+    /// Latest audio level - written from audio thread, read from main thread via timer
+    var latestLevel: AudioRecorder.AudioLevel {
+        get {
+            lock.lock()
+            defer { lock.unlock() }
+            return _latestLevel
+        }
+        set {
+            lock.lock()
+            defer { lock.unlock() }
+            _latestLevel = newValue
         }
     }
 }
