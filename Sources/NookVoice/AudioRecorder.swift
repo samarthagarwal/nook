@@ -110,13 +110,6 @@ public final class AudioRecorder: ObservableObject {
             throw AudioRecorderError.alreadyRecording
         }
         
-        // Configure audio session for recording (iOS only)
-        #if os(iOS)
-        let audioSession = AVAudioSession.sharedInstance()
-        try audioSession.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .allowBluetooth])
-        try audioSession.setActive(true)
-        #endif
-        
         let engine = AVAudioEngine()
         let input = engine.inputNode
         let format = input.outputFormat(forBus: 0)
@@ -150,23 +143,14 @@ public final class AudioRecorder: ObservableObject {
         
         self.audioFileWriter = writer
         
-        // Capture the callback holder (not the callbacks themselves) so updates are visible
-        let holder = self.callbackHolder
-        
-        // Install tap on input node - this callback runs on the audio thread!
-        // IMPORTANT: Do NOT create Tasks or do heavy work here - realtime audio thread!
-        input.installTap(onBus: 0, bufferSize: 1024, format: format) { [writer, holder] buffer, time in
-            // Write to file directly on audio thread (thread-safe)
-            writer?.write(buffer)
-            
-            // Call buffer callback directly on audio thread
-            holder.bufferCallback?(buffer, time)
-            
-            // Calculate and store level (thread-safe holder will be polled by timer)
-            let level = Self.calculateAudioLevel(buffer)
-            holder.latestLevel = level
-            holder.levelCallback?(level)
+        // Install tap on input node - this callback runs on the REALTIME audio thread!
+        // TESTING: Empty callback to isolate the crash
+        input.installTap(onBus: 0, bufferSize: 1024, format: format) { _, _ in
+            // Empty - just testing if basic audio engine works
         }
+        
+        // Store writer for later use (file writing disabled for now to isolate crash)
+        _ = writer
         
         engine.prepare()
         try engine.start()
@@ -192,11 +176,6 @@ public final class AudioRecorder: ObservableObject {
         
         inputNode?.removeTap(onBus: 0)
         audioEngine?.stop()
-        
-        // Deactivate audio session (iOS only)
-        #if os(iOS)
-        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
-        #endif
         
         let url = audioFileURL
         
@@ -309,19 +288,17 @@ public enum AudioRecorderError: LocalizedError {
 
 // MARK: - AudioFileWriter
 
-/// Thread-safe wrapper for AVAudioFile writing.
-/// Can be safely called from the audio thread.
+/// Wrapper for AVAudioFile writing from the audio tap.
+/// The audio tap callback is called sequentially, so no lock is needed.
 final class AudioFileWriter: @unchecked Sendable {
     private let file: AVAudioFile
-    private let lock = NSLock()
     
     init(file: AVAudioFile) {
         self.file = file
     }
     
     func write(_ buffer: AVAudioPCMBuffer) {
-        lock.lock()
-        defer { lock.unlock() }
+        // No lock - audio tap callbacks are sequential
         try? file.write(from: buffer)
     }
 }
