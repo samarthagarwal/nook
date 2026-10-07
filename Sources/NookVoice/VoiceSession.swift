@@ -138,11 +138,12 @@ public final class VoiceSession: ObservableObject {
         tentativeText = ""
         duration = 0
         
-        // Start live transcription first (it manages its own audio engine for preview)
-        try liveTranscriber.startTranscribing()
-        
         // Start audio recording (save to file for WhisperKit final transcription)
         audioFileURL = try audioRecorder.startRecording(saveToFile: true)
+        
+        // TODO: Re-enable live transcription once threading issues are resolved
+        // For now, skip live preview to avoid SFSpeechRecognizer crashes
+        // try liveTranscriber.startTranscribing()
         
         state = .recording
     }
