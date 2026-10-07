@@ -450,7 +450,9 @@ public struct CloudModelView: View {
                                     .font(NookTypography.rowTitle)
                                     .foregroundColor(NookColors.ink)
                                     .autocorrectionDisabled()
+                                    #if os(iOS)
                                     .textInputAutocapitalization(.never)
+                                    #endif
                                     .onSubmit { saveCloud() }
                             }
                             .padding(14)
