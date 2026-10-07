@@ -132,6 +132,11 @@ public final class VoiceSession: ObservableObject {
             }
         }
         
+        // Load WhisperKit model if not already loaded
+        if !whisperTranscriber.isModelLoaded {
+            try await whisperTranscriber.loadModel(.base)
+        }
+        
         // Reset state
         liveTranscript = ""
         finalizedText = ""
