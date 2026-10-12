@@ -282,11 +282,9 @@ public actor ToolRegistry {
         registeredTools[ConversationSearchTool.toolName] = ConversationSearchTool(chatStore: chatStore)
         registeredTools[CalendarSearchTool.toolName] = CalendarSearchTool(reader: calendarReader ?? EventKitCalendarReader())
         registeredTools[CalendarCreateTool.toolName] = CalendarCreateTool(writer: calendarWriter ?? EventKitCalendarWriter())
-        registeredTools[RemindersCreateTool.toolName] = RemindersCreateTool(writer: reminderWriter ?? EventKitReminderWriter())
-        registeredTools[RemindersListTool.toolName] = RemindersListTool(reader: reminderReader ?? EventKitReminderReader())
         registeredTools[ContactsSearchTool.toolName] = ContactsSearchTool(searcher: contactSearcher ?? CNContactSearcher())
         
-        // Internal Nook todos
+        // Internal Nook todos (replaces iOS Reminders tools)
         registeredTools[TodosCreateTool.toolName] = TodosCreateTool()
         registeredTools[TodosCompleteTool.toolName] = TodosCompleteTool()
         registeredTools[TodosListTool.toolName] = TodosListTool()

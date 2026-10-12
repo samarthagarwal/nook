@@ -136,9 +136,7 @@ public final class EventKitReminderWriter: @unchecked Sendable, ReminderWriting 
 /// and should always be available regardless of which Skill is active.
 public enum AlwaysOfferedLocalTools {
     public static let names: Set<String> = [
-        RemindersCreateTool.toolName,   // reminders.create
         "calendar.create",              // CalendarCreateTool
-        "reminders.list",               // RemindersListTool
         "contacts.search",              // ContactsSearchTool
         "todos.create",                 // TodosCreateTool
         "todos.complete",               // TodosCompleteTool
