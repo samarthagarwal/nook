@@ -285,6 +285,12 @@ public actor ToolRegistry {
         registeredTools[RemindersCreateTool.toolName] = RemindersCreateTool(writer: reminderWriter ?? EventKitReminderWriter())
         registeredTools[RemindersListTool.toolName] = RemindersListTool(reader: reminderReader ?? EventKitReminderReader())
         registeredTools[ContactsSearchTool.toolName] = ContactsSearchTool(searcher: contactSearcher ?? CNContactSearcher())
+        
+        // Internal Nook todos
+        registeredTools[TodosCreateTool.toolName] = TodosCreateTool()
+        registeredTools[TodosCompleteTool.toolName] = TodosCompleteTool()
+        registeredTools[TodosListTool.toolName] = TodosListTool()
+        registeredTools[TodosDeleteTool.toolName] = TodosDeleteTool()
     }
 
     /// Binds the conversation's Knowledge scope for `documents_search` this turn.

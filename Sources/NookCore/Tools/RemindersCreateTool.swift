@@ -140,6 +140,10 @@ public enum AlwaysOfferedLocalTools {
         "calendar.create",              // CalendarCreateTool
         "reminders.list",               // RemindersListTool
         "contacts.search",              // ContactsSearchTool
+        "todos.create",                 // TodosCreateTool
+        "todos.complete",               // TodosCompleteTool
+        "todos.list",                   // TodosListTool
+        "todos.delete",                 // TodosDeleteTool
     ]
 
     public static func contains(_ name: String) -> Bool {
