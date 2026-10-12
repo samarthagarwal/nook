@@ -61,23 +61,20 @@ public struct VoiceComposer: View {
             }
             .padding(.horizontal, 12)
             
-            // Transcript field with blue border
-            VStack(alignment: .leading, spacing: 4) {
-                if session.liveTranscript.isEmpty {
-                    Text("Listening...")
+            // Waveform visualization with border
+            HStack(spacing: 0) {
+                if let levelMeter = levelMeter {
+                    CompactVoiceWaveform(levelMeter: levelMeter)
+                        .frame(maxWidth: .infinity)
+                } else {
+                    Text("Speak now...")
                         .font(NookTypography.userBubble)
                         .foregroundColor(NookColors.ink40)
-                } else {
-                    TentativeText(
-                        finalizedText: session.finalizedText,
-                        tentativeText: session.tentativeText,
-                        font: NookTypography.userBubble
-                    )
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 15)
-            .padding(.vertical, 12)
+            .padding(.vertical, 10)
             .background(
                 RoundedRectangle(cornerRadius: NookRadius.pill)
                     .fill(NookColors.surface)
@@ -87,8 +84,8 @@ public struct VoiceComposer: View {
                     .strokeBorder(NookColors.local, lineWidth: 2)
             )
             
-            // Controls: Cancel, Waveform, Confirm
-            HStack(spacing: 12) {
+            // Controls: Cancel and Confirm
+            HStack(spacing: 16) {
                 // Cancel button
                 Button(action: onCancel) {
                     Image(systemName: "xmark")
@@ -99,14 +96,7 @@ public struct VoiceComposer: View {
                 }
                 .buttonStyle(.plain)
                 
-                // Waveform or placeholder
-                if let levelMeter = levelMeter {
-                    CompactVoiceWaveform(levelMeter: levelMeter)
-                        .frame(maxWidth: .infinity)
-                } else {
-                    // Simple placeholder when no level meter
-                    Spacer()
-                }
+                Spacer()
                 
                 // Confirm button
                 Button(action: onConfirm) {

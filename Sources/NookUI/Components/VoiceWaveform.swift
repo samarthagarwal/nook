@@ -27,7 +27,7 @@ public struct VoiceWaveform: View {
                         width: style.barWidth,
                         height: barHeight(for: bar.level)
                     )
-                    .animation(.easeOut(duration: 0.1), value: bar.level)
+                    .animation(.linear(duration: 0.05), value: bar.level)
             }
         }
     }
@@ -38,7 +38,7 @@ public struct VoiceWaveform: View {
     }
 }
 
-/// Compact waveform for the chat composer (fewer bars, smaller).
+/// Compact waveform for the chat composer (many bars, fills width).
 public struct CompactVoiceWaveform: View {
     @ObservedObject var levelMeter: AudioLevelMeter
     
@@ -52,7 +52,8 @@ public struct CompactVoiceWaveform: View {
             style: .chatCompact,
             accentColor: NookColors.local
         )
-        .frame(height: 24)
+        .frame(maxWidth: .infinity)
+        .frame(height: 28)
     }
 }
 

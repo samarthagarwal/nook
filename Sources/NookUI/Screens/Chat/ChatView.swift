@@ -277,36 +277,22 @@ public struct ChatView: View {
                 .padding(.horizontal, 18)
             }
 
-            // Voice recording UI or normal composer
-            if voiceMode == .recording, let voiceSession = voiceSession {
-                VoiceComposer(
-                    session: voiceSession,
-                    levelMeter: audioLevelMeter,
-                    onCancel: {
-                        voiceSession.discardRecording()
+            // Composer: text input / waveform / transcribing indicator
+            HStack(spacing: 8) {
+                // Left button: Plus (idle) or Cancel (recording)
+                if voiceMode == .recording {
+                    Button(action: {
+                        voiceSession?.discardRecording()
                         voiceMode = .idle
-                    },
-                    onConfirm: {
-                        Task {
-                            do {
-                                let result = try await voiceSession.stopRecording()
-                                inputText = result.text
-                                wasDictated = true
-                                voiceMode = .hasResult
-                                // Reset session so mic can be used again
-                                voiceSession.reset()
-                            } catch {
-                                print("[Voice] Transcription failed: \(error)")
-                                runtimeStore.presentStatus("Transcription failed: \(error.localizedDescription)")
-                                voiceSession.reset()
-                                voiceMode = .idle
-                            }
-                        }
+                    }) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 15, weight: .medium))
+                            .foregroundColor(NookColors.ink70)
+                            .frame(width: 38, height: 38)
+                            .background(Circle().fill(NookColors.fill))
                     }
-                )
-            } else {
-                // Normal composer with mic/send button
-                HStack(spacing: 8) {
+                    .buttonStyle(.plain)
+                } else {
                     Button(action: {
                         onOpenAttach()
                     }) {
@@ -317,8 +303,40 @@ public struct ChatView: View {
                             .background(Circle().fill(NookColors.fill))
                     }
                     .buttonStyle(.plain)
+                }
 
-                    HStack {
+                // Center: Text field / Live transcript during recording
+                ZStack {
+                    if voiceMode == .recording, let voiceSession = voiceSession {
+                        // Live transcript during recording
+                        HStack(spacing: 8) {
+                            // Recording indicator (pulsing)
+                            Circle()
+                                .fill(NookColors.local)
+                                .frame(width: 8, height: 8)
+                            
+                            // Live transcript or placeholder
+                            if voiceSession.liveTranscript.isEmpty {
+                                Text("Listening...")
+                                    .font(NookTypography.userBubble)
+                                    .foregroundColor(NookColors.ink40)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            } else {
+                                Text(voiceSession.liveTranscript)
+                                    .font(NookTypography.userBubble)
+                                    .foregroundColor(voiceSession.isPartialResult ? NookColors.ink62 : NookColors.ink)
+                                    .lineLimit(2)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                            
+                            // Duration
+                            Text(formatDuration(voiceSession.duration))
+                                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                                .foregroundColor(NookColors.ink45)
+                        }
+                        .padding(.horizontal, 12)
+                    } else {
+                        // Normal text field
                         TextField(
                             "",
                             text: $inputText,
@@ -326,64 +344,77 @@ public struct ChatView: View {
                                 .font(NookTypography.userBubble)
                                 .foregroundColor(NookColors.ink40)
                         )
-                            .font(NookTypography.userBubble)
-                            .foregroundColor(NookColors.ink)
-                            .textFieldStyle(.plain)
-                    }
-                    .padding(.horizontal, 15)
-                    .frame(height: 38)
-                    .background(
-                        RoundedRectangle(cornerRadius: NookRadius.pill)
-                            .fill(NookColors.surface)
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: NookRadius.pill)
-                            .strokeBorder(NookColors.hairlineStrong, lineWidth: 1)
-                    )
-
-                    // Mic or Send/Stop button
-                    if session.isStreaming || session.isThinking {
-                        // Stop button during generation
-                        Button(action: {
-                            session.cancelGeneration()
-                            runtimeStore.cancelGeneration()
-                        }) {
-                            Image(systemName: "stop.fill")
-                                .font(.system(size: 14, weight: .bold))
-                                .foregroundColor(NookColors.inkOnDark)
-                                .frame(width: 38, height: 38)
-                                .background(Circle().fill(NookColors.external))
-                        }
-                        .buttonStyle(.plain)
-                    } else if inputText.trimmingCharacters(in: .whitespaces).isEmpty && voiceSession != nil {
-                        // Mic button when text is empty and voice is available
-                        Button(action: startVoiceRecording) {
-                            Image(systemName: "mic.fill")
-                                .font(.system(size: 14, weight: .bold))
-                                .foregroundColor(NookColors.inkOnDark)
-                                .frame(width: 38, height: 38)
-                                .background(Circle().fill(NookColors.ink))
-                        }
-                        .buttonStyle(.plain)
-                    } else {
-                        // Send button
-                        Button(action: sendCurrentMessage) {
-                            Image(systemName: "arrow.up")
-                                .font(.system(size: 14, weight: .bold))
-                                .foregroundColor(NookColors.inkOnDark)
-                                .frame(width: 38, height: 38)
-                                .background(
-                                    Circle()
-                                        .fill(inputText.isEmpty ? NookColors.ink40 : NookColors.ink)
-                                )
-                        }
-                        .disabled(inputText.trimmingCharacters(in: .whitespaces).isEmpty)
-                        .buttonStyle(.plain)
+                        .font(NookTypography.userBubble)
+                        .foregroundColor(NookColors.ink)
+                        .textFieldStyle(.plain)
+                        .padding(.horizontal, 15)
                     }
                 }
-                .padding(.horizontal, 18)
-                .padding(.bottom, 14)
+                .frame(height: 38)
+                .background(
+                    RoundedRectangle(cornerRadius: NookRadius.pill)
+                        .fill(NookColors.surface)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: NookRadius.pill)
+                        .strokeBorder(
+                            voiceMode == .recording ? NookColors.local : NookColors.hairlineStrong,
+                            lineWidth: voiceMode == .recording ? 2 : 1
+                        )
+                )
+
+                // Right button: Mic / Send / Checkmark
+                if voiceMode == .recording {
+                    // Checkmark to confirm recording
+                    Button(action: confirmVoiceRecording) {
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundColor(NookColors.inkOnDark)
+                            .frame(width: 38, height: 38)
+                            .background(Circle().fill(NookColors.local))
+                    }
+                    .buttonStyle(.plain)
+                } else if session.isStreaming || session.isThinking {
+                    // Stop button during generation
+                    Button(action: {
+                        session.cancelGeneration()
+                        runtimeStore.cancelGeneration()
+                    }) {
+                        Image(systemName: "stop.fill")
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundColor(NookColors.inkOnDark)
+                            .frame(width: 38, height: 38)
+                            .background(Circle().fill(NookColors.external))
+                    }
+                    .buttonStyle(.plain)
+                } else if inputText.trimmingCharacters(in: .whitespaces).isEmpty && voiceSession != nil {
+                    // Mic button when text is empty and voice is available
+                    Button(action: startVoiceRecording) {
+                        Image(systemName: "mic.fill")
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundColor(NookColors.inkOnDark)
+                            .frame(width: 38, height: 38)
+                            .background(Circle().fill(NookColors.ink))
+                    }
+                    .buttonStyle(.plain)
+                } else {
+                    // Send button
+                    Button(action: sendCurrentMessage) {
+                        Image(systemName: "arrow.up")
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundColor(NookColors.inkOnDark)
+                            .frame(width: 38, height: 38)
+                            .background(
+                                Circle()
+                                    .fill(inputText.isEmpty ? NookColors.ink40 : NookColors.ink)
+                            )
+                    }
+                    .disabled(inputText.trimmingCharacters(in: .whitespaces).isEmpty)
+                    .buttonStyle(.plain)
+                }
             }
+            .padding(.horizontal, 18)
+            .padding(.bottom, 14)
         }
         .padding(.bottom, 4)
         .background(NookColors.paper)
@@ -612,10 +643,6 @@ public struct ChatView: View {
 
         Task {
             do {
-                // Show loading state if model needs to download
-                if !voiceSession.isWhisperReady {
-                    runtimeStore.presentStatus("Loading speech model…")
-                }
                 try await voiceSession.startRecording()
                 voiceMode = .recording
             } catch {
@@ -623,6 +650,28 @@ public struct ChatView: View {
                 runtimeStore.presentStatus("Unable to start voice recording: \(error.localizedDescription)")
             }
         }
+    }
+    
+    private func confirmVoiceRecording() {
+        guard let voiceSession = voiceSession else { return }
+        
+        // With live transcription, we already have the text - just stop and use it
+        let transcript = voiceSession.stopRecording()
+        
+        if !transcript.isEmpty {
+            inputText = transcript
+            wasDictated = true
+            voiceMode = .hasResult
+        } else {
+            voiceMode = .idle
+        }
+        voiceSession.reset()
+    }
+    
+    private func formatDuration(_ duration: TimeInterval) -> String {
+        let minutes = Int(duration) / 60
+        let seconds = Int(duration) % 60
+        return String(format: "%d:%02d", minutes, seconds)
     }
     
     private func sendCurrentMessage() {

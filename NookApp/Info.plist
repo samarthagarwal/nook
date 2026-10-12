@@ -29,7 +29,7 @@
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Your voice is turned into text on this iPhone. Audio is never sent anywhere.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
-	<string>Nook transcribes your voice on this iPhone so you can speak instead of typing.</string>
+	<string>Nook uses on-device speech recognition to transcribe your voice. Audio never leaves your device.</string>
 	<key>NSRemindersFullAccessUsageDescription</key>
 	<string>Nook adds reminders on this iPhone when you ask it to.</string>
 	<key>NSRemindersUsageDescription</key>

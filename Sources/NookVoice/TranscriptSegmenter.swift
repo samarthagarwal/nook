@@ -42,21 +42,6 @@ public struct TranscriptSegmenter: Sendable {
     
     public init() {}
     
-    /// Converts WhisperKit timestamped segments into sentence-based segments.
-    /// Groups word-level timestamps by sentence boundaries (., ?, !).
-    public func segmentBySentences(
-        _ whisperSegments: [WhisperTranscriber.TimestampedSegment]
-    ) -> [Segment] {
-        // WhisperKit segments are already sentence-based from our conversion
-        return whisperSegments.map { segment in
-            Segment(
-                text: segment.text,
-                startTime: segment.startTime,
-                endTime: segment.endTime
-            )
-        }
-    }
-    
     /// Segments raw text with estimated timestamps based on word count.
     /// Used when word-level timestamps aren't available.
     public func segmentWithEstimatedTiming(

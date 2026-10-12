@@ -18,7 +18,6 @@ public struct AppRootView: View {
     // Voice Input
     @StateObject private var voiceSession: VoiceSession
     @StateObject private var audioLevelMeter: AudioLevelMeter = AudioLevelMeter()
-    private let whisperTranscriber: WhisperTranscriber
 
     private let knowledgeEngine: KnowledgeEngine
     private let skillManager: SkillManager
@@ -71,13 +70,8 @@ public struct AppRootView: View {
         _skillState = StateObject(wrappedValue: ObservableSkillManager(manager: skillManager))
         _mcpState = StateObject(wrappedValue: ObservableMCPState(client: mcpClient))
         
-        // Voice input setup
-        let transcriber = WhisperTranscriber()
-        self.whisperTranscriber = transcriber
-        _voiceSession = StateObject(wrappedValue: VoiceSession(
-            mode: .chat,
-            whisperTranscriber: transcriber
-        ))
+        // Voice input setup (uses Apple Speech framework for live transcription)
+        _voiceSession = StateObject(wrappedValue: VoiceSession())
     }
     
     public var body: some View {
@@ -604,17 +598,6 @@ public struct AppRootView: View {
         .onChange(of: runtimeStore.downloadState) { oldState, newState in
             if case .downloading = oldState, case .ready = newState {
                 showToast("\(runtimeStore.activeTier.name) is ready.")
-            }
-        }
-        .task {
-            // Preload WhisperKit model in background so voice recording is instant
-            if !whisperTranscriber.isModelLoaded {
-                do {
-                    try await whisperTranscriber.loadModel(.base)
-                    print("[Voice] WhisperKit model preloaded")
-                } catch {
-                    print("[Voice] Failed to preload WhisperKit: \(error)")
-                }
             }
         }
     }

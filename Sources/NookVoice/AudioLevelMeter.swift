@@ -36,9 +36,9 @@ public final class AudioLevelMeter: ObservableObject {
     /// Creates an audio level meter.
     /// - Parameters:
     ///   - barCount: Number of bars in the waveform visualization.
-    ///   - smoothingFactor: Smoothing applied to level changes (0-1, higher = smoother).
+    ///   - smoothingFactor: Smoothing applied to level changes (0-1, lower = more responsive).
     ///   - peakDecayRate: How quickly the peak indicator decays (per second).
-    public init(barCount: Int = 12, smoothingFactor: Float = 0.7, peakDecayRate: Float = 2.0) {
+    public init(barCount: Int = 32, smoothingFactor: Float = 0.25, peakDecayRate: Float = 5.0) {
         self.barCount = barCount
         self.smoothingFactor = smoothingFactor
         self.peakDecayRate = peakDecayRate
@@ -47,8 +47,8 @@ public final class AudioLevelMeter: ObservableObject {
     }
     
     /// Updates the meter with a new audio level.
-    /// - Parameter level: The audio level from AudioRecorder (0-1).
-    public func update(with level: AudioRecorder.AudioLevel) {
+    /// - Parameter level: The audio level from LiveTranscriber (0-1).
+    public func update(with level: LiveTranscriber.AudioLevel) {
         let now = Date()
         let deltaTime = now.timeIntervalSince(lastUpdateTime)
         lastUpdateTime = now
@@ -123,13 +123,13 @@ public extension AudioLevelMeter {
             self.cornerRadius = cornerRadius
         }
         
-        /// Default style for chat composer (compact).
+        /// Default style for chat composer (compact, many thin bars).
         public static let chatCompact = WaveformStyle(
-            barWidth: 2,
-            barSpacing: 1.5,
-            minBarHeight: 3,
-            maxBarHeight: 20,
-            cornerRadius: 1
+            barWidth: 2.5,
+            barSpacing: 2,
+            minBarHeight: 4,
+            maxBarHeight: 24,
+            cornerRadius: 1.25
         )
         
         /// Default style for knowledge recording sheet (full).
