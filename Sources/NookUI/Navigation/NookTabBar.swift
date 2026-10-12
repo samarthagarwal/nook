@@ -3,6 +3,7 @@ import NookDesign
 
 public enum NookTab: String, CaseIterable, Identifiable {
     case chat = "Chat"
+    case todos = "Todos"
     case knowledge = "Knowledge"
     case skills = "Skills"
     case connect = "Connect"
@@ -13,6 +14,7 @@ public enum NookTab: String, CaseIterable, Identifiable {
     public var systemImage: String {
         switch self {
         case .chat: return "bubble.left.and.bubble.right"
+        case .todos: return "checklist"
         case .knowledge: return "book.closed"
         case .skills: return "sparkles"
         case .connect: return "link"

@@ -14,6 +14,7 @@ public struct AppRootView: View {
     @StateObject private var knowledgeState: ObservableKnowledgeEngine
     @StateObject private var skillState: ObservableSkillManager
     @StateObject private var mcpState: ObservableMCPState
+    @StateObject private var todosState: ObservableTodosState = ObservableTodosState()
     
     // Voice Input
     @StateObject private var voiceSession: VoiceSession
@@ -250,7 +251,20 @@ public struct AppRootView: View {
                     }
                 }
                 
-                // Tab 3: Skills
+                // Tab 3: Todos
+                if selectedTab == .todos {
+                    TodosView(
+                        state: todosState,
+                        onOpenSourceChat: { conversationId in
+                            if let convo = conversations.first(where: { $0.id == conversationId }) {
+                                openConversation(convo)
+                                selectedTab = .chat
+                            }
+                        }
+                    )
+                }
+                
+                // Tab 4: Skills
                 if selectedTab == .skills {
                     if let skill = selectedSkill {
                         SkillDetailView(
@@ -290,7 +304,7 @@ public struct AppRootView: View {
                     }
                 }
                 
-                // Tab 4: Connect (MCP)
+                // Tab 5: Connect (MCP)
                 if selectedTab == .connect {
                     if let server = selectedServer {
                         ServerDetailView(
