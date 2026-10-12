@@ -194,6 +194,27 @@ public enum NookDatabase {
             }
         }
 
+        migrator.registerMigration("v9_todos") { db in
+            try db.create(table: "todos") { table in
+                table.column("id", .text).primaryKey()
+                table.column("title", .text).notNull()
+                table.column("notes", .text)
+                table.column("due_date", .datetime)
+                table.column("is_completed", .boolean).notNull().defaults(to: false)
+                table.column("completed_at", .datetime)
+                table.column("priority", .integer).notNull().defaults(to: 0)
+                table.column("source_conversation_id", .text)
+                    .references("conversations", onDelete: .setNull)
+                table.column("source_message_id", .text)
+                    .references("messages", onDelete: .setNull)
+                table.column("created_at", .datetime).notNull()
+                table.column("updated_at", .datetime).notNull()
+            }
+
+            try db.create(index: "todos_incomplete", on: "todos", columns: ["is_completed", "due_date"])
+            try db.create(index: "todos_by_updated", on: "todos", columns: ["updated_at"])
+        }
+
         try migrator.migrate(dbQueue)
     }
 
