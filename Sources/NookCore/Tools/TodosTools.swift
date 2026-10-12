@@ -14,32 +14,34 @@ public final class TodosCreateTool: @unchecked Sendable, AgentTool {
         For calendar events with specific times, use calendar.create instead. \
         For iOS Reminders app specifically, use reminders.create instead.
         """
-    
-    public var parametersSchema: [String: Any] {
-        [
-            "type": "object",
-            "properties": [
-                "title": [
-                    "type": "string",
-                    "description": "The todo title/task description"
-                ],
-                "due": [
-                    "type": "string",
-                    "description": "Optional due date in natural language (today, tomorrow, next week) or yyyy-MM-dd HH:mm format"
-                ],
-                "priority": [
-                    "type": "string",
-                    "enum": ["none", "low", "medium", "high"],
-                    "description": "Task priority level"
-                ],
-                "notes": [
-                    "type": "string",
-                    "description": "Optional additional notes"
-                ]
-            ],
-            "required": ["title"]
-        ]
-    }
+    public let isExternal = false
+    public let requiresApprovalByDefault = false
+    public let parameters: [AgentToolParameterSchema] = [
+        AgentToolParameterSchema(
+            name: "title",
+            type: "string",
+            description: "The todo title/task description",
+            required: true
+        ),
+        AgentToolParameterSchema(
+            name: "due",
+            type: "string",
+            description: "Optional due date in natural language (today, tomorrow, next week) or yyyy-MM-dd HH:mm format",
+            required: false
+        ),
+        AgentToolParameterSchema(
+            name: "priority",
+            type: "string",
+            description: "Task priority: none, low, medium, or high",
+            required: false
+        ),
+        AgentToolParameterSchema(
+            name: "notes",
+            type: "string",
+            description: "Optional additional notes",
+            required: false
+        )
+    ]
     
     private let store: TodoStore
     
@@ -47,46 +49,57 @@ public final class TodosCreateTool: @unchecked Sendable, AgentTool {
         self.store = store
     }
     
-    public func run(arguments: [String: ToolJSONValue]) async throws -> String {
-        guard case .string(let title) = arguments["title"], !title.isEmpty else {
-            return "Error: title is required"
+    public func execute(arguments: ToolArguments) async throws -> ToolExecutionResult {
+        guard let title = arguments["title"]?.stringValue, !title.isEmpty else {
+            return ToolExecutionResult(
+                textForModel: "Error: title is required",
+                displayText: "\(Self.toolName) · missing title",
+                disposition: .failed
+            )
         }
         
         let dueDate: Date?
-        if case .string(let dueStr) = arguments["due"] {
+        if let dueStr = arguments["due"]?.stringValue {
             dueDate = parseDueDate(dueStr)
         } else {
             dueDate = nil
         }
         
         let priority: TodoItem.Priority
-        if case .string(let p) = arguments["priority"] {
+        if let p = arguments["priority"]?.stringValue {
             priority = TodoItem.Priority(rawValue: ["none": 0, "low": 1, "medium": 2, "high": 3][p] ?? 0) ?? .none
         } else {
             priority = .none
         }
         
-        let notes: String?
-        if case .string(let n) = arguments["notes"], !n.isEmpty {
-            notes = n
-        } else {
-            notes = nil
-        }
+        let notes = arguments["notes"]?.stringValue
         
         let todo = TodoItem(
             title: title,
-            notes: notes,
+            notes: notes?.isEmpty == false ? notes : nil,
             dueDate: dueDate,
             priority: priority
         )
         
-        try store.create(todo)
+        do {
+            try store.create(todo)
+        } catch {
+            return ToolExecutionResult(
+                textForModel: "Failed to create todo: \(error.localizedDescription)",
+                displayText: "\(Self.toolName) · failed",
+                disposition: .failed
+            )
+        }
         
         var response = "Created todo: \(title)"
         if let due = todo.formattedDueDate {
             response += " (due \(due))"
         }
-        return response
+        
+        return ToolExecutionResult(
+            textForModel: response,
+            displayText: "\(Self.toolName) · created"
+        )
     }
     
     private func parseDueDate(_ text: String) -> Date? {
@@ -134,19 +147,16 @@ public final class TodosCompleteTool: @unchecked Sendable, AgentTool {
         did something on their list, or wants to check off an item. \
         Search by title text - partial matches work.
         """
-    
-    public var parametersSchema: [String: Any] {
-        [
-            "type": "object",
-            "properties": [
-                "match_text": [
-                    "type": "string",
-                    "description": "Text to match against todo titles (partial match supported)"
-                ]
-            ],
-            "required": ["match_text"]
-        ]
-    }
+    public let isExternal = false
+    public let requiresApprovalByDefault = false
+    public let parameters: [AgentToolParameterSchema] = [
+        AgentToolParameterSchema(
+            name: "match_text",
+            type: "string",
+            description: "Text to match against todo titles (partial match supported)",
+            required: true
+        )
+    ]
     
     private let store: TodoStore
     
@@ -154,17 +164,37 @@ public final class TodosCompleteTool: @unchecked Sendable, AgentTool {
         self.store = store
     }
     
-    public func run(arguments: [String: ToolJSONValue]) async throws -> String {
-        guard case .string(let matchText) = arguments["match_text"], !matchText.isEmpty else {
-            return "Error: match_text is required"
+    public func execute(arguments: ToolArguments) async throws -> ToolExecutionResult {
+        guard let matchText = arguments["match_text"]?.stringValue, !matchText.isEmpty else {
+            return ToolExecutionResult(
+                textForModel: "Error: match_text is required",
+                displayText: "\(Self.toolName) · missing match_text",
+                disposition: .failed
+            )
         }
         
-        guard let todo = try store.findBestMatch(for: matchText) else {
-            return "No matching todo found for: \(matchText)"
+        guard let todo = try? store.findBestMatch(for: matchText) else {
+            return ToolExecutionResult(
+                textForModel: "No matching todo found for: \(matchText)",
+                displayText: "\(Self.toolName) · not found",
+                disposition: .failed
+            )
         }
         
-        try store.markCompleted(id: todo.id)
-        return "Completed: \(todo.title)"
+        do {
+            try store.markCompleted(id: todo.id)
+        } catch {
+            return ToolExecutionResult(
+                textForModel: "Failed to complete todo: \(error.localizedDescription)",
+                displayText: "\(Self.toolName) · failed",
+                disposition: .failed
+            )
+        }
+        
+        return ToolExecutionResult(
+            textForModel: "Completed: \(todo.title)",
+            displayText: "\(Self.toolName) · completed"
+        )
     }
 }
 
@@ -179,22 +209,22 @@ public final class TodosListTool: @unchecked Sendable, AgentTool {
         List the user's todos/tasks. Use when they ask what's on their list, \
         what they need to do, or want to see their tasks.
         """
-    
-    public var parametersSchema: [String: Any] {
-        [
-            "type": "object",
-            "properties": [
-                "include_completed": [
-                    "type": "boolean",
-                    "description": "Whether to include completed todos (default: false)"
-                ],
-                "search": [
-                    "type": "string",
-                    "description": "Optional search text to filter todos"
-                ]
-            ]
-        ]
-    }
+    public let isExternal = false
+    public let requiresApprovalByDefault = false
+    public let parameters: [AgentToolParameterSchema] = [
+        AgentToolParameterSchema(
+            name: "include_completed",
+            type: "boolean",
+            description: "Whether to include completed todos (default: false)",
+            required: false
+        ),
+        AgentToolParameterSchema(
+            name: "search",
+            type: "string",
+            description: "Optional search text to filter todos",
+            required: false
+        )
+    ]
     
     private let store: TodoStore
     
@@ -202,32 +232,37 @@ public final class TodosListTool: @unchecked Sendable, AgentTool {
         self.store = store
     }
     
-    public func run(arguments: [String: ToolJSONValue]) async throws -> String {
+    public func execute(arguments: ToolArguments) async throws -> ToolExecutionResult {
         let includeCompleted: Bool
         if case .bool(let b) = arguments["include_completed"] {
             includeCompleted = b
         } else {
             includeCompleted = false
         }
-        
-        let searchQuery: String?
-        if case .string(let s) = arguments["search"], !s.isEmpty {
-            searchQuery = s
-        } else {
-            searchQuery = nil
-        }
+        let searchQuery = arguments["search"]?.stringValue
         
         let todos: [TodoItem]
-        if let query = searchQuery {
-            todos = try store.search(query: query)
-        } else if includeCompleted {
-            todos = try store.fetchAll()
-        } else {
-            todos = try store.fetchIncomplete()
+        do {
+            if let query = searchQuery, !query.isEmpty {
+                todos = try store.search(query: query)
+            } else if includeCompleted {
+                todos = try store.fetchAll()
+            } else {
+                todos = try store.fetchIncomplete()
+            }
+        } catch {
+            return ToolExecutionResult(
+                textForModel: "Failed to fetch todos: \(error.localizedDescription)",
+                displayText: "\(Self.toolName) · failed",
+                disposition: .failed
+            )
         }
         
         if todos.isEmpty {
-            return includeCompleted ? "No todos found." : "No pending todos. All done!"
+            return ToolExecutionResult(
+                textForModel: includeCompleted ? "No todos found." : "No pending todos. All done!",
+                displayText: "\(Self.toolName) · 0 todos"
+            )
         }
         
         var lines: [String] = []
@@ -244,7 +279,10 @@ public final class TodosListTool: @unchecked Sendable, AgentTool {
             lines.append("... and \(todos.count - 20) more")
         }
         
-        return lines.joined(separator: "\n")
+        return ToolExecutionResult(
+            textForModel: lines.joined(separator: "\n"),
+            displayText: "\(Self.toolName) · \(todos.count) todo\(todos.count == 1 ? "" : "s")"
+        )
     }
 }
 
@@ -259,19 +297,16 @@ public final class TodosDeleteTool: @unchecked Sendable, AgentTool {
         Delete a todo when the user wants to remove an item from their list \
         (not just mark it complete).
         """
-    
-    public var parametersSchema: [String: Any] {
-        [
-            "type": "object",
-            "properties": [
-                "match_text": [
-                    "type": "string",
-                    "description": "Text to match against todo titles"
-                ]
-            ],
-            "required": ["match_text"]
-        ]
-    }
+    public let isExternal = false
+    public let requiresApprovalByDefault = false
+    public let parameters: [AgentToolParameterSchema] = [
+        AgentToolParameterSchema(
+            name: "match_text",
+            type: "string",
+            description: "Text to match against todo titles",
+            required: true
+        )
+    ]
     
     private let store: TodoStore
     
@@ -279,20 +314,49 @@ public final class TodosDeleteTool: @unchecked Sendable, AgentTool {
         self.store = store
     }
     
-    public func run(arguments: [String: ToolJSONValue]) async throws -> String {
-        guard case .string(let matchText) = arguments["match_text"], !matchText.isEmpty else {
-            return "Error: match_text is required"
+    public func execute(arguments: ToolArguments) async throws -> ToolExecutionResult {
+        guard let matchText = arguments["match_text"]?.stringValue, !matchText.isEmpty else {
+            return ToolExecutionResult(
+                textForModel: "Error: match_text is required",
+                displayText: "\(Self.toolName) · missing match_text",
+                disposition: .failed
+            )
         }
         
         // Search all todos including completed
-        let all = try store.fetchAll()
-        let normalized = matchText.lowercased()
-        
-        guard let todo = all.first(where: { $0.title.lowercased().contains(normalized) }) else {
-            return "No matching todo found for: \(matchText)"
+        let all: [TodoItem]
+        do {
+            all = try store.fetchAll()
+        } catch {
+            return ToolExecutionResult(
+                textForModel: "Failed to fetch todos: \(error.localizedDescription)",
+                displayText: "\(Self.toolName) · failed",
+                disposition: .failed
+            )
         }
         
-        try store.delete(id: todo.id)
-        return "Deleted: \(todo.title)"
+        let normalized = matchText.lowercased()
+        guard let todo = all.first(where: { $0.title.lowercased().contains(normalized) }) else {
+            return ToolExecutionResult(
+                textForModel: "No matching todo found for: \(matchText)",
+                displayText: "\(Self.toolName) · not found",
+                disposition: .failed
+            )
+        }
+        
+        do {
+            try store.delete(id: todo.id)
+        } catch {
+            return ToolExecutionResult(
+                textForModel: "Failed to delete todo: \(error.localizedDescription)",
+                displayText: "\(Self.toolName) · failed",
+                disposition: .failed
+            )
+        }
+        
+        return ToolExecutionResult(
+            textForModel: "Deleted: \(todo.title)",
+            displayText: "\(Self.toolName) · deleted"
+        )
     }
 }
