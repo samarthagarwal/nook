@@ -22,11 +22,17 @@ public struct ChatView: View {
     @State private var attachedImage: String? = nil
     @State private var voiceMode: VoiceMode = .idle
     @State private var wasDictated: Bool = false
+    @State private var isProcessingVoiceIntent: Bool = false
     
     private enum VoiceMode {
         case idle
         case recording
         case hasResult
+    }
+    
+    // Voice intent handler (lazy initialization)
+    private var voiceIntentHandler: VoiceIntentHandler {
+        VoiceIntentHandler()
     }
     
     public init(
@@ -363,8 +369,13 @@ public struct ChatView: View {
                         )
                 )
 
-                // Right button: Mic / Send / Checkmark
-                if voiceMode == .recording {
+                // Right button: Mic / Send / Checkmark / Processing
+                if isProcessingVoiceIntent {
+                    // Processing indicator while classifying intent
+                    ProgressView()
+                        .progressViewStyle(CircularProgressViewStyle(tint: NookColors.ink))
+                        .frame(width: 38, height: 38)
+                } else if voiceMode == .recording {
                     // Checkmark to confirm recording
                     Button(action: confirmVoiceRecording) {
                         Image(systemName: "checkmark")
@@ -657,15 +668,67 @@ public struct ChatView: View {
         
         // With live transcription, we already have the text - just stop and use it
         let transcript = voiceSession.stopRecording()
+        voiceSession.reset()
         
-        if !transcript.isEmpty {
+        guard !transcript.isEmpty else {
+            voiceMode = .idle
+            return
+        }
+        
+        // Check if OpenAI API key is configured for intent classification
+        let hasAPIKey = !AppPreferences.openAIAPIKey.isEmpty
+        
+        if hasAPIKey {
+            // Process with intent classification
+            isProcessingVoiceIntent = true
+            voiceMode = .idle
+            
+            Task {
+                await processVoiceIntent(transcript: transcript)
+                isProcessingVoiceIntent = false
+            }
+        } else {
+            // Fall back to direct chat input (no intent classification)
             inputText = transcript
             wasDictated = true
             voiceMode = .hasResult
-        } else {
-            voiceMode = .idle
         }
-        voiceSession.reset()
+    }
+    
+    private func processVoiceIntent(transcript: String) async {
+        let result = await voiceIntentHandler.process(
+            transcript: transcript,
+            conversationId: session.conversation.id,
+            messageId: nil
+        )
+        
+        await MainActor.run {
+            switch result {
+            case .question(let text, _):
+                // Send as chat message
+                inputText = text
+                wasDictated = true
+                voiceMode = .hasResult
+                // Auto-send for questions
+                sendCurrentMessage()
+                
+            case .todoCreated(let todo):
+                runtimeStore.presentStatus("Created todo: \(todo.title)")
+                
+            case .todoUpdated(let todo, let action):
+                let actionLabel = action == "complete" ? "Completed" : action.capitalized
+                runtimeStore.presentStatus("\(actionLabel): \(todo.title)")
+                
+            case .brainDumpSaved(let documentName):
+                runtimeStore.presentStatus("Saved: \(documentName)")
+                
+            case .fallbackToChat(let text, let reason):
+                print("[ChatView] Intent fallback: \(reason)")
+                inputText = text
+                wasDictated = true
+                voiceMode = .hasResult
+            }
+        }
     }
     
     private func formatDuration(_ duration: TimeInterval) -> String {
