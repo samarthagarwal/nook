@@ -19,15 +19,19 @@ public final class TodoStore: @unchecked Sendable {
     
     // MARK: - CRUD Operations
     
-    /// Creates a new todo item.
+    /// Creates a new todo item with automatic embedding.
     public func create(_ todo: TodoItem) throws {
+        // Compute embedding from title (+ notes if present)
+        let textToEmbed = [todo.title, todo.notes].compactMap { $0 }.joined(separator: " ")
+        let embeddingData = KnowledgeEmbedder.embed(textToEmbed).map { KnowledgeEmbedder.embeddingData(from: $0) }
+        
         try dbQueue.write { db in
             try db.execute(
                 sql: """
                     INSERT INTO todos (
                         id, title, notes, due_date, is_completed, completed_at,
-                        priority, source_conversation_id, source_message_id, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        priority, source_conversation_id, source_message_id, created_at, updated_at, embedding
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                 arguments: [
                     todo.id,
@@ -40,7 +44,8 @@ public final class TodoStore: @unchecked Sendable {
                     todo.sourceConversationId,
                     todo.sourceMessageId,
                     todo.createdAt,
-                    todo.updatedAt
+                    todo.updatedAt,
+                    embeddingData
                 ]
             )
         }
@@ -204,6 +209,48 @@ public final class TodoStore: @unchecked Sendable {
     public func incompleteCount() throws -> Int {
         try dbQueue.read { db in
             try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM todos WHERE is_completed = 0") ?? 0
+        }
+    }
+    
+    // MARK: - Semantic Search
+    
+    /// Represents a todo with its similarity score for RAG results.
+    public struct ScoredTodo: Sendable {
+        public let todo: TodoItem
+        public let score: Float
+    }
+    
+    /// Searches todos by semantic similarity to the query text.
+    /// Returns top matches sorted by similarity score (highest first).
+    public func searchSemantic(query: String, limit: Int = 5, threshold: Float = 0.3) throws -> [ScoredTodo] {
+        guard let queryVector = KnowledgeEmbedder.embed(query) else {
+            return []
+        }
+        return try searchSemantic(queryVector: queryVector, limit: limit, threshold: threshold)
+    }
+    
+    /// Searches todos by semantic similarity using a pre-computed query vector.
+    public func searchSemantic(queryVector: [Float], limit: Int = 5, threshold: Float = 0.3) throws -> [ScoredTodo] {
+        try dbQueue.read { db in
+            let rows = try Row.fetchAll(db, sql: "SELECT * FROM todos WHERE embedding IS NOT NULL")
+            
+            var scored: [ScoredTodo] = []
+            for row in rows {
+                guard let embeddingData: Data = row["embedding"],
+                      let todoVector = KnowledgeEmbedder.vector(from: embeddingData) else {
+                    continue
+                }
+                
+                let similarity = KnowledgeEmbedder.cosineSimilarity(queryVector, todoVector)
+                if similarity >= threshold {
+                    scored.append(ScoredTodo(todo: todoItem(from: row), score: similarity))
+                }
+            }
+            
+            return scored
+                .sorted { $0.score > $1.score }
+                .prefix(limit)
+                .map { $0 }
         }
     }
     

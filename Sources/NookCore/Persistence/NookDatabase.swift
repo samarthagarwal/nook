@@ -209,6 +209,8 @@ public enum NookDatabase {
                     .references("messages", onDelete: .setNull)
                 table.column("created_at", .datetime).notNull()
                 table.column("updated_at", .datetime).notNull()
+                // NLEmbedding vector for semantic search (same pattern as memory_cards)
+                table.column("embedding", .blob)
             }
 
             try db.create(index: "todos_incomplete", on: "todos", columns: ["is_completed", "due_date"])

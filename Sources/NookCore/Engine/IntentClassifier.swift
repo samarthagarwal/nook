@@ -82,19 +82,60 @@ public actor IntentClassifier {
         self.confidenceThreshold = confidenceThreshold
     }
     
+    // MARK: - Context for RAG
+    
+    /// Context from RAG search to help classification.
+    public struct Context: Sendable {
+        public let matchedTodos: [TodoMatch]
+        public let matchedKnowledge: [KnowledgeMatch]
+        
+        public struct TodoMatch: Sendable {
+            public let title: String
+            public let isCompleted: Bool
+            public let score: Float
+            
+            public init(title: String, isCompleted: Bool, score: Float) {
+                self.title = title
+                self.isCompleted = isCompleted
+                self.score = score
+            }
+        }
+        
+        public struct KnowledgeMatch: Sendable {
+            public let text: String
+            public let source: String
+            public let score: Float
+            
+            public init(text: String, source: String, score: Float) {
+                self.text = text
+                self.source = source
+                self.score = score
+            }
+        }
+        
+        public init(matchedTodos: [TodoMatch] = [], matchedKnowledge: [KnowledgeMatch] = []) {
+            self.matchedTodos = matchedTodos
+            self.matchedKnowledge = matchedKnowledge
+        }
+        
+        public static let empty = Context()
+    }
+    
     // MARK: - Public API
     
     /// Classifies the user's voice transcript into an intent.
-    /// - Parameter transcript: The transcribed voice input.
+    /// - Parameters:
+    ///   - transcript: The transcribed voice input.
+    ///   - context: Optional RAG context with matched todos and knowledge.
     /// - Returns: Classification result with intent, confidence, and extracted details.
     /// - Throws: ClassificationError if classification fails or confidence is too low.
-    public func classify(_ transcript: String) async throws -> ClassificationResult {
+    public func classify(_ transcript: String, context: Context = .empty) async throws -> ClassificationResult {
         let apiKey = AppPreferences.openAIAPIKey
         guard !apiKey.isEmpty else {
             throw ClassificationError.noAPIKey
         }
         
-        let result = try await callOpenAI(transcript: transcript, apiKey: apiKey)
+        let result = try await callOpenAI(transcript: transcript, context: context, apiKey: apiKey)
         
         if result.confidence < confidenceThreshold {
             throw ClassificationError.lowConfidence(result)
@@ -104,19 +145,19 @@ public actor IntentClassifier {
     }
     
     /// Classifies without throwing on low confidence - returns the result regardless.
-    public func classifyWithoutThreshold(_ transcript: String) async throws -> ClassificationResult {
+    public func classifyWithoutThreshold(_ transcript: String, context: Context = .empty) async throws -> ClassificationResult {
         let apiKey = AppPreferences.openAIAPIKey
         guard !apiKey.isEmpty else {
             throw ClassificationError.noAPIKey
         }
         
-        return try await callOpenAI(transcript: transcript, apiKey: apiKey)
+        return try await callOpenAI(transcript: transcript, context: context, apiKey: apiKey)
     }
     
     // MARK: - Private
     
-    private func callOpenAI(transcript: String, apiKey: String) async throws -> ClassificationResult {
-        let systemPrompt = """
+    private func callOpenAI(transcript: String, context: Context, apiKey: String) async throws -> ClassificationResult {
+        var systemPrompt = """
         You are an intent classifier for a voice assistant. Analyze the user's message and classify it.
         
         Output JSON with this exact structure:
@@ -127,7 +168,7 @@ public actor IntentClassifier {
             "query": "for questions - the search query",
             "title": "for todos - the task title",
             "dueDate": "for todos - extracted date/time like 'tomorrow', '3pm', 'next week'",
-            "action": "for todoUpdate - 'complete', 'delete', or 'update'",
+            "action": "for todoUpdate - 'complete', 'delete', 'update', or 'reopen'",
             "matchText": "for todoUpdate - text to match existing todo",
             "summary": "for brainDump - brief summary of information to remember"
           }
@@ -136,11 +177,41 @@ public actor IntentClassifier {
         Intent definitions:
         - question: User is asking something they want answered (e.g., "What's the status of X?", "How do I...?")
         - todoCreate: User wants to create a new task/reminder (e.g., "Buy milk tomorrow", "Remind me to call John")
-        - todoUpdate: User wants to update/complete/delete existing task (e.g., "Mark groceries as done", "Delete the meeting task")
+        - todoUpdate: User wants to update/complete/delete existing task, or implies completion (e.g., "Mark groceries as done", "I got my car washed")
         - brainDump: User is sharing information to remember for later (e.g., "I had a meeting with Sarah about Q3 roadmap")
         
         Only include relevant fields in details. Use null for non-applicable fields.
         """
+        
+        // Append RAG context if available
+        if !context.matchedTodos.isEmpty {
+            let todoLines = context.matchedTodos.map { match in
+                let status = match.isCompleted ? "✓ done" : "○ pending"
+                return "- \(match.title) (\(status))"
+            }.joined(separator: "\n")
+            systemPrompt += """
+            
+            
+            Related todos found:
+            \(todoLines)
+            
+            If the user's message implies completing, reopening, or referencing one of these todos, classify as todoUpdate.
+            """
+        }
+        
+        if !context.matchedKnowledge.isEmpty {
+            let knowledgeLines = context.matchedKnowledge.prefix(3).map { match in
+                "- \(match.text.prefix(150))... (from: \(match.source))"
+            }.joined(separator: "\n")
+            systemPrompt += """
+            
+            
+            Related knowledge found:
+            \(knowledgeLines)
+            
+            If the user is asking about this information, classify as question.
+            """
+        }
         
         let requestBody: [String: Any] = [
             "model": "gpt-4o-mini",
