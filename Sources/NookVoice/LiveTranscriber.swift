@@ -4,8 +4,7 @@ import Speech
 
 /// Live speech-to-text transcription using Apple's Speech framework.
 /// Provides real-time transcription with audio level metering.
-@MainActor
-public final class LiveTranscriber: ObservableObject {
+public final class LiveTranscriber: ObservableObject, @unchecked Sendable {
     
     public enum State: Equatable, Sendable {
         case idle
@@ -62,6 +61,7 @@ public final class LiveTranscriber: ObservableObject {
     // MARK: - Permissions
     
     /// Requests both microphone and speech recognition permissions.
+    @MainActor
     public func requestPermissions() async -> Bool {
         state = .requestingPermission
         
@@ -144,6 +144,7 @@ public final class LiveTranscriber: ObservableObject {
     // MARK: - Transcription Control
     
     /// Starts live transcription. Returns immediately, updates `transcript` as speech is recognized.
+    @MainActor
     public func startTranscription() async throws {
         guard state == .idle else {
             throw LiveTranscriberError.alreadyTranscribing
@@ -166,54 +167,63 @@ public final class LiveTranscriber: ObservableObject {
         duration = 0
         startTime = Date()
         
-        // Configure audio session
-        #if os(iOS)
-        let audioSession = AVAudioSession.sharedInstance()
-        try audioSession.setCategory(.record, mode: .measurement, options: .duckOthers)
-        try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
-        #endif
-        
-        // Create recognition request
-        let request = SFSpeechAudioBufferRecognitionRequest()
-        request.shouldReportPartialResults = true
-        request.requiresOnDeviceRecognition = true  // Privacy: on-device only
-        
-        // For iOS 16+, enable automatic punctuation
-        if #available(iOS 16.0, macOS 13.0, *) {
-            request.addsPunctuation = true
-        }
-        
-        self.recognitionRequest = request
-        
-        // Get the audio input node
-        let inputNode = audioEngine.inputNode
-        let recordingFormat = inputNode.outputFormat(forBus: 0)
-        
-        // Install tap for audio data
-        inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { [weak self] buffer, _ in
-            // Send audio to speech recognizer
-            request.append(buffer)
+        // Configure audio session and start engine on background
+        try await Task.detached { [self] in
+            #if os(iOS)
+            let audioSession = AVAudioSession.sharedInstance()
+            try audioSession.setCategory(.record, mode: .measurement, options: .duckOthers)
+            try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
+            #endif
             
-            // Calculate audio level
-            self?.processAudioLevel(buffer: buffer)
-        }
-        
-        // Start the audio engine
-        audioEngine.prepare()
-        try audioEngine.start()
-        
-        // Start recognition task
-        recognitionTask = speechRecognizer.recognitionTask(with: request) { [weak self] result, error in
-            Task { @MainActor [weak self] in
-                self?.handleRecognitionResult(result: result, error: error)
+            // Create recognition request
+            let request = SFSpeechAudioBufferRecognitionRequest()
+            request.shouldReportPartialResults = true
+            request.requiresOnDeviceRecognition = true  // Privacy: on-device only
+            
+            // For iOS 16+, enable automatic punctuation
+            if #available(iOS 16.0, macOS 13.0, *) {
+                request.addsPunctuation = true
             }
-        }
+            
+            await MainActor.run {
+                self.recognitionRequest = request
+            }
+            
+            // Get the audio input node
+            let inputNode = self.audioEngine.inputNode
+            let recordingFormat = inputNode.outputFormat(forBus: 0)
+            
+            // Install tap for audio data
+            inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { [weak self] buffer, _ in
+                // Send audio to speech recognizer
+                request.append(buffer)
+                
+                // Calculate audio level
+                self?.processAudioLevel(buffer: buffer)
+            }
+            
+            // Start the audio engine
+            self.audioEngine.prepare()
+            try self.audioEngine.start()
+            
+            // Start recognition task
+            let task = speechRecognizer.recognitionTask(with: request) { [weak self] result, error in
+                Task { @MainActor [weak self] in
+                    self?.handleRecognitionResult(result: result, error: error)
+                }
+            }
+            
+            await MainActor.run {
+                self.recognitionTask = task
+            }
+        }.value
         
         state = .transcribing
         startDurationTimer()
     }
     
     /// Stops transcription and returns the final transcript.
+    @MainActor
     @discardableResult
     public func stopTranscription() -> String {
         stopDurationTimer()
@@ -243,6 +253,7 @@ public final class LiveTranscriber: ObservableObject {
     }
     
     /// Discards the current transcription.
+    @MainActor
     public func cancel() {
         _ = stopTranscription()
         transcript = ""
@@ -251,6 +262,7 @@ public final class LiveTranscriber: ObservableObject {
     
     // MARK: - Private Methods
     
+    @MainActor
     private func handleRecognitionResult(result: SFSpeechRecognitionResult?, error: Error?) {
         if let error = error {
             // Ignore cancellation errors
@@ -313,6 +325,7 @@ public final class LiveTranscriber: ObservableObject {
         }
     }
     
+    @MainActor
     private func startDurationTimer() {
         durationTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
@@ -322,6 +335,7 @@ public final class LiveTranscriber: ObservableObject {
         }
     }
     
+    @MainActor
     private func stopDurationTimer() {
         durationTimer?.invalidate()
         durationTimer = nil
