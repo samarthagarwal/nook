@@ -187,7 +187,7 @@ public struct TodosView: View {
             VStack(alignment: .leading, spacing: 6) {
                 // Title
                 Text(todo.title)
-                    .font(NookTypography.cardTitle)
+                    .font(NookTypography.cardTitleSerif)
                     .foregroundColor(todo.isCompleted ? NookColors.ink45 : NookColors.ink)
                     .strikethrough(todo.isCompleted)
                 
