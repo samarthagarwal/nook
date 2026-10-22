@@ -168,6 +168,7 @@ public struct CollectionDetailView: View {
     public let onAddMarkdown: () -> Void
     public let onDeleteDocument: (KnowledgeDocument) -> Void
     public let onDeleteCollection: () -> Void
+    public let onSelectDocument: (KnowledgeDocument) -> Void
 
     public init(
         collection: KnowledgeCollection,
@@ -177,7 +178,8 @@ public struct CollectionDetailView: View {
         onStartChat: @escaping () -> Void,
         onAddMarkdown: @escaping () -> Void,
         onDeleteDocument: @escaping (KnowledgeDocument) -> Void,
-        onDeleteCollection: @escaping () -> Void
+        onDeleteCollection: @escaping () -> Void,
+        onSelectDocument: @escaping (KnowledgeDocument) -> Void = { _ in }
     ) {
         self.collection = collection
         self.documents = documents
@@ -187,6 +189,7 @@ public struct CollectionDetailView: View {
         self.onAddMarkdown = onAddMarkdown
         self.onDeleteDocument = onDeleteDocument
         self.onDeleteCollection = onDeleteCollection
+        self.onSelectDocument = onSelectDocument
     }
     
     public var body: some View {
@@ -291,49 +294,52 @@ public struct CollectionDetailView: View {
                     }
                     
                     ForEach(documents) { doc in
-                        VStack(alignment: .leading, spacing: 6) {
-                            HStack {
-                                Text(doc.name)
-                                    .font(NookTypography.fileNameLg)
-                                    .foregroundColor(NookColors.ink)
-                                
-                                Spacer()
-                                
-                                Text(doc.status)
-                                    .font(NookTypography.badge)
-                                    .foregroundColor(doc.progressPct != nil ? NookColors.external : NookColors.local)
-                            }
-                            
-                            Text(doc.meta)
-                                .font(NookTypography.meta)
-                                .foregroundColor(NookColors.ink45)
-                            
-                            if let pct = doc.progressPct {
-                                GeometryReader { geo in
-                                    ZStack(alignment: .leading) {
-                                        RoundedRectangle(cornerRadius: 2)
-                                            .fill(NookColors.hairline)
-                                            .frame(height: 3)
-                                        
-                                        RoundedRectangle(cornerRadius: 2)
-                                            .fill(NookColors.external)
-                                            .frame(width: geo.size.width * CGFloat(pct / 100.0), height: 3)
-                                    }
+                        Button(action: { onSelectDocument(doc) }) {
+                            VStack(alignment: .leading, spacing: 6) {
+                                HStack {
+                                    Text(doc.name)
+                                        .font(NookTypography.fileNameLg)
+                                        .foregroundColor(NookColors.ink)
+                                    
+                                    Spacer()
+                                    
+                                    Text(doc.status)
+                                        .font(NookTypography.badge)
+                                        .foregroundColor(doc.progressPct != nil ? NookColors.external : NookColors.local)
                                 }
-                                .frame(height: 3)
-                                .padding(.top, 2)
+                                
+                                Text(doc.meta)
+                                    .font(NookTypography.meta)
+                                    .foregroundColor(NookColors.ink45)
+                                
+                                if let pct = doc.progressPct {
+                                    GeometryReader { geo in
+                                        ZStack(alignment: .leading) {
+                                            RoundedRectangle(cornerRadius: 2)
+                                                .fill(NookColors.hairline)
+                                                .frame(height: 3)
+                                            
+                                            RoundedRectangle(cornerRadius: 2)
+                                                .fill(NookColors.external)
+                                                .frame(width: geo.size.width * CGFloat(pct / 100.0), height: 3)
+                                        }
+                                    }
+                                    .frame(height: 3)
+                                    .padding(.top, 2)
+                                }
                             }
+                            .padding(14)
+                            .background(
+                                RoundedRectangle(cornerRadius: NookRadius.card)
+                                    .fill(NookColors.surface)
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: NookRadius.card)
+                                    .strokeBorder(NookColors.hairline, lineWidth: 1)
+                            )
+                            .nookCardShadow()
                         }
-                        .padding(14)
-                        .background(
-                            RoundedRectangle(cornerRadius: NookRadius.card)
-                                .fill(NookColors.surface)
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: NookRadius.card)
-                                .strokeBorder(NookColors.hairline, lineWidth: 1)
-                        )
-                        .nookCardShadow()
+                        .buttonStyle(.plain)
                         .contextMenu {
                             Button(role: .destructive) {
                                 onDeleteDocument(doc)
@@ -411,11 +417,92 @@ public final class ObservableKnowledgeEngine: ObservableObject {
         documents = await engine.getDocuments(forCollectionId: collectionId)
     }
 
+    public func getDocumentContent(documentId: String) async -> String {
+        await engine.getDocumentContent(documentId: documentId)
+    }
+
     public func importMarkdown(from url: URL, collectionId: String) async throws {
         isImporting = true
         defer { isImporting = false }
         _ = try await engine.importMarkdown(from: url, collectionId: collectionId)
         await loadDocuments(collectionId: collectionId)
         await refreshCollections()
+    }
+}
+
+public struct DocumentDetailView: View {
+    public let document: KnowledgeDocument
+    public let content: String
+    public let onBack: () -> Void
+    public let onDelete: () -> Void
+
+    public init(
+        document: KnowledgeDocument,
+        content: String,
+        onBack: @escaping () -> Void,
+        onDelete: @escaping () -> Void
+    ) {
+        self.document = document
+        self.content = content
+        self.onBack = onBack
+        self.onDelete = onDelete
+    }
+
+    public var body: some View {
+        VStack(spacing: 0) {
+            // Header
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Button(action: onBack) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "chevron.left")
+                                .font(.system(size: 14, weight: .medium))
+                            Text("Back")
+                                .font(NookTypography.body)
+                        }
+                        .foregroundColor(NookColors.ink45)
+                    }
+                    .buttonStyle(.plain)
+
+                    Spacer()
+
+                    Button(role: .destructive, action: onDelete) {
+                        Image(systemName: "trash")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(NookColors.external)
+                            .frame(width: 32, height: 32)
+                            .background(Circle().fill(NookColors.externalSoft))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Delete document")
+                }
+
+                Text(document.name)
+                    .font(NookTypography.detailTitle)
+                    .foregroundColor(NookColors.ink)
+                    .padding(.top, 4)
+
+                Text(document.meta)
+                    .font(NookTypography.meta)
+                    .foregroundColor(NookColors.ink45)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 18)
+            .padding(.top, 16)
+            .padding(.bottom, 16)
+
+            // Content
+            ScrollView {
+                Text(content.isEmpty ? "No content available" : content)
+                    .font(NookTypography.body)
+                    .foregroundColor(content.isEmpty ? NookColors.ink45 : NookColors.ink)
+                    .lineSpacing(6)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 18)
+                    .padding(.bottom, 24)
+                    .textSelection(.enabled)
+            }
+        }
+        .background(NookColors.paper.ignoresSafeArea())
     }
 }

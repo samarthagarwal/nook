@@ -23,7 +23,7 @@ public enum AgentLoop {
     }
 
     static func isWriteTool(_ name: String) -> Bool {
-        name.hasSuffix(".create")
+        name.hasSuffix(".create") || name.hasSuffix(".save") || name.hasSuffix(".complete") || name.hasSuffix(".delete")
     }
 
     public struct Output: Sendable {
@@ -129,6 +129,9 @@ public enum AgentLoop {
                 let budget = maxCalls(for: resolvedName)
                 guard count < budget else {
                     print("[AgentLoop] \(resolvedName) over budget (\(count)/\(budget))")
+                    observations.append(
+                        "Tool '\(resolvedName)' already called \(budget) time(s) this turn. Do not retry."
+                    )
                     continue
                 }
                 callCounts[resolvedName] = count + 1
@@ -164,9 +167,8 @@ public enum AgentLoop {
                 let parts = writeConfirmations + needsUserTexts
                 return Output(text: parts.joined(separator: "\n"), citations: citations)
             }
-            // A batched write already answered this turn. One write still
-            // continues so LiteRT can emit the next item on the next round.
-            if finishedWritesThisStep > 1 { break toolPhase }
+            // A finished write signals completion - stop the loop and return confirmation.
+            if finishedWritesThisStep >= 1 { break toolPhase }
             // Every call was over budget / unknown; another round would repeat this one.
             if !executedAny { break toolPhase }
         }

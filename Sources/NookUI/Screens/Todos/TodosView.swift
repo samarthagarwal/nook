@@ -184,29 +184,44 @@ public struct TodosView: View {
             }
             .buttonStyle(.plain)
             
-            VStack(alignment: .leading, spacing: 6) {
-                // Title
-                Text(todo.title)
-                    .font(NookTypography.cardTitleSerif)
-                    .foregroundColor(todo.isCompleted ? NookColors.ink45 : NookColors.ink)
-                    .strikethrough(todo.isCompleted)
-                
-                // Due date & priority
-                HStack(spacing: 8) {
-                    if let dueDate = todo.formattedDueDate {
-                        HStack(spacing: 4) {
-                            Image(systemName: "calendar")
-                                .font(.system(size: 11))
-                            Text(dueDate)
-                        }
-                        .font(NookTypography.badge)
-                        .foregroundColor(dueDateColor(for: todo))
-                    }
+            VStack(alignment: .leading, spacing: 4) {
+                // Title row with delete button
+                HStack(alignment: .top) {
+                    Text(todo.title)
+                        .font(NookTypography.cardTitleSerif)
+                        .foregroundColor(todo.isCompleted ? NookColors.ink45 : NookColors.ink)
+                        .strikethrough(todo.isCompleted)
                     
-                    if todo.priority != .none {
-                        Text(todo.priority.symbol)
-                            .font(NookTypography.badgeMedium)
-                            .foregroundColor(priorityColor(for: todo.priority))
+                    Spacer()
+                    
+                    Button(action: {
+                        state.delete(todo)
+                    }) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(NookColors.ink40)
+                    }
+                    .buttonStyle(.plain)
+                }
+                
+                // Due date & priority (only show if there's content)
+                if todo.formattedDueDate != nil || todo.priority != .none {
+                    HStack(spacing: 8) {
+                        if let dueDate = todo.formattedDueDate {
+                            HStack(spacing: 4) {
+                                Image(systemName: "calendar")
+                                    .font(.system(size: 11))
+                                Text(dueDate)
+                            }
+                            .font(NookTypography.badge)
+                            .foregroundColor(dueDateColor(for: todo))
+                        }
+                        
+                        if todo.priority != .none {
+                            Text(todo.priority.symbol)
+                                .font(NookTypography.badgeMedium)
+                                .foregroundColor(priorityColor(for: todo.priority))
+                        }
                     }
                 }
                 
@@ -218,34 +233,20 @@ public struct TodosView: View {
                         .lineLimit(2)
                 }
                 
-                // Actions
-                HStack {
-                    if let conversationId = todo.sourceConversationId {
-                        Button(action: {
-                            onOpenSourceChat(conversationId)
-                        }) {
-                            Text("Open source")
-                                .font(NookTypography.badge)
-                                .foregroundColor(NookColors.local)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                    
-                    Spacer()
-                    
+                // Source link (only if from a conversation)
+                if let conversationId = todo.sourceConversationId {
                     Button(action: {
-                        state.delete(todo)
+                        onOpenSourceChat(conversationId)
                     }) {
-                        Text("Delete")
+                        Text("Open source")
                             .font(NookTypography.badge)
-                            .foregroundColor(NookColors.ink45)
+                            .foregroundColor(NookColors.local)
                     }
                     .buttonStyle(.plain)
                 }
-                .padding(.top, 4)
             }
         }
-        .padding(14)
+        .padding(12)
         .background(
             RoundedRectangle(cornerRadius: NookRadius.cardLg)
                 .fill(NookColors.surface)
@@ -280,7 +281,9 @@ public struct TodosView: View {
             .padding(20)
             .background(NookColors.paper.ignoresSafeArea())
             .navigationTitle("New Todo")
+            #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
+            #endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {

@@ -141,7 +141,9 @@ public enum AlwaysOfferedLocalTools {
         "todos.create",                 // TodosCreateTool
         "todos.complete",               // TodosCompleteTool
         "todos.list",                   // TodosListTool
+        "todos.update",                 // TodosUpdateTool
         "todos.delete",                 // TodosDeleteTool
+        "notes.save",                   // NotesSaveTool
     ]
 
     public static func contains(_ name: String) -> Bool {

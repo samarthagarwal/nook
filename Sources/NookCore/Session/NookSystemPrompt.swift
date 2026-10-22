@@ -13,10 +13,27 @@ public enum NookSystemPrompt {
         Keep structure simple—no tables, HTML, or full-reply code fences.
         """
 
+    public static let memoryGuidance = """
+        IMPORTANT: When the user shares useful information worth remembering (facts, metrics, decisions, \
+        preferences, dates, names, updates about their life or work), use `notes.save` to store it \
+        automatically — unless they explicitly say not to remember it. \
+        Examples: business metrics, personal milestones, preferences, project updates, important dates.
+
+        If you're unsure whether to save something, briefly ask: "Should I save this for later?"
+
+        Only call `notes.save` ONCE per piece of information. After it succeeds, do NOT retry.
+        """
+
     public static let conversationSearchGuidance = """
         If the user asks what was discussed, said, or mentioned in a previous conversation, \
         call `conversation.search` with relevant keywords — never say you have no access to past chats \
         without checking first.
+        """
+
+    public static let todoGuidance = """
+        When the user asks to change, modify, or update an existing todo (due date, title, priority, notes), \
+        use `todos.update` — do NOT delete and recreate. Only use `todos.delete` when explicitly asked to \
+        remove or delete a todo entirely.
         """
 
     /// Unscoped chat: no Knowledge search. Model answers normally.
@@ -41,6 +58,10 @@ public enum NookSystemPrompt {
         If the user asks about their documents or private Knowledge, ask them to scope a Knowledge \
         collection for this chat (filter control). If general chat quality seems limited on this model, \
         suggest switching to Balanced.
+
+        \(memoryGuidance)
+
+        \(todoGuidance)
 
         \(replyStyle)
         """
@@ -70,6 +91,10 @@ public enum NookSystemPrompt {
         the scoped collections.
 
         \(conversationSearchGuidance)
+
+        \(memoryGuidance)
+
+        \(todoGuidance)
 
         \(replyStyle)
         """

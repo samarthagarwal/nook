@@ -322,10 +322,13 @@ public struct ChatView: View {
                                     .foregroundColor(NookColors.ink40)
                                     .frame(maxWidth: .infinity, alignment: .leading)
                             } else {
+                                // Show transcript, allow up to 3 lines, truncate from head
                                 Text(voiceSession.liveTranscript)
                                     .font(NookTypography.userBubble)
                                     .foregroundColor(voiceSession.isPartialResult ? NookColors.ink62 : NookColors.ink)
-                                    .lineLimit(2)
+                                    .lineLimit(3)
+                                    .truncationMode(.head)
+                                    .fixedSize(horizontal: false, vertical: true)
                                     .frame(maxWidth: .infinity, alignment: .leading)
                             }
                             
@@ -335,22 +338,26 @@ public struct ChatView: View {
                                 .foregroundColor(NookColors.ink45)
                         }
                         .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
                     } else {
-                        // Normal text field
+                        // Normal text field - grows up to 3 lines
                         TextField(
                             "",
                             text: $inputText,
                             prompt: Text("Ask anything")
                                 .font(NookTypography.userBubble)
-                                .foregroundColor(NookColors.ink40)
+                                .foregroundColor(NookColors.ink40),
+                            axis: .vertical
                         )
                         .font(NookTypography.userBubble)
                         .foregroundColor(NookColors.ink)
                         .textFieldStyle(.plain)
+                        .lineLimit(1...3)
                         .padding(.horizontal, 15)
+                        .padding(.vertical, 10)
                     }
                 }
-                .frame(height: 38)
+                .frame(minHeight: 38)
                 .background(
                     RoundedRectangle(cornerRadius: NookRadius.pill)
                         .fill(NookColors.surface)
@@ -639,14 +646,19 @@ public struct ChatView: View {
     }
     
     private func startVoiceRecording() {
+        // Prevent multiple calls - check voiceMode first
+        guard voiceMode == .idle else { return }
         guard let voiceSession = voiceSession else { return }
+        
+        // Set voiceMode immediately to prevent multiple taps
+        voiceMode = .recording
 
         Task {
             do {
                 try await voiceSession.startRecording()
-                voiceMode = .recording
             } catch {
-                // Handle permission errors or other issues
+                // Reset voiceMode on failure
+                voiceMode = .idle
                 runtimeStore.presentStatus("Unable to start voice recording: \(error.localizedDescription)")
             }
         }

@@ -23,6 +23,10 @@ public final class VoiceSession: ObservableObject {
     // MARK: - Published State
     
     @Published public private(set) var state: State = .idle
+    
+    /// Guard flag to prevent concurrent start attempts
+    private var isStartingRecording: Bool = false
+    
     @Published public private(set) var duration: TimeInterval = 0
     @Published public private(set) var audioLevel: LiveTranscriber.AudioLevel = .init(average: 0, peak: 0)
     
@@ -65,13 +69,24 @@ public final class VoiceSession: ObservableObject {
     
     /// Starts live voice recording with real-time transcription.
     public func startRecording() async throws {
+        // If already recording or starting, silently succeed (idempotent)
+        if state == .recording || isStartingRecording {
+            return
+        }
+        
         guard state == .idle else {
             throw VoiceSessionError.sessionInProgress
         }
         
+        // Set flags IMMEDIATELY to prevent multiple calls
+        isStartingRecording = true
+        state = .recording
+        
         if !hasPermissions {
             let granted = await requestPermissions()
             if !granted {
+                state = .idle
+                isStartingRecording = false
                 throw VoiceSessionError.permissionDenied
             }
         }
@@ -80,8 +95,17 @@ public final class VoiceSession: ObservableObject {
         liveTranscript = ""
         duration = 0
         
-        try await transcriber.startTranscription()
-        state = .recording
+        // Start transcription off main thread to avoid audio session blocking
+        do {
+            try await Task.detached { [transcriber] in
+                try await transcriber.startTranscription()
+            }.value
+            isStartingRecording = false
+        } catch {
+            state = .idle
+            isStartingRecording = false
+            throw error
+        }
     }
     
     /// Stops recording and returns the final transcript.
@@ -90,7 +114,10 @@ public final class VoiceSession: ObservableObject {
     public func stopRecording() -> String {
         guard state == .recording else { return "" }
         
+        // Get transcript synchronously (stopTranscription handles threading internally)
         let finalTranscript = transcriber.stopTranscription()
+        
+        // Update state synchronously (we're on MainActor)
         liveTranscript = finalTranscript
         state = .reviewing(finalTranscript)
         
@@ -112,6 +139,7 @@ public final class VoiceSession: ObservableObject {
         liveTranscript = ""
         duration = 0
         state = .idle
+        isStartingRecording = false
     }
     
     /// Resets the session to idle state.

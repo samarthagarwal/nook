@@ -288,7 +288,11 @@ public actor ToolRegistry {
         registeredTools[TodosCreateTool.toolName] = TodosCreateTool()
         registeredTools[TodosCompleteTool.toolName] = TodosCompleteTool()
         registeredTools[TodosListTool.toolName] = TodosListTool()
+        registeredTools[TodosUpdateTool.toolName] = TodosUpdateTool()
         registeredTools[TodosDeleteTool.toolName] = TodosDeleteTool()
+        
+        // Notes/Knowledge saving
+        registeredTools[NotesSaveTool.toolName] = NotesSaveTool()
     }
 
     /// Binds the conversation's Knowledge scope for `documents_search` this turn.

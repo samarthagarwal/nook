@@ -31,6 +31,10 @@ public actor KnowledgeEngine {
         (try? store.fetchDocuments(collectionId: collectionId)) ?? []
     }
 
+    public func getDocumentContent(documentId: String) -> String {
+        (try? store.fetchDocumentContent(documentId: documentId)) ?? ""
+    }
+
     public func importMarkdown(from url: URL, collectionId: String) throws -> KnowledgeDocument {
         try store.importMarkdownFile(from: url, collectionId: collectionId)
     }

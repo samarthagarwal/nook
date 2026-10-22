@@ -30,6 +30,8 @@ public struct AppRootView: View {
     @State private var conversations: [Conversation] = []
     @State private var activeSession: AgentSession? = nil
     @State private var selectedCollection: KnowledgeCollection? = nil
+    @State private var selectedDocument: KnowledgeDocument? = nil
+    @State private var documentContent: String = ""
     @State private var selectedSkill: Skill? = nil
     @State private var selectedServer: MCPServer? = nil
     
@@ -209,7 +211,21 @@ public struct AppRootView: View {
                 
                 // Tab 2: Knowledge
                 if selectedTab == .knowledge {
-                    if let coll = selectedCollection {
+                    if let doc = selectedDocument {
+                        DocumentDetailView(
+                            document: doc,
+                            content: documentContent,
+                            onBack: {
+                                self.selectedDocument = nil
+                                self.documentContent = ""
+                            },
+                            onDelete: {
+                                documentPendingDelete = doc
+                                self.selectedDocument = nil
+                                self.documentContent = ""
+                            }
+                        )
+                    } else if let coll = selectedCollection {
                         CollectionDetailView(
                             collection: coll,
                             documents: knowledgeState.documents,
@@ -231,6 +247,13 @@ public struct AppRootView: View {
                             },
                             onDeleteCollection: {
                                 collectionPendingDelete = coll
+                            },
+                            onSelectDocument: { doc in
+                                Task {
+                                    let content = await knowledgeState.getDocumentContent(documentId: doc.id)
+                                    self.documentContent = content
+                                    self.selectedDocument = doc
+                                }
                             }
                         )
                     } else {
@@ -612,6 +635,22 @@ public struct AppRootView: View {
         .onChange(of: runtimeStore.downloadState) { oldState, newState in
             if case .downloading = oldState, case .ready = newState {
                 showToast("\(runtimeStore.activeTier.name) is ready.")
+            }
+        }
+        .onChange(of: selectedTab) { _, newTab in
+            onTabChanged(newTab)
+        }
+    }
+    
+    private func onTabChanged(_ tab: NookTab) {
+        if tab == .knowledge {
+            let state = knowledgeState
+            let collId = selectedCollection?.id
+            Task {
+                await state.refreshCollections()
+                if let id = collId {
+                    await state.loadDocuments(collectionId: id)
+                }
             }
         }
     }

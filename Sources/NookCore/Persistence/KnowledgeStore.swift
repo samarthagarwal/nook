@@ -157,6 +157,25 @@ public final class KnowledgeStore: @unchecked Sendable {
         }
     }
 
+    /// Fetch full content for a document by combining all its chunks.
+    public func fetchDocumentContent(documentId: String) throws -> String {
+        try dbQueue.read { db in
+            let rows = try Row.fetchAll(
+                db,
+                sql: """
+                    SELECT text, page_or_section FROM knowledge_chunks
+                    WHERE document_id = ?
+                    ORDER BY id ASC
+                    """,
+                arguments: [documentId]
+            )
+            return rows.map { row in
+                let text: String = row["text"]
+                return text
+            }.joined(separator: "\n\n")
+        }
+    }
+
     public func indexDocumentText(
         collectionId: String,
         documentName: String,

@@ -50,9 +50,19 @@ public final class LiveTranscriber: ObservableObject, @unchecked Sendable {
     private var startTime: Date?
     private var durationTimer: Timer?
     
+    /// Accumulated finalized transcript segments (when user pauses, segments finalize)
+    private var finalizedSegments: String = ""
+    
+    /// Flag to ignore late callbacks during shutdown
+    private var isStopping: Bool = false
+    
     // Audio level processing
     private var recentLevels: [Float] = []
     private let levelSmoothingCount = 5
+    
+    // Buffer for early audio before recognizer is ready
+    private var earlyAudioBuffers: [AVAudioPCMBuffer] = []
+    private var isRecognizerReady = false
     
     public init(locale: Locale = .current) {
         self.speechRecognizer = SFSpeechRecognizer(locale: locale)
@@ -144,9 +154,10 @@ public final class LiveTranscriber: ObservableObject, @unchecked Sendable {
     // MARK: - Transcription Control
     
     /// Starts live transcription. Returns immediately, updates `transcript` as speech is recognized.
-    @MainActor
     public func startTranscription() async throws {
-        guard state == .idle else {
+        // Check state on main actor
+        let currentState = await MainActor.run { state }
+        guard currentState == .idle else {
             throw LiveTranscriberError.alreadyTranscribing
         }
         
@@ -161,74 +172,107 @@ public final class LiveTranscriber: ObservableObject, @unchecked Sendable {
             }
         }
         
-        state = .preparing
-        transcript = ""
-        isPartial = false
-        duration = 0
-        startTime = Date()
+        await MainActor.run {
+            state = .preparing
+            transcript = ""
+            finalizedSegments = ""
+            currentSegmentText = ""
+            isPartial = false
+            isStopping = false
+            duration = 0
+            startTime = Date()
+        }
         
-        // Configure audio session and start engine on background
-        try await Task.detached { [self] in
-            #if os(iOS)
-            let audioSession = AVAudioSession.sharedInstance()
-            try audioSession.setCategory(.record, mode: .measurement, options: .duckOthers)
-            try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
-            #endif
+        // Reset early audio buffer
+        earlyAudioBuffers = []
+        isRecognizerReady = false
+        
+        // Configure audio session OFF main thread
+        #if os(iOS)
+        let audioSession = AVAudioSession.sharedInstance()
+        try audioSession.setCategory(.record, mode: .measurement, options: .duckOthers)
+        try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
+        #endif
+        
+        // Get the audio input node and start capturing IMMEDIATELY
+        let inputNode = audioEngine.inputNode
+        let recordingFormat = inputNode.outputFormat(forBus: 0)
+        
+        // Install tap FIRST to capture audio while recognizer initializes
+        inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { [weak self] buffer, _ in
+            guard let self = self else { return }
             
-            // Create recognition request
-            let request = SFSpeechAudioBufferRecognitionRequest()
-            request.shouldReportPartialResults = true
-            request.requiresOnDeviceRecognition = true  // Privacy: on-device only
-            
-            // For iOS 16+, enable automatic punctuation
-            if #available(iOS 16.0, macOS 13.0, *) {
-                request.addsPunctuation = true
-            }
-            
-            await MainActor.run {
-                self.recognitionRequest = request
-            }
-            
-            // Get the audio input node
-            let inputNode = self.audioEngine.inputNode
-            let recordingFormat = inputNode.outputFormat(forBus: 0)
-            
-            // Install tap for audio data
-            inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { [weak self] buffer, _ in
-                // Send audio to speech recognizer
-                request.append(buffer)
-                
-                // Calculate audio level
-                self?.processAudioLevel(buffer: buffer)
-            }
-            
-            // Start the audio engine
-            self.audioEngine.prepare()
-            try self.audioEngine.start()
-            
-            // Start recognition task
-            let task = speechRecognizer.recognitionTask(with: request) { [weak self] result, error in
-                Task { @MainActor [weak self] in
-                    self?.handleRecognitionResult(result: result, error: error)
+            if self.isRecognizerReady {
+                // Recognizer ready - send directly
+                self.recognitionRequest?.append(buffer)
+            } else {
+                // Buffer early audio (keep last ~2 seconds at 44.1kHz)
+                self.earlyAudioBuffers.append(buffer)
+                // Limit buffer size (~86 buffers = ~2 sec at 1024 samples/buffer, 44.1kHz)
+                if self.earlyAudioBuffers.count > 100 {
+                    self.earlyAudioBuffers.removeFirst()
                 }
             }
             
-            await MainActor.run {
-                self.recognitionTask = task
-            }
-        }.value
+            // Calculate audio level
+            self.processAudioLevel(buffer: buffer)
+        }
         
-        state = .transcribing
-        startDurationTimer()
+        // Start audio engine IMMEDIATELY to begin capturing
+        audioEngine.prepare()
+        try audioEngine.start()
+        
+        // Now create and start the recognition request (this may take time for on-device model)
+        let request = SFSpeechAudioBufferRecognitionRequest()
+        request.shouldReportPartialResults = true
+        request.requiresOnDeviceRecognition = true  // Privacy: on-device only
+        
+        // For iOS 16+, enable automatic punctuation
+        if #available(iOS 16.0, macOS 13.0, *) {
+            request.addsPunctuation = true
+        }
+        
+        // Store request
+        self.recognitionRequest = request
+        
+        // Feed buffered audio to recognizer
+        for buffer in earlyAudioBuffers {
+            request.append(buffer)
+        }
+        earlyAudioBuffers.removeAll()
+        isRecognizerReady = true
+        
+        // Start recognition task
+        let task = speechRecognizer.recognitionTask(with: request) { [weak self] result, error in
+            // Extract values before crossing actor boundary
+            let transcriptText = result?.bestTranscription.formattedString
+            let isFinal = result?.isFinal ?? false
+            let errorDesc = error?.localizedDescription
+            
+            Task { @MainActor [weak self] in
+                self?.handleRecognitionResultValues(
+                    transcript: transcriptText,
+                    isFinal: isFinal,
+                    error: errorDesc
+                )
+            }
+        }
+        
+        self.recognitionTask = task
+        
+        await MainActor.run {
+            self.state = .transcribing
+            self.startDurationTimer()
+        }
     }
     
     /// Stops transcription and returns the final transcript.
-    @MainActor
     @discardableResult
     public func stopTranscription() -> String {
-        stopDurationTimer()
+        // Mark stopping to ignore late callbacks
+        isStopping = true
         
-        // Stop the audio engine
+        // Stop the audio engine (can be called from any thread)
         audioEngine.stop()
         audioEngine.inputNode.removeTap(onBus: 0)
         
@@ -236,59 +280,158 @@ public final class LiveTranscriber: ObservableObject, @unchecked Sendable {
         recognitionRequest?.endAudio()
         recognitionTask?.cancel()
         
-        // Clean up
+        // Build final transcript including any unfinalized current segment
+        let finalTranscript: String
+        if Thread.isMainThread {
+            finalTranscript = MainActor.assumeIsolated {
+                // Ensure we capture everything: finalized + current segment
+                if self.finalizedSegments.isEmpty {
+                    return self.currentSegmentText.isEmpty ? self.transcript : self.currentSegmentText
+                } else if self.currentSegmentText.isEmpty {
+                    return self.finalizedSegments
+                } else {
+                    return self.finalizedSegments + " " + self.currentSegmentText
+                }
+            }
+        } else {
+            // Off main thread - just use the transcript property
+            finalTranscript = transcript
+        }
+        
         recognitionRequest = nil
         recognitionTask = nil
         
+        // Deactivate audio session on background thread to avoid blocking UI
         #if os(iOS)
-        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        Task.detached(priority: .utility) {
+            try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        }
         #endif
         
-        let finalTranscript = transcript
-        state = .idle
-        audioLevel = AudioLevel(average: 0, peak: 0)
-        isPartial = false
+        // Update state synchronously if on main thread, otherwise async
+        // NOTE: Keep isStopping = true to block late callbacks - only reset in startTranscription
+        if Thread.isMainThread {
+            MainActor.assumeIsolated {
+                self.stopDurationTimer()
+                self.state = .idle
+                self.audioLevel = AudioLevel(average: 0, peak: 0)
+                self.isPartial = false
+            }
+        } else {
+            Task { @MainActor in
+                self.stopDurationTimer()
+                self.state = .idle
+                self.audioLevel = AudioLevel(average: 0, peak: 0)
+                self.isPartial = false
+            }
+        }
         
         return finalTranscript
     }
     
-    /// Discards the current transcription.
+    /// Discards the current transcription. Must be called from MainActor.
     @MainActor
     public func cancel() {
-        _ = stopTranscription()
+        // Stop everything
+        isStopping = true
+        audioEngine.stop()
+        audioEngine.inputNode.removeTap(onBus: 0)
+        recognitionRequest?.endAudio()
+        recognitionTask?.cancel()
+        recognitionRequest = nil
+        recognitionTask = nil
+        
+        // Deactivate audio session on background thread to avoid blocking UI
+        #if os(iOS)
+        Task.detached(priority: .utility) {
+            try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        }
+        #endif
+        
+        // Reset all state synchronously (we're on MainActor)
+        // Keep isStopping = true to ignore any late callbacks - only reset when starting new transcription
+        stopDurationTimer()
+        state = .idle
         transcript = ""
+        finalizedSegments = ""
+        currentSegmentText = ""
+        audioLevel = AudioLevel(average: 0, peak: 0)
+        isPartial = false
         duration = 0
+        earlyAudioBuffers.removeAll()
+        isRecognizerReady = false
+        // NOTE: intentionally NOT resetting isStopping here - it will be reset in startTranscription
     }
     
     // MARK: - Private Methods
     
+    /// Tracks the current segment's running text (before isFinal)
+    private var currentSegmentText: String = ""
+    
     @MainActor
-    private func handleRecognitionResult(result: SFSpeechRecognitionResult?, error: Error?) {
+    private func handleRecognitionResultValues(transcript: String?, isFinal: Bool, error: String?) {
+        // Ignore callbacks during shutdown
+        if isStopping { return }
+        
         if let error = error {
-            // Ignore cancellation errors
-            let nsError = error as NSError
-            if nsError.domain == "kAFAssistantErrorDomain" && nsError.code == 216 {
-                // "Retry" error - user stopped too quickly, ignore
+            // Ignore cancellation errors (check by message content since we only have string)
+            if error.contains("216") || error.contains("209") || error.contains("cancel") {
                 return
             }
-            if nsError.domain == "kAFAssistantErrorDomain" && nsError.code == 209 {
-                // Recognition was cancelled, ignore
-                return
-            }
-            
-            print("[LiveTranscriber] Recognition error: \(error)")
-            state = .error(error.localizedDescription)
+            state = .error(error)
             return
         }
         
-        guard let result = result else { return }
+        guard let newText = transcript, !newText.isEmpty else {
+            return
+        }
         
-        // Update transcript with best transcription
-        transcript = result.bestTranscription.formattedString
-        isPartial = !result.isFinal
+        // Detect new segment: text suddenly gets MUCH shorter (user paused, Apple started fresh)
+        // Apple may revise text mid-stream (add punctuation), so don't use hasPrefix
+        // A new segment is when we drop to <20% of current length AND current was substantial
+        let isNewSegment = currentSegmentText.count > 20 && 
+                           newText.count < currentSegmentText.count / 3
         
-        if result.isFinal {
-            state = .finishing
+        if isNewSegment {
+            // Apple started fresh - save what we had as finalized FIRST
+            if finalizedSegments.isEmpty {
+                finalizedSegments = currentSegmentText
+            } else {
+                finalizedSegments = finalizedSegments + " " + currentSegmentText
+            }
+            currentSegmentText = ""
+        }
+        
+        // Update current segment (Apple may revise, so always take latest)
+        currentSegmentText = newText
+        
+        // Build combined transcript
+        let combined: String
+        if finalizedSegments.isEmpty {
+            combined = newText
+        } else {
+            combined = finalizedSegments + " " + newText
+        }
+        
+        self.transcript = combined
+        isPartial = !isFinal
+        
+        if isFinal {
+            // This segment is done - but DON'T clear everything
+            // Just update finalizedSegments to include this final result
+            // The final text should be added to finalized if it's not already part of it
+            if !finalizedSegments.contains(newText) {
+                if finalizedSegments.isEmpty {
+                    finalizedSegments = newText
+                } else {
+                    // Check if newText is already the end of our combined transcript
+                    // (it might be a duplicate of currentSegmentText we just processed)
+                    if !combined.hasSuffix(newText + " " + newText) {
+                        // Not a duplicate, this is fine
+                    }
+                }
+            }
+            // DON'T clear currentSegmentText here - the next partial will handle it
         }
     }
     
