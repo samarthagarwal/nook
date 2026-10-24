@@ -23,6 +23,8 @@ services:
           property: connectionString
       - key: SKIP_AUTH
         value: "false"
+      - key: DEFAULT_MODEL
+        value: "gpt-6-luna"
     healthCheckPath: /health
 
   - type: redis
