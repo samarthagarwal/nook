@@ -3,8 +3,6 @@ import NookDesign
 import NookCore
 
 public struct SettingsView: View {
-    @Binding public var activeTier: ModelTier
-    public let onOpenModels: () -> Void
     public let onOpenPaywall: () -> Void
     public let onRebuildIndexes: () -> Void
     public let onExportData: () -> Void
@@ -17,16 +15,12 @@ public struct SettingsView: View {
     @State private var showEraseConfirmation: Bool = false
 
     public init(
-        activeTier: Binding<ModelTier>,
-        onOpenModels: @escaping () -> Void,
         onOpenPaywall: @escaping () -> Void,
         onRebuildIndexes: @escaping () -> Void,
         onExportData: @escaping () -> Void,
         onEraseAllLocalData: @escaping () -> Void,
         onClose: @escaping () -> Void
     ) {
-        self._activeTier = activeTier
-        self.onOpenModels = onOpenModels
         self.onOpenPaywall = onOpenPaywall
         self.onRebuildIndexes = onRebuildIndexes
         self.onExportData = onExportData
@@ -109,20 +103,13 @@ public struct SettingsView: View {
                         }
                     }
                     
-                    // Data & Models Nav Rows
+                    // Data Nav Rows
                     VStack(alignment: .leading, spacing: 6) {
                         Text("DATA")
                             .nookEyebrow()
                             .foregroundColor(NookColors.ink40)
                         
                         VStack(spacing: 8) {
-                            navRow(
-                                title: "Models and storage",
-                                sub: AppPreferences.cloudEnabled
-                                    ? "Cloud · OpenAI \(AppPreferences.openAIModel)"
-                                    : "\(activeTier.name) in use · ~4.5 GB catalog",
-                                action: onOpenModels
-                            )
                             navRow(
                                 title: "Rebuild derived indexes",
                                 sub: "Deletes memory and search indexes, keeps chats",

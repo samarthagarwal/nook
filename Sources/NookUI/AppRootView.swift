@@ -10,6 +10,9 @@ public struct AppRootView: View {
     @State private var selectedTab: NookTab = .chat
     @StateObject private var runtimeStore: ModelRuntimeStore
     
+    // Authentication
+    @StateObject private var authManager: AuthManager
+    
     // Core Engine Instances
     @StateObject private var knowledgeState: ObservableKnowledgeEngine
     @StateObject private var skillState: ObservableSkillManager
@@ -26,9 +29,8 @@ public struct AppRootView: View {
     private let mcpClient: MCPClient
     private let mcpToolRegistrar: MCPToolRegistrar
     
-    // Backend orchestration mode
-    private static let useBackendOrchestration = true  // Toggle to switch between local/backend
-    private let apiClient: NookAPIClient?
+    // Backend API client
+    private let apiClient: NookAPIClient
 
     // Navigation / Detail States
     @State private var conversations: [Conversation] = []
@@ -42,7 +44,6 @@ public struct AppRootView: View {
     
     // Sheet Presentations
     @State private var isSettingsOpen: Bool = false
-    @State private var isModelsOpen: Bool = false
     @State private var isPaywallOpen: Bool = false
     @State private var activeCitation: Citation? = nil
     @State private var isAttachSheetOpen: Bool = false
@@ -64,7 +65,8 @@ public struct AppRootView: View {
         skillManager: SkillManager = SkillManager(),
         toolRegistry: ToolRegistry? = nil,
         mcpClient: MCPClient = MCPClient(),
-        runtime: ModelRuntime? = nil
+        runtime: ModelRuntime? = nil,
+        authProvider: (any AuthProviding)? = nil
     ) {
         self.knowledgeEngine = knowledgeEngine
         self.skillManager = skillManager
@@ -80,19 +82,18 @@ public struct AppRootView: View {
         
         // Voice input setup (uses Apple Speech framework for live transcription)
         _voiceSession = StateObject(wrappedValue: VoiceSession())
+        
+        // Authentication - use provided provider or default to Firebase
+        let resolvedAuthProvider = authProvider ?? FirebaseAuthProvider()
+        _authManager = StateObject(wrappedValue: AuthManager(provider: resolvedAuthProvider))
 
-        // Backend API client (for backend orchestration mode)
-        if Self.useBackendOrchestration {
-            self.apiClient = NookAPIClient(
-                config: .current,
-                authProvider: {
-                    // For now, return a dev token. Replace with real auth later.
-                    return "dev-token"
-                }
-            )
-        } else {
-            self.apiClient = nil
-        }
+        // Backend API client - auth token fetched directly from provider
+        self.apiClient = NookAPIClient(
+            config: .current,
+            authProvider: {
+                try await resolvedAuthProvider.getIDToken()
+            }
+        )
     }
     
     public var body: some View {
@@ -100,21 +101,14 @@ public struct AppRootView: View {
             NookColors.paper.ignoresSafeArea()
             
             if !isOnboardingComplete {
-                OnboardingView(
-                    runtimeStore: runtimeStore,
-                    downloadModel: { tier, progress in
-                        try await self.runtimeStore.downloadModel(tier: tier, progressHandler: progress)
-                    },
-                    onComplete: { chosenTier, tab in
-                        AppPreferences.markOnboardingComplete(chosenTier: chosenTier)
-                        self.isOnboardingComplete = true
-                        self.runtimeStore.syncFromRuntime()
-                        self.selectedTab = tab
-                        if tab == .chat {
-                            startNewChat()
-                        }
+                OnboardingView { tab in
+                    AppPreferences.markOnboardingComplete()
+                    self.isOnboardingComplete = true
+                    self.selectedTab = tab
+                    if tab == .chat {
+                        startNewChat()
                     }
-                )
+                }
             } else {
                 mainContentView
             }
@@ -137,19 +131,17 @@ public struct AppRootView: View {
             Task {
                 await mcpToolRegistrar.sync()
             }
-            print("[AppRootView] App launched. Runtime: \(type(of: runtimeStore.runtime)) (\(MLXPlatformSupport.runtimeLabel)). DownloadState: \(runtimeStore.downloadState)")
-            if isOnboardingComplete {
-                Task {
-                    await runtimeStore.preloadActiveTierIfNeeded()
+            // Ensure user is authenticated (anonymous if needed)
+            Task {
+                do {
+                    try await authManager.ensureAuthenticated()
+                    print("[AppRootView] Auth ready. User: \(authManager.currentUser?.uid ?? "none"), anonymous: \(authManager.isAnonymous)")
+                } catch {
+                    print("[AppRootView] Auth failed: \(error)")
+                    showToast("Unable to connect. Please try again.")
                 }
             }
-        }
-        .onChange(of: runtimeStore.thermalAdvice) { _, advice in
-            guard advice != .normal else { return }
-            let message = advice == .throttled
-                ? "This iPhone is running hot. Generation may pause until it cools."
-                : "This iPhone is warming up. Responses may be slower."
-            showToast(message)
+            print("[AppRootView] App launched.")
         }
         .onReceive(NotificationCenter.default.publisher(for: .nookModelUnloadedDueToMemory)) { _ in
             activeSession?.trimDisplayedMessages(keepingLast: 40)
@@ -241,9 +233,6 @@ public struct AppRootView: View {
                     } else {
                         ChatListView(
                             conversations: $conversations,
-                            activeTier: runtimeStore.activeTier,
-                            cloudEnabled: runtimeStore.isCloudEnabled,
-                            cloudModel: runtimeStore.cloudModelLabel,
                             onSelectConversation: { convo in
                                 openConversation(convo)
                             },
@@ -422,16 +411,6 @@ public struct AppRootView: View {
         // Sheets
         .sheet(isPresented: $isSettingsOpen) {
             SettingsView(
-                activeTier: Binding(
-                    get: { runtimeStore.activeTier },
-                    set: { _ in }
-                ),
-                onOpenModels: {
-                    self.isSettingsOpen = false
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                        self.isModelsOpen = true
-                    }
-                },
                 onOpenPaywall: {
                     self.isSettingsOpen = false
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
@@ -462,11 +441,6 @@ public struct AppRootView: View {
                     authHeaderValue: auth
                 )
                 showToast("Connected. Enable tools you want Nook to use.")
-            }
-        }
-        .sheet(isPresented: $isModelsOpen) {
-            ModelsView(runtimeStore: runtimeStore) {
-                self.isModelsOpen = false
             }
         }
         .sheet(isPresented: $isPaywallOpen) {
@@ -741,34 +715,19 @@ public struct AppRootView: View {
         ) ?? []
         runtimeStore.resetMemoryPressureState()
 
-        if Self.useBackendOrchestration, let client = apiClient {
-            // Use backend orchestration
-            let backendSession = BackendAgentSession(
-                conversation: convo,
-                messages: messages,
-                apiClient: client,
-                toolRegistry: toolRegistry,
-                knowledgeEngine: knowledgeEngine,
-                skillManager: skillManager,
-                mcpClient: mcpClient,
-                mcpToolRegistrar: mcpToolRegistrar
-            )
-            self.activeBackendSession = backendSession
-            self.activeSession = nil
-        } else {
-            // Use local orchestration
-            let session = AgentSession(
-                conversation: convo,
-                messages: messages,
-                knowledgeEngine: knowledgeEngine,
-                skillManager: skillManager,
-                toolRegistry: toolRegistry,
-                mcpClient: mcpClient,
-                mcpToolRegistrar: mcpToolRegistrar
-            )
-            self.activeSession = session
-            self.activeBackendSession = nil
-        }
+        // Always use backend orchestration
+        let backendSession = BackendAgentSession(
+            conversation: convo,
+            messages: messages,
+            apiClient: apiClient,
+            toolRegistry: toolRegistry,
+            knowledgeEngine: knowledgeEngine,
+            skillManager: skillManager,
+            mcpClient: mcpClient,
+            mcpToolRegistrar: mcpToolRegistrar
+        )
+        self.activeBackendSession = backendSession
+        self.activeSession = nil
     }
     
     private func startNewChat(scopedTo: [String] = []) {

@@ -483,8 +483,6 @@ public final class BackendAgentSession: ObservableObject, ChatSessionProtocol {
         
         // Generic fallback
         return "Something went wrong. Please try again."
-        isStreaming = false
-        activeTask = nil
     }
 
     // MARK: - Persistence

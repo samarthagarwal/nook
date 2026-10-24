@@ -79,4 +79,9 @@ public enum AppPreferences {
         activeTier = chosenTier
         isOnboardingComplete = true
     }
+    
+    /// Simplified onboarding completion for backend-only mode.
+    public static func markOnboardingComplete() {
+        isOnboardingComplete = true
+    }
 }

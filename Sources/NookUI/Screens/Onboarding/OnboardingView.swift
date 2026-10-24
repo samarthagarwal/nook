@@ -1,74 +1,19 @@
 import SwiftUI
 import NookDesign
 import NookCore
-import NookRuntime
 
 public enum OnboardingStep {
     case hero
-    case modelPick
-    case downloading
     case ready
 }
 
 public struct OnboardingView: View {
-    @ObservedObject public var runtimeStore: ModelRuntimeStore
     @State private var currentStep: OnboardingStep = .hero
-    @State private var selectedTier: ModelTier = ModelTier.standardTiers[0]
-    @State private var downloadError: String? = nil
-    private let downloadModel: @Sendable (ModelTier, @escaping @Sendable (Double) -> Void) async throws -> Void
     /// Completes onboarding and lands on the given tab (chat, knowledge, skills, or connect).
-    private let onComplete: (ModelTier, NookTab) -> Void
+    private let onComplete: (NookTab) -> Void
     
-    public init(
-        runtimeStore: ModelRuntimeStore,
-        downloadModel: @escaping @Sendable (ModelTier, @escaping @Sendable (Double) -> Void) async throws -> Void,
-        onComplete: @escaping (ModelTier, NookTab) -> Void
-    ) {
-        self.runtimeStore = runtimeStore
-        self.downloadModel = downloadModel
+    public init(onComplete: @escaping (NookTab) -> Void) {
         self.onComplete = onComplete
-    }
-
-    private var downloadProgress: Double {
-        if case .downloading(let progress, _) = runtimeStore.downloadState {
-            return progress
-        }
-        return 0
-    }
-
-    private var downloadTransfer: DownloadTransferProgress? {
-        if case .downloading(_, let transfer) = runtimeStore.downloadState {
-            return transfer
-        }
-        return nil
-    }
-
-    private var downloadStatusDetail: String {
-        if selectedTier.shipsBundled {
-            return "Preparing bundled model…"
-        }
-        if let transfer = downloadTransfer, transfer.totalBytes > 0 {
-            let downloaded = AppStorageUsage.format(transfer.completedBytes)
-            let total = AppStorageUsage.format(transfer.totalBytes)
-            switch downloadProgress {
-            case ..<0.85:
-                return "\(downloaded) of \(total)"
-            case ..<1.0:
-                return "Loading weights into memory…"
-            default:
-                return "Ready."
-            }
-        }
-        switch downloadProgress {
-        case ..<0.05:
-            return "Connecting to Hugging Face…"
-        case ..<0.85:
-            return "Downloading model files…"
-        case ..<1.0:
-            return "Loading weights into memory…"
-        default:
-            return "Ready."
-        }
     }
     
     public var body: some View {
@@ -81,10 +26,6 @@ public struct OnboardingView: View {
                 switch currentStep {
                 case .hero:
                     heroStepView
-                case .modelPick:
-                    modelPickStepView
-                case .downloading:
-                    downloadingStepView
                 case .ready:
                     readyStepView
                 }
@@ -112,7 +53,7 @@ public struct OnboardingView: View {
                 .foregroundColor(NookColors.ink)
                 .lineSpacing(2)
             
-            Text("Nook runs a capable AI model on this iPhone. Your chats, documents and memory stay here unless you send them somewhere yourself.")
+            Text("Nook is your private AI assistant. Your documents and memory stay on this device unless you send them somewhere yourself.")
                 .font(.system(size: 15.5, weight: .regular))
                 .foregroundColor(NookColors.ink62)
                 .lineSpacing(5)
@@ -122,13 +63,13 @@ public struct OnboardingView: View {
             
             NookPrimaryButton(title: "Get started") {
                 withAnimation(.linear(duration: 0.2)) {
-                    currentStep = .modelPick
+                    currentStep = .ready
                 }
             }
             
             HStack {
                 Spacer()
-                Text("No account. No cloud by default.")
+                Text("No account required.")
                     .font(NookTypography.badge)
                     .foregroundColor(NookColors.ink40)
                 Spacer()
@@ -136,152 +77,7 @@ public struct OnboardingView: View {
         }
     }
     
-    // MARK: - Step 2: Model Pick
-    private var modelPickStepView: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Choose a model")
-                    .font(NookTypography.tabRootTitle)
-                    .foregroundColor(NookColors.ink)
-                
-                Text("You can change this later, or keep more than one.")
-                    .font(NookTypography.body)
-                    .foregroundColor(NookColors.ink62)
-            }
-            
-            VStack(spacing: 12) {
-                ForEach(ModelTier.standardTiers) { tier in
-                    let isSelected = selectedTier.id == tier.id
-                    Button(action: {
-                        selectedTier = tier
-                    }) {
-                        VStack(alignment: .leading, spacing: 8) {
-                            HStack {
-                                Text(tier.name)
-                                    .font(.system(size: 17, weight: isSelected ? .medium : .regular))
-                                    .foregroundColor(NookColors.ink)
-                                
-                                Spacer()
-                                
-                                Text(tier.size)
-                                    .font(NookTypography.badge)
-                                    .foregroundColor(isSelected ? NookColors.local : NookColors.ink55)
-                            }
-                            
-                            Text(tier.desc)
-                                .font(NookTypography.cardSub)
-                                .foregroundColor(NookColors.ink62)
-                            
-                            if isSelected {
-                                HStack(spacing: 6) {
-                                    ForEach(tier.tags, id: \.self) { tag in
-                                        Text(tag)
-                                            .font(NookTypography.badge)
-                                            .foregroundColor(NookColors.local)
-                                            .padding(.horizontal, 7)
-                                            .padding(.vertical, 3)
-                                            .background(
-                                                RoundedRectangle(cornerRadius: NookRadius.tag)
-                                                    .fill(NookColors.localSoft)
-                                            )
-                                    }
-                                }
-                                .padding(.top, 4)
-                            }
-                        }
-                        .padding(16)
-                        .background(
-                            RoundedRectangle(cornerRadius: NookRadius.cardLg)
-                                .fill(NookColors.surface)
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: NookRadius.cardLg)
-                                .strokeBorder(isSelected ? NookColors.local : NookColors.hairlineStrong, lineWidth: isSelected ? 1.5 : 1)
-                        )
-                        .nookCardShadow()
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            
-            Spacer().frame(height: 12)
-            
-            NookPrimaryButton(title: setupButtonTitle) {
-                withAnimation(.linear(duration: 0.2)) {
-                    currentStep = .downloading
-                }
-                startDownload()
-            }
-        }
-    }
-    
-    private var setupButtonTitle: String {
-        selectedTier.shipsBundled ? "Continue" : "Download \(selectedTier.size)"
-    }
-
-    // MARK: - Step 3: Downloading
-    private var downloadingStepView: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            Text(selectedTier.shipsBundled ? "Preparing" : "Downloading")
-                .font(NookTypography.tabRootTitle)
-                .foregroundColor(NookColors.ink)
-            
-            // Linear Progress Bar (6pt tall, radius 6)
-            GeometryReader { geo in
-                ZStack(alignment: .leading) {
-                    RoundedRectangle(cornerRadius: 6)
-                        .fill(NookColors.hairline)
-                        .frame(height: 6)
-                    
-                    RoundedRectangle(cornerRadius: 6)
-                        .fill(NookColors.local)
-                        .frame(width: geo.size.width * CGFloat(downloadProgress), height: 6)
-                        .animation(.linear(duration: 0.2), value: downloadProgress)
-                }
-            }
-            .frame(height: 6)
-            
-            Text("\(selectedTier.name) · \(downloadStatusDetail)   ·   \(Int(downloadProgress * 100))%")
-                .font(NookTypography.badge)
-                .foregroundColor(NookColors.ink55)
-            
-            Text(
-                selectedTier.shipsBundled
-                    ? "This model ships with Nook. No network connection needed."
-                    : "Once it lands, Nook answers without a network connection. You can close the app; the download resumes."
-            )
-                .font(NookTypography.body)
-                .foregroundColor(NookColors.ink55)
-                .lineSpacing(4)
-                .frame(maxWidth: 300, alignment: .leading)
-
-            if let downloadError {
-                Text(downloadError)
-                    .font(NookTypography.meta)
-                    .foregroundColor(NookColors.external)
-                    .lineSpacing(3)
-            }
-            
-            Spacer().frame(height: 40)
-        }
-    }
-    
-    private func startDownload() {
-        downloadError = nil
-        let tier = selectedTier
-        Task {
-            do {
-                try await downloadModel(tier) { _ in }
-                withAnimation(.linear(duration: 0.2)) {
-                    currentStep = .ready
-                }
-            } catch {
-                downloadError = runtimeStore.userFacingErrorMessage(for: error)
-            }
-        }
-    }
-    
-    // MARK: - Step 4: Ready ("You're set")
+    // MARK: - Step 2: Ready ("You're set")
     private var readyStepView: some View {
         VStack(alignment: .leading, spacing: 20) {
             VStack(alignment: .leading, spacing: 6) {
@@ -298,24 +94,24 @@ public struct OnboardingView: View {
                 actionRow(
                     title: "Add Knowledge",
                     sub: "Documents Nook can search",
-                    action: { onComplete(selectedTier, .knowledge) }
+                    action: { onComplete(.knowledge) }
                 )
                 actionRow(
                     title: "Turn on a Skill",
                     sub: "Teach it a way of working",
-                    action: { onComplete(selectedTier, .skills) }
+                    action: { onComplete(.skills) }
                 )
                 actionRow(
                     title: "Connect a service",
                     sub: "Reach outside, with approval",
-                    action: { onComplete(selectedTier, .connect) }
+                    action: { onComplete(.connect) }
                 )
             }
             
             Spacer().frame(height: 12)
             
             NookPrimaryButton(title: "Start a chat") {
-                onComplete(selectedTier, .chat)
+                onComplete(.chat)
             }
         }
     }

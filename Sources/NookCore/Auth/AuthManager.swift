@@ -1,5 +1,6 @@
 import Foundation
 import AuthenticationServices
+import FirebaseAuth
 
 /// Error types for authentication operations.
 public enum AuthError: LocalizedError, Sendable {
@@ -7,7 +8,8 @@ public enum AuthError: LocalizedError, Sendable {
     case signInFailed(String)
     case tokenRefreshFailed
     case cancelled
-
+    case firebaseNotConfigured
+    
     public var errorDescription: String? {
         switch self {
         case .notAuthenticated:
@@ -18,6 +20,8 @@ public enum AuthError: LocalizedError, Sendable {
             return "Failed to refresh authentication token."
         case .cancelled:
             return "Sign in was cancelled."
+        case .firebaseNotConfigured:
+            return "Firebase is not configured. Add GoogleService-Info.plist to your app."
         }
     }
 }
@@ -47,9 +51,15 @@ public protocol AuthProviding: Sendable {
 
     /// Whether a user is currently authenticated.
     var isAuthenticated: Bool { get async }
+    
+    /// Whether the current user is anonymous.
+    var isAnonymous: Bool { get async }
 
     /// Get a fresh ID token for API calls.
     func getIDToken() async throws -> String
+    
+    /// Sign in anonymously (no user interaction required).
+    func signInAnonymously() async throws -> AuthenticatedUser
 
     /// Sign in with Apple credential.
     func signInWithApple(
@@ -67,6 +77,7 @@ public protocol AuthProviding: Sendable {
 public final class AuthManager: ObservableObject {
     @Published public private(set) var currentUser: AuthenticatedUser?
     @Published public private(set) var isAuthenticated: Bool = false
+    @Published public private(set) var isAnonymous: Bool = false
     @Published public private(set) var isLoading: Bool = false
 
     private let provider: any AuthProviding
@@ -83,6 +94,7 @@ public final class AuthManager: ObservableObject {
     public func refreshAuthState() async {
         currentUser = await provider.currentUser
         isAuthenticated = await provider.isAuthenticated
+        isAnonymous = await provider.isAnonymous
     }
 
     /// Get a fresh ID token for API calls.
@@ -91,6 +103,32 @@ public final class AuthManager: ObservableObject {
             throw AuthError.notAuthenticated
         }
         return try await provider.getIDToken()
+    }
+    
+    /// Ensure the user is authenticated, signing in anonymously if needed.
+    /// Call this on app launch to guarantee a valid auth session.
+    public func ensureAuthenticated() async throws {
+        await refreshAuthState()
+        if !isAuthenticated {
+            isLoading = true
+            defer { isLoading = false }
+            let user = try await provider.signInAnonymously()
+            currentUser = user
+            isAuthenticated = true
+            isAnonymous = true
+        }
+    }
+    
+    /// Sign in anonymously. Returns the authenticated user.
+    public func signInAnonymously() async throws -> AuthenticatedUser {
+        isLoading = true
+        defer { isLoading = false }
+        
+        let user = try await provider.signInAnonymously()
+        currentUser = user
+        isAuthenticated = true
+        isAnonymous = true
+        return user
     }
 
     /// Generate a nonce for Sign in with Apple.
@@ -152,12 +190,104 @@ public final class AuthManager: ObservableObject {
     }
 }
 
+// MARK: - Firebase Auth Provider
+
+/// Real Firebase Auth provider for production use.
+public actor FirebaseAuthProvider: AuthProviding {
+    
+    public init() {}
+    
+    public var currentUser: AuthenticatedUser? {
+        guard let user = Auth.auth().currentUser else { return nil }
+        return AuthenticatedUser(
+            uid: user.uid,
+            email: user.email,
+            displayName: user.displayName
+        )
+    }
+    
+    public var isAuthenticated: Bool {
+        Auth.auth().currentUser != nil
+    }
+    
+    public var isAnonymous: Bool {
+        Auth.auth().currentUser?.isAnonymous ?? false
+    }
+    
+    public func getIDToken() async throws -> String {
+        guard let user = Auth.auth().currentUser else {
+            throw AuthError.notAuthenticated
+        }
+        do {
+            return try await user.getIDToken()
+        } catch {
+            throw AuthError.tokenRefreshFailed
+        }
+    }
+    
+    public func signInAnonymously() async throws -> AuthenticatedUser {
+        do {
+            let result = try await Auth.auth().signInAnonymously()
+            return AuthenticatedUser(
+                uid: result.user.uid,
+                email: nil,
+                displayName: nil
+            )
+        } catch {
+            throw AuthError.signInFailed(error.localizedDescription)
+        }
+    }
+    
+    public func signInWithApple(
+        idToken: String,
+        nonce: String,
+        fullName: PersonNameComponents?
+    ) async throws -> AuthenticatedUser {
+        let credential = OAuthProvider.appleCredential(
+            withIDToken: idToken,
+            rawNonce: nonce,
+            fullName: fullName
+        )
+        
+        do {
+            // If currently anonymous, link the Apple credential to upgrade the account
+            if let currentUser = Auth.auth().currentUser, currentUser.isAnonymous {
+                let result = try await currentUser.link(with: credential)
+                return AuthenticatedUser(
+                    uid: result.user.uid,
+                    email: result.user.email,
+                    displayName: result.user.displayName ?? fullName?.formatted()
+                )
+            } else {
+                // Otherwise, sign in fresh
+                let result = try await Auth.auth().signIn(with: credential)
+                return AuthenticatedUser(
+                    uid: result.user.uid,
+                    email: result.user.email,
+                    displayName: result.user.displayName ?? fullName?.formatted()
+                )
+            }
+        } catch {
+            throw AuthError.signInFailed(error.localizedDescription)
+        }
+    }
+    
+    public func signOut() async throws {
+        do {
+            try Auth.auth().signOut()
+        } catch {
+            throw AuthError.signInFailed(error.localizedDescription)
+        }
+    }
+}
+
 // MARK: - Mock Auth Provider for Development/Testing
 
 /// Mock auth provider for development and testing.
 public actor MockAuthProvider: AuthProviding {
     private var user: AuthenticatedUser?
     private var token: String?
+    private var anonymous: Bool = false
 
     public init(preAuthenticatedUser: AuthenticatedUser? = nil) {
         self.user = preAuthenticatedUser
@@ -173,12 +303,28 @@ public actor MockAuthProvider: AuthProviding {
     public var isAuthenticated: Bool {
         user != nil
     }
+    
+    public var isAnonymous: Bool {
+        anonymous
+    }
 
     public func getIDToken() async throws -> String {
         guard let token else {
             throw AuthError.notAuthenticated
         }
         return token
+    }
+    
+    public func signInAnonymously() async throws -> AuthenticatedUser {
+        let newUser = AuthenticatedUser(
+            uid: "anon-\(UUID().uuidString)",
+            email: nil,
+            displayName: nil
+        )
+        self.user = newUser
+        self.token = "mock-anon-token-\(UUID().uuidString)"
+        self.anonymous = true
+        return newUser
     }
 
     public func signInWithApple(
@@ -193,11 +339,13 @@ public actor MockAuthProvider: AuthProviding {
         )
         self.user = newUser
         self.token = "mock-token-\(UUID().uuidString)"
+        self.anonymous = false
         return newUser
     }
 
     public func signOut() async throws {
         user = nil
         token = nil
+        anonymous = false
     }
 }

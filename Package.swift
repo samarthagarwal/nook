@@ -30,7 +30,9 @@ let package = Package(
         .package(url: "https://github.com/huggingface/swift-transformers", from: "1.3.0"),
         .package(url: "https://github.com/groue/GRDB.swift", from: "7.0.0"),
         // Local shallow checkout — remote URL mirror is multi‑GB and stalls Xcode resolve.
-        .package(path: "/tmp/LiteRT-LM")
+        .package(path: "/tmp/LiteRT-LM"),
+        // Firebase Auth for anonymous and Apple Sign In
+        .package(url: "https://github.com/firebase/firebase-ios-sdk", from: "11.0.0")
     ],
     targets: [
         .target(
@@ -41,7 +43,8 @@ let package = Package(
             name: "NookCore",
             dependencies: [
                 "NookDesign",
-                .product(name: "GRDB", package: "GRDB.swift")
+                .product(name: "GRDB", package: "GRDB.swift"),
+                .product(name: "FirebaseAuth", package: "firebase-ios-sdk")
             ]
         ),
         .target(
