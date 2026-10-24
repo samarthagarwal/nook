@@ -1,0 +1,31 @@
+# Render Blueprint for Nook Backend
+# https://render.com/docs/blueprint-spec
+
+services:
+  - type: web
+    name: nook-backend
+    runtime: python
+    region: oregon  # or singapore, frankfurt, ohio
+    plan: free
+    buildCommand: pip install -e .
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12"
+      - key: OPENAI_API_KEY
+        sync: false  # Set manually in dashboard
+      - key: FIREBASE_SERVICE_ACCOUNT
+        sync: false  # Set manually in dashboard (JSON string)
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: nook-redis
+          property: connectionString
+      - key: SKIP_AUTH
+        value: "false"
+    healthCheckPath: /health
+
+  - type: redis
+    name: nook-redis
+    plan: free
+    ipAllowList: []  # Only allow internal connections
