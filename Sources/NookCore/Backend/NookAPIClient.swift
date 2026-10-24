@@ -15,7 +15,7 @@ public struct NookAPIConfig: Sendable {
 
     /// Default configuration pointing to production.
     public static let production = NookAPIConfig(
-        baseURL: URL(string: "https://nook-backend.up.railway.app")!
+        baseURL: URL(string: "https://nook-1juu.onrender.com")!
     )
 
     /// Local development configuration (simulator only).
