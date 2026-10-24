@@ -10,7 +10,7 @@ import Foundation
 ///
 /// Falls back to local processing (via OfflineSession) when backend is unreachable.
 @MainActor
-public final class BackendAgentSession: ObservableObject {
+public final class BackendAgentSession: ObservableObject, ChatSessionProtocol {
     public static let maxMessagesInMemory = 80
 
     @Published public var conversation: Conversation
@@ -21,8 +21,23 @@ public final class BackendAgentSession: ObservableObject {
     @Published public var toastMessage: String? = nil
     @Published public var offlineStatus: OfflineStatus = .online
 
+    /// Compatibility with AgentSession - maps tool confirmation to approval payload
+    public var pendingApproval: OutgoingApprovalPayload? {
+        guard let confirmation = pendingToolConfirmation else { return nil }
+        return OutgoingApprovalPayload(
+            serverName: "Nook",
+            serverUrl: "local",
+            toolName: confirmation.toolName,
+            formattedPayload: confirmation.message
+        )
+    }
+
     public let toolRegistry: ToolRegistry
     public let contextAssembler: ContextAssembler
+    public let knowledgeEngine: KnowledgeEngine
+    public let skillManager: SkillManager
+    public let mcpClient: MCPClient
+    public let mcpToolRegistrar: MCPToolRegistrar
 
     private let apiClient: NookAPIClient
     private let toolHandler: ToolRequestHandler
@@ -39,6 +54,10 @@ public final class BackendAgentSession: ObservableObject {
         apiClient: NookAPIClient,
         toolRegistry: ToolRegistry,
         chatStore: ChatStore = .shared,
+        knowledgeEngine: KnowledgeEngine,
+        skillManager: SkillManager,
+        mcpClient: MCPClient,
+        mcpToolRegistrar: MCPToolRegistrar,
         contextAssembler: ContextAssembler = ContextAssembler()
     ) {
         self.conversation = conversation
@@ -46,6 +65,10 @@ public final class BackendAgentSession: ObservableObject {
         self.apiClient = apiClient
         self.toolRegistry = toolRegistry
         self.chatStore = chatStore
+        self.knowledgeEngine = knowledgeEngine
+        self.skillManager = skillManager
+        self.mcpClient = mcpClient
+        self.mcpToolRegistrar = mcpToolRegistrar
         self.contextAssembler = contextAssembler
         self.toolHandler = ToolRequestHandler(toolRegistry: toolRegistry)
         self.offlineSession = OfflineSession(
@@ -57,11 +80,13 @@ public final class BackendAgentSession: ObservableObject {
     // MARK: - Public API
 
     /// Send a message and stream the response.
+    /// Conforms to ChatSessionProtocol. The `runtime` is only used for offline fallback.
     public func sendMessage(
         text: String,
         attachedImageName: String? = nil,
         wasDictated: Bool = false,
-        localStreamHandler: AgentSession.AgentStreamHandler? = nil
+        runtime: any Sendable,
+        streamHandler: @escaping AgentSession.AgentStreamHandler
     ) async {
         activeTask?.cancel()
 
@@ -88,12 +113,7 @@ public final class BackendAgentSession: ObservableObject {
                 canRetryOnline: true
             )
 
-            if let handler = localStreamHandler {
-                await runOffline(message: text, streamHandler: handler)
-            } else {
-                showToast("Offline mode requires local model support")
-                isThinking = false
-            }
+            await runOffline(message: text, streamHandler: streamHandler)
             return
         }
 
@@ -122,6 +142,30 @@ public final class BackendAgentSession: ObservableObject {
         }
     }
 
+    /// Compatibility with AgentSession approval API.
+    public func resolveApproval(action: ApprovalAction) {
+        switch action {
+        case .sendOnce, .alwaysAllow:
+            resolveToolConfirmation(confirmed: true)
+        case .dont:
+            resolveToolConfirmation(confirmed: false)
+        }
+    }
+
+    /// Set the active skill for this conversation.
+    public func setActiveSkill(_ skill: Skill?) {
+        conversation.activeSkillId = skill?.id
+        persistConversationMetadata()
+    }
+
+    public func persistConversationMetadata() {
+        do {
+            try chatStore.saveConversation(conversation)
+        } catch {
+            print("[BackendAgentSession] Failed to persist conversation: \(error)")
+        }
+    }
+
     /// Retry with online mode after being offline.
     public func retryOnline() async {
         guard let lastUserMessage = messages.last(where: { $0.role == .user }) else { return }
@@ -129,7 +173,11 @@ public final class BackendAgentSession: ObservableObject {
         if let lastAssistant = messages.last, lastAssistant.role == .assistant {
             messages.removeLast()
         }
-        await sendMessage(text: lastUserMessage.content)
+        // Directly run online without needing streamHandler (backend does its own streaming)
+        isThinking = true
+        isStreaming = false
+        offlineStatus = .online
+        await runOnline(message: lastUserMessage.content)
     }
 
     // MARK: - Online Flow
@@ -173,7 +221,7 @@ public final class BackendAgentSession: ObservableObject {
 
         while true {
             // Build request with full state
-            let request = buildChatRequest(message: currentMessage)
+            let request = await buildChatRequest(message: currentMessage)
 
             // Stream from backend
             for try await event in apiClient.chat(request: request) {
@@ -333,7 +381,7 @@ public final class BackendAgentSession: ObservableObject {
 
     // MARK: - Helpers
 
-    private func buildChatRequest(message: String) -> ChatRequestPayload {
+    private func buildChatRequest(message: String) async -> ChatRequestPayload {
         // Build conversation history
         let history = messages
             .filter { $0.role == .user || $0.role == .assistant }
@@ -345,9 +393,16 @@ public final class BackendAgentSession: ObservableObject {
                 ]
             }
 
-        // Get tool schemas
-        // Note: In a real implementation, we'd get these from toolRegistry
-        let tools: [[String: Any]] = [] // TODO: Get from toolRegistry.allToolSchemas()
+        // Get tool schemas from registry (OpenAI-compatible format)
+        let toolSpecs = await toolRegistry.schemas()
+        let tools: [[String: Any]] = toolSpecs.map { spec in
+            // Convert [String: any Sendable] to [String: Any]
+            var dict: [String: Any] = [:]
+            for (key, value) in spec {
+                dict[key] = value
+            }
+            return dict
+        }
 
         return ChatRequestPayload(
             conversationId: conversation.id,
@@ -393,16 +448,41 @@ public final class BackendAgentSession: ObservableObject {
     }
 
     private func handleError(_ error: Error, assistantMsgId: String) async {
-        let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        // Show user-friendly message, not raw API errors
+        let userMessage = userFriendlyErrorMessage(for: error)
 
         if let index = messages.firstIndex(where: { $0.id == assistantMsgId }),
            messages[index].content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            messages[index].content = message
+            messages[index].content = userMessage
             persist(message: messages[index])
         }
 
-        showToast(message)
+        showToast(userMessage)
         isThinking = false
+        
+        // Log the actual error for debugging
+        print("[BackendAgentSession] Error: \(error)")
+    }
+    
+    private func userFriendlyErrorMessage(for error: Error) -> String {
+        // Check for specific error types
+        if let apiError = error as? NookAPIError {
+            switch apiError {
+            case .rateLimitExceeded:
+                return "You've sent too many messages. Please wait a moment and try again."
+            case .unauthorized:
+                return "Your session has expired. Please sign in again."
+            case .serverError:
+                return "Something went wrong on our end. Please try again."
+            case .networkError:
+                return "Unable to connect. Please check your internet connection."
+            default:
+                return "Something went wrong. Please try again."
+            }
+        }
+        
+        // Generic fallback
+        return "Something went wrong. Please try again."
         isStreaming = false
         activeTask = nil
     }

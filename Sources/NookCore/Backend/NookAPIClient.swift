@@ -18,10 +18,22 @@ public struct NookAPIConfig: Sendable {
         baseURL: URL(string: "https://nook-backend.up.railway.app")!
     )
 
-    /// Local development configuration.
+    /// Local development configuration (simulator only).
     public static let local = NookAPIConfig(
         baseURL: URL(string: "http://localhost:8000")!
     )
+
+    /// ngrok tunnel for device testing.
+    public static let ngrok = NookAPIConfig(
+        baseURL: URL(string: "https://114b-165-85-126-198.ngrok-free.app")!
+    )
+
+    /// Current active configuration.
+    #if DEBUG
+    public static let current: NookAPIConfig = .ngrok  // Change to .local for simulator
+    #else
+    public static let current: NookAPIConfig = .production
+    #endif
 }
 
 /// Errors that can occur when communicating with the backend.
@@ -199,16 +211,14 @@ public actor NookAPIClient {
                     try checkStatusCode(httpResponse)
 
                     // Parse SSE events
+                    // Note: bytes.lines may skip empty lines, so we trigger event
+                    // processing when we see a new "event:" line (previous event complete)
                     var eventType: String?
                     var eventData: String = ""
 
                     for try await line in bytes.lines {
                         if line.hasPrefix("event:") {
-                            eventType = String(line.dropFirst(6)).trimmingCharacters(in: .whitespaces)
-                        } else if line.hasPrefix("data:") {
-                            eventData = String(line.dropFirst(5)).trimmingCharacters(in: .whitespaces)
-                        } else if line.isEmpty {
-                            // End of event
+                            // New event starting - process previous event if any
                             if let type = eventType, !eventData.isEmpty {
                                 if let event = parseSSEEvent(type: type, data: eventData) {
                                     continuation.yield(event)
@@ -222,8 +232,18 @@ public actor NookAPIClient {
                                     }
                                 }
                             }
-                            eventType = nil
+                            eventType = String(line.dropFirst(6)).trimmingCharacters(in: .whitespaces)
                             eventData = ""
+                        } else if line.hasPrefix("data:") {
+                            eventData = String(line.dropFirst(5)).trimmingCharacters(in: .whitespaces)
+                        }
+                        // Ignore empty lines - they may or may not be delivered
+                    }
+
+                    // Process final event when stream ends
+                    if let type = eventType, !eventData.isEmpty {
+                        if let event = parseSSEEvent(type: type, data: eventData) {
+                            continuation.yield(event)
                         }
                     }
 

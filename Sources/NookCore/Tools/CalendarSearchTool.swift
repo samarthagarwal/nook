@@ -84,7 +84,7 @@ public final class EventKitCalendarReader: @unchecked Sendable, CalendarEventRea
 
 /// On-device EventKit search — registered as `calendar.search`.
 public final class CalendarSearchTool: @unchecked Sendable, AgentTool {
-    public static let toolName = "calendar.search"
+    public static let toolName = "calendar_search"
 
     public var name: String { Self.toolName }
     public let description = """

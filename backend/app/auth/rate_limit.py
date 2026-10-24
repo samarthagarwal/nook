@@ -51,6 +51,11 @@ class RateLimiter:
         Raises:
             HTTPException 429 if rate limit exceeded
         """
+        # Skip rate limiting in dev mode
+        settings = get_settings()
+        if settings.skip_auth:
+            return
+
         now = datetime.utcnow()
         minute_key = f"rate:{user_id}:min:{now.strftime('%Y%m%d%H%M')}"
         day_key = f"rate:{user_id}:day:{now.strftime('%Y%m%d')}"

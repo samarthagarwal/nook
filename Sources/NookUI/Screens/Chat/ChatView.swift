@@ -4,8 +4,8 @@ import NookCore
 import NookRuntime
 import NookVoice
 
-public struct ChatView: View {
-    @ObservedObject public var session: AgentSession
+public struct ChatView<Session: ChatSessionProtocol>: View {
+    @ObservedObject public var session: Session
     @ObservedObject public var runtimeStore: ModelRuntimeStore
     public let skills: [Skill]
     public let onBack: () -> Void
@@ -30,7 +30,7 @@ public struct ChatView: View {
     }
     
     public init(
-        session: AgentSession,
+        session: Session,
         runtimeStore: ModelRuntimeStore,
         skills: [Skill] = [],
         voiceSession: VoiceSession? = nil,
@@ -122,11 +122,11 @@ public struct ChatView: View {
         .sheet(item: Binding(
             get: { session.pendingApproval },
             set: { newValue in
+                // When sheet is dismissed by swipe, newValue is nil
                 if newValue == nil, session.pendingApproval != nil {
                     session.resolveApproval(action: .dont)
-                } else {
-                    session.pendingApproval = newValue
                 }
+                // Note: pendingApproval is read-only; it's derived from session state
             }
         )) { payload in
             ApprovalSheet(payload: payload) { action in

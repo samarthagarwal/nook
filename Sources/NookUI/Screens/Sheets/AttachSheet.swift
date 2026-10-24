@@ -80,13 +80,13 @@ public struct AttachSheet: View {
     }
 }
 
-public struct ScopeSheet: View {
-    @ObservedObject private var session: AgentSession
+public struct ScopeSheet<Session: ChatSessionProtocol>: View {
+    @ObservedObject private var session: Session
     public let availableCollections: [String]
     public let onClose: () -> Void
     
     public init(
-        session: AgentSession,
+        session: Session,
         availableCollections: [String] = [],
         onClose: @escaping () -> Void
     ) {

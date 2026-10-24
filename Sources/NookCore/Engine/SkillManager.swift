@@ -21,8 +21,8 @@ public actor SkillManager {
                 Do not invent meetings that are not in the tool result.
                 """,
                 permissions: [
-                    SkillPermission(tool: "calendar.search", what: "Read your calendar", isGranted: true),
-                    SkillPermission(tool: "conversation.search", what: "Search past conversations", isGranted: true),
+                    SkillPermission(tool: "calendar_search", what: "Read your calendar", isGranted: true),
+                    SkillPermission(tool: "conversation_search", what: "Search past conversations", isGranted: true),
                 ]
             ),
         ]

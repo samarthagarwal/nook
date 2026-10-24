@@ -6,7 +6,7 @@ import Foundation
 /// Returns the closest matching user and assistant messages so the model can answer
 /// follow-up questions that need the actual wording from a previous chat.
 public final class ConversationSearchTool: @unchecked Sendable, AgentTool {
-    public static let toolName = "conversation.search"
+    public static let toolName = "conversation_search"
 
     /// Hard cap on characters returned per message so we don't blow the context window.
     private static let maxMessageChars = 500

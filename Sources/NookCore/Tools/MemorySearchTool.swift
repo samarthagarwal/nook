@@ -4,7 +4,7 @@ import Foundation
 /// Registered as `memory.search` so the model can explicitly retrieve memory
 /// context, producing a UI chip just like `documents_search` and MCP tools.
 public final class MemorySearchTool: @unchecked Sendable, AgentTool {
-    public static let toolName = "memory.search"
+    public static let toolName = "memory_search"
 
     public var name: String { Self.toolName }
     public let description = """

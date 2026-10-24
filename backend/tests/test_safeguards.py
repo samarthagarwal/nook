@@ -14,33 +14,33 @@ class TestAgentSafeguards:
 
     def test_is_write_tool_known_tools(self) -> None:
         """Known write tools should be identified."""
-        assert self.safeguards.is_write_tool("todos.create") is True
-        assert self.safeguards.is_write_tool("todos.delete") is True
-        assert self.safeguards.is_write_tool("notes.save") is True
+        assert self.safeguards.is_write_tool("todos_create") is True
+        assert self.safeguards.is_write_tool("todos_delete") is True
+        assert self.safeguards.is_write_tool("notes_save") is True
 
     def test_is_write_tool_read_tools(self) -> None:
         """Read-only tools should not be identified as write tools."""
-        assert self.safeguards.is_write_tool("todos.list") is False
-        assert self.safeguards.is_write_tool("memory.search") is False
-        assert self.safeguards.is_write_tool("calendar.search") is False
+        assert self.safeguards.is_write_tool("todos_list") is False
+        assert self.safeguards.is_write_tool("memory_search") is False
+        assert self.safeguards.is_write_tool("calendar_search") is False
 
     def test_is_write_tool_suffix_detection(self) -> None:
         """Tools with write suffixes should be detected."""
-        assert self.safeguards.is_write_tool("custom.create") is True
-        assert self.safeguards.is_write_tool("custom.delete") is True
-        assert self.safeguards.is_write_tool("custom.update") is True
-        assert self.safeguards.is_write_tool("custom.save") is True
+        assert self.safeguards.is_write_tool("custom_create") is True
+        assert self.safeguards.is_write_tool("custom_delete") is True
+        assert self.safeguards.is_write_tool("custom_update") is True
+        assert self.safeguards.is_write_tool("custom_save") is True
 
     def test_requires_confirmation(self) -> None:
         """Destructive tools should require confirmation."""
-        assert self.safeguards.requires_confirmation("todos.delete") is True
-        assert self.safeguards.requires_confirmation("todos.create") is False
-        assert self.safeguards.requires_confirmation("todos.list") is False
+        assert self.safeguards.requires_confirmation("todos_delete") is True
+        assert self.safeguards.requires_confirmation("todos_create") is False
+        assert self.safeguards.requires_confirmation("todos_list") is False
 
     def test_validate_tool_call_allowed(self) -> None:
         """Normal tool calls should be allowed."""
         allowed, reason = self.safeguards.validate_tool_call(
-            tool_name="todos.create",
+            tool_name="todos_create",
             arguments={"title": "Test"},
             history=[],
             executed_tool_ids=set(),
@@ -51,9 +51,9 @@ class TestAgentSafeguards:
     def test_validate_tool_call_blocked_sequence(self) -> None:
         """Blocked sequences should be rejected."""
         allowed, reason = self.safeguards.validate_tool_call(
-            tool_name="todos.delete",
+            tool_name="todos_delete",
             arguments={"id": "2"},
-            history=["todos.delete"],  # Already deleted one
+            history=["todos_delete"],  # Already deleted one
             executed_tool_ids=set(),
         )
         assert allowed is False
@@ -64,9 +64,9 @@ class TestAgentSafeguards:
         safeguards = AgentSafeguards(max_tool_calls=2)
 
         allowed, reason = safeguards.validate_tool_call(
-            tool_name="todos.list",
+            tool_name="todos_list",
             arguments={},
-            history=["todos.list", "memory.search"],  # Already 2 calls
+            history=["todos_list", "memory_search"],  # Already 2 calls
             executed_tool_ids=set(),
         )
         assert allowed is False
@@ -77,9 +77,9 @@ class TestAgentSafeguards:
         safeguards = AgentSafeguards(max_write_tools=2)
 
         allowed, reason = safeguards.validate_tool_call(
-            tool_name="todos.create",
+            tool_name="todos_create",
             arguments={"title": "Third"},
-            history=["todos.create", "notes.save"],  # Already 2 writes
+            history=["todos_create", "notes_save"],  # Already 2 writes
             executed_tool_ids=set(),
         )
         assert allowed is False

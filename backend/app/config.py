@@ -30,6 +30,9 @@ class Settings(BaseSettings):
     # Logging
     log_level: str = "INFO"
 
+    # Dev mode - skip auth for local testing
+    skip_auth: bool = False
+
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
     @property

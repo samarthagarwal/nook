@@ -26,9 +26,14 @@ public struct AppRootView: View {
     private let mcpClient: MCPClient
     private let mcpToolRegistrar: MCPToolRegistrar
     
+    // Backend orchestration mode
+    private static let useBackendOrchestration = true  // Toggle to switch between local/backend
+    private let apiClient: NookAPIClient?
+
     // Navigation / Detail States
     @State private var conversations: [Conversation] = []
     @State private var activeSession: AgentSession? = nil
+    @State private var activeBackendSession: BackendAgentSession? = nil
     @State private var selectedCollection: KnowledgeCollection? = nil
     @State private var selectedDocument: KnowledgeDocument? = nil
     @State private var documentContent: String = ""
@@ -75,6 +80,19 @@ public struct AppRootView: View {
         
         // Voice input setup (uses Apple Speech framework for live transcription)
         _voiceSession = StateObject(wrappedValue: VoiceSession())
+
+        // Backend API client (for backend orchestration mode)
+        if Self.useBackendOrchestration {
+            self.apiClient = NookAPIClient(
+                config: .current,
+                authProvider: {
+                    // For now, return a dev token. Replace with real auth later.
+                    return "dev-token"
+                }
+            )
+        } else {
+            self.apiClient = nil
+        }
     }
     
     public var body: some View {
@@ -152,7 +170,40 @@ public struct AppRootView: View {
             ZStack {
                 // Tab 1: Chat Root or Active Chat Detail
                 if selectedTab == .chat {
-                    if let session = activeSession {
+                    if let session = activeBackendSession {
+                        // Backend orchestration mode
+                        ChatView(
+                            session: session,
+                            runtimeStore: runtimeStore,
+                            skills: skillState.skills,
+                            voiceSession: voiceSession,
+                            audioLevelMeter: audioLevelMeter,
+                            onBack: {
+                                if session.messages.isEmpty {
+                                    try? ChatStore.shared.deleteConversation(id: session.conversation.id)
+                                } else {
+                                    session.trimDisplayedMessages()
+                                }
+                                self.activeBackendSession = nil
+                                self.runtimeStore.releaseModelWhenIdle()
+                                self.runtimeStore.resetMemoryPressureState()
+                                loadConversations()
+                            },
+                            onOpenScope: {
+                                self.isScopeSheetOpen = true
+                            },
+                            onOpenAttach: {
+                                self.isAttachSheetOpen = true
+                            },
+                            onSelectCitation: { citation in
+                                self.activeCitation = citation
+                            },
+                            onDelete: {
+                                conversationPendingDelete = session.conversation
+                            }
+                        )
+                    } else if let session = activeSession {
+                        // Local orchestration mode
                         ChatView(
                             session: session,
                             runtimeStore: runtimeStore,
@@ -451,7 +502,20 @@ public struct AppRootView: View {
             .presentationBackground(NookColors.surface)
         }
         .sheet(isPresented: $isScopeSheetOpen) {
-            if let session = activeSession {
+            if let session = activeBackendSession {
+                // Backend orchestration mode
+                ScopeSheet(
+                    session: session,
+                    availableCollections: knowledgeState.collections.map(\.name),
+                    onClose: {
+                        self.isScopeSheetOpen = false
+                    }
+                )
+                .presentationDetents([.medium])
+                .presentationDragIndicator(.visible)
+                .presentationBackground(NookColors.surface)
+            } else if let session = activeSession {
+                // Local orchestration mode
                 ScopeSheet(
                     session: session,
                     availableCollections: knowledgeState.collections.map(\.name),
@@ -676,16 +740,35 @@ public struct AppRootView: View {
             )
         ) ?? []
         runtimeStore.resetMemoryPressureState()
-        let session = AgentSession(
-            conversation: convo,
-            messages: messages,
-            knowledgeEngine: knowledgeEngine,
-            skillManager: skillManager,
-            toolRegistry: toolRegistry,
-            mcpClient: mcpClient,
-            mcpToolRegistrar: mcpToolRegistrar
-        )
-        self.activeSession = session
+
+        if Self.useBackendOrchestration, let client = apiClient {
+            // Use backend orchestration
+            let backendSession = BackendAgentSession(
+                conversation: convo,
+                messages: messages,
+                apiClient: client,
+                toolRegistry: toolRegistry,
+                knowledgeEngine: knowledgeEngine,
+                skillManager: skillManager,
+                mcpClient: mcpClient,
+                mcpToolRegistrar: mcpToolRegistrar
+            )
+            self.activeBackendSession = backendSession
+            self.activeSession = nil
+        } else {
+            // Use local orchestration
+            let session = AgentSession(
+                conversation: convo,
+                messages: messages,
+                knowledgeEngine: knowledgeEngine,
+                skillManager: skillManager,
+                toolRegistry: toolRegistry,
+                mcpClient: mcpClient,
+                mcpToolRegistrar: mcpToolRegistrar
+            )
+            self.activeSession = session
+            self.activeBackendSession = nil
+        }
     }
     
     private func startNewChat(scopedTo: [String] = []) {

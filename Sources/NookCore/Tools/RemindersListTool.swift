@@ -78,7 +78,7 @@ public final class EventKitReminderReader: @unchecked Sendable, ReminderReading 
 
 /// On-device Reminders read — registered as `reminders.list`.
 public final class RemindersListTool: @unchecked Sendable, AgentTool {
-    public static let toolName = "reminders.list"
+    public static let toolName = "reminders_list"
 
     public var name: String { Self.toolName }
     public let description = """

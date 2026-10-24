@@ -8,7 +8,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from app.config import get_settings
 
 # Security scheme for Bearer token
-security = HTTPBearer()
+security = HTTPBearer(auto_error=False)
 
 # Track if Firebase has been initialized
 _firebase_initialized = False
@@ -21,13 +21,19 @@ def init_firebase() -> None:
         return
 
     settings = get_settings()
+
+    # Skip Firebase init in dev mode
+    if settings.skip_auth:
+        _firebase_initialized = True
+        return
+
     cred = credentials.Certificate(settings.firebase_credentials)
     firebase_admin.initialize_app(cred)
     _firebase_initialized = True
 
 
 async def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Security(security),
+    credentials: HTTPAuthorizationCredentials | None = Security(security),
 ) -> dict:
     """
     Verify Firebase ID token and extract user info.
@@ -38,6 +44,19 @@ async def get_current_user(
     Raises:
         HTTPException 401 if token is invalid or expired
     """
+    settings = get_settings()
+
+    # Dev mode bypass
+    if settings.skip_auth:
+        return {
+            "uid": "dev-user",
+            "email": "dev@localhost",
+            "name": "Dev User",
+        }
+
+    if credentials is None:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
     try:
         decoded = auth.verify_id_token(credentials.credentials)
         return {

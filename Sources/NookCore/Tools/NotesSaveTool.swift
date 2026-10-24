@@ -2,7 +2,7 @@ import Foundation
 
 /// Saves information to Knowledge for later retrieval.
 public final class NotesSaveTool: @unchecked Sendable, AgentTool {
-    public static let toolName = "notes.save"
+    public static let toolName = "notes_save"
     
     public var name: String { Self.toolName }
     public let description = """

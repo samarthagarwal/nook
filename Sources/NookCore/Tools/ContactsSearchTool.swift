@@ -70,7 +70,7 @@ public final class CNContactSearcher: @unchecked Sendable, ContactSearching {
 
 /// On-device Contacts search — registered as `contacts.search`.
 public final class ContactsSearchTool: @unchecked Sendable, AgentTool {
-    public static let toolName = "contacts.search"
+    public static let toolName = "contacts_search"
 
     public var name: String { Self.toolName }
     public let description = """

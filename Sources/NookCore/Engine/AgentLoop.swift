@@ -15,7 +15,7 @@ public enum AgentLoop {
     /// 1 is enough — if the first call returns results, calling the same tool
     /// again with a slightly different query is almost always redundant.
     public static let maxCallsPerTool = 1
-    /// Write tools (`.create`) may run once per item — milk, eggs, bread — in one turn.
+    /// Write tools (`_create`) may run once per item — milk, eggs, bread — in one turn.
     public static let maxCallsPerWriteTool = 8
 
     static func maxCalls(for toolName: String) -> Int {
@@ -23,7 +23,7 @@ public enum AgentLoop {
     }
 
     static func isWriteTool(_ name: String) -> Bool {
-        name.hasSuffix(".create") || name.hasSuffix(".save") || name.hasSuffix(".complete") || name.hasSuffix(".delete")
+        name.hasSuffix("_create") || name.hasSuffix("_save") || name.hasSuffix("_complete") || name.hasSuffix("_delete")
     }
 
     public struct Output: Sendable {

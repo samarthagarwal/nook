@@ -1,7 +1,7 @@
 import Foundation
 
 @MainActor
-public final class AgentSession: ObservableObject {
+public final class AgentSession: ObservableObject, ChatSessionProtocol {
     public static let maxMessagesInMemory = 80
 
     public typealias AgentStreamHandler = @Sendable (
@@ -539,7 +539,7 @@ public final class AgentSession: ObservableObject {
             if resolved == RemindersCreateTool.toolName,
                let reminders = await registry.getTool(named: resolved) as? RemindersCreateTool {
                 let lookupResults = toolGrounding.texts.filter {
-                    !$0.lowercased().hasPrefix("reminders.create")
+                    !$0.lowercased().hasPrefix("reminders_create")
                 }
                 reminders.setGroundingText(
                     ([userGrounding] + lookupResults)

@@ -136,14 +136,14 @@ public final class EventKitReminderWriter: @unchecked Sendable, ReminderWriting 
 /// and should always be available regardless of which Skill is active.
 public enum AlwaysOfferedLocalTools {
     public static let names: Set<String> = [
-        "calendar.create",              // CalendarCreateTool
-        "contacts.search",              // ContactsSearchTool
-        "todos.create",                 // TodosCreateTool
-        "todos.complete",               // TodosCompleteTool
-        "todos.list",                   // TodosListTool
-        "todos.update",                 // TodosUpdateTool
-        "todos.delete",                 // TodosDeleteTool
-        "notes.save",                   // NotesSaveTool
+        "calendar_create",              // CalendarCreateTool
+        "contacts_search",              // ContactsSearchTool
+        "todos_create",                 // TodosCreateTool
+        "todos_complete",               // TodosCompleteTool
+        "todos_list",                   // TodosListTool
+        "todos_update",                 // TodosUpdateTool
+        "todos_delete",                 // TodosDeleteTool
+        "notes_save",                   // NotesSaveTool
     ]
 
     public static func contains(_ name: String) -> Bool {
@@ -153,7 +153,7 @@ public enum AlwaysOfferedLocalTools {
 
 /// On-device Reminders write — registered as `reminders.create`.
 public final class RemindersCreateTool: @unchecked Sendable, AgentTool {
-    public static let toolName = "reminders.create"
+    public static let toolName = "reminders_create"
 
     public var name: String { Self.toolName }
     public let description = """

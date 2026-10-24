@@ -37,14 +37,18 @@ public actor MCPToolRegistrar {
     }
 
     /// Model-facing name: `server_slug.tool_name` so two MCP servers never collide.
-    /// Dot separator is far more common in LLM training data than double-underscore,
-    /// so small models reproduce it reliably in Gemma `call:server.tool_name{…}` format.
+    /// Generates a registry name for an MCP tool.
+    /// Uses underscore separator for OpenAI API compatibility (must match ^[a-zA-Z0-9_-]+$).
     public static func registryName(server: MCPServer, tool: MCPToolEntry) -> String {
         let slug = server.name
             .lowercased()
             .replacingOccurrences(of: #"\s+"#, with: "_", options: .regularExpression)
             .replacingOccurrences(of: #"[^a-z0-9_]+"#, with: "", options: .regularExpression)
         let safeSlug = slug.isEmpty ? "mcp" : slug
-        return "\(safeSlug).\(tool.name)"
+        // Also sanitize tool name to ensure OpenAI compatibility
+        let safeTool = tool.name
+            .replacingOccurrences(of: ".", with: "_")
+            .replacingOccurrences(of: #"[^a-zA-Z0-9_-]+"#, with: "_", options: .regularExpression)
+        return "\(safeSlug)__\(safeTool)"
     }
 }

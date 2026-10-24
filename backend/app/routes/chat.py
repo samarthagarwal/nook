@@ -57,9 +57,21 @@ async def chat(
     async def event_generator():
         """Generate SSE events from orchestrator."""
         async for event in orchestrator.run(request):
+            # Pass pre-formatted SSE string directly
             yield event
 
-    return EventSourceResponse(event_generator())
+    # Use raw Response for pre-formatted SSE
+    from starlette.responses import StreamingResponse
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",  # Disable nginx buffering
+        },
+    )
 
 
 @router.post("/{conversation_id}/tool-result")

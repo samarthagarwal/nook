@@ -3,7 +3,7 @@
 from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_serializer
 
 
 class LoopState(str, Enum):
@@ -29,6 +29,12 @@ class TurnState(BaseModel):
     executed_tool_ids: set[str] = Field(default_factory=set)  # Prevent duplicate mutations
 
     model_config = {"extra": "forbid"}
+
+    @field_serializer("executed_tool_ids")
+    @classmethod
+    def serialize_executed_tool_ids(cls, v: set[str]) -> list[str]:
+        """Convert set to list for JSON serialization."""
+        return list(v)
 
 
 class ChatRequest(BaseModel):

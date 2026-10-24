@@ -44,6 +44,9 @@ class OpenAIClient:
             if tools:
                 kwargs["tools"] = tools
                 kwargs["tool_choice"] = "auto"
+                # Some models (e.g., gpt-6-luna) don't support reasoning_effort with tools
+                # Setting to 'none' ensures compatibility
+                kwargs["reasoning_effort"] = "none"
 
             if stream:
                 async for event in self._stream_response(**kwargs):

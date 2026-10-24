@@ -57,7 +57,7 @@ def request_with_tools() -> ChatRequest:
             {
                 "type": "function",
                 "function": {
-                    "name": "todos.create",
+                    "name": "todos_create",
                     "description": "Create a todo item",
                     "parameters": {
                         "type": "object",
@@ -107,7 +107,7 @@ class TestAgentOrchestrator:
         """Test that tool calls are dispatched to client."""
         mock_client = MockOpenAIClient([
             [
-                {"type": "tool_call", "id": "call-1", "name": "todos.create", "arguments": {"title": "milk"}},
+                {"type": "tool_call", "id": "call-1", "name": "todos_create", "arguments": {"title": "milk"}},
                 {"type": "done", "content": "", "finish_reason": "tool_calls"},
             ]
         ])
@@ -125,7 +125,7 @@ class TestAgentOrchestrator:
         # Should have tool_request and awaiting_tools events
         event_str = "".join(events)
         assert "tool_request" in event_str
-        assert "todos.create" in event_str
+        assert "todos_create" in event_str
         assert "awaiting_tools" in event_str
 
     @pytest.mark.asyncio
@@ -136,7 +136,7 @@ class TestAgentOrchestrator:
         # Simulate model always requesting tools
         mock_client = MockOpenAIClient([
             [
-                {"type": "tool_call", "id": "call-1", "name": "test.tool", "arguments": {}},
+                {"type": "tool_call", "id": "call-1", "name": "test_tool", "arguments": {}},
                 {"type": "done", "content": "", "finish_reason": "tool_calls"},
             ]
         ] * 10)  # More than max_iterations
@@ -164,7 +164,7 @@ class TestAgentOrchestrator:
         request_with_tools.available_tools.append({
             "type": "function",
             "function": {
-                "name": "todos.delete",
+                "name": "todos_delete",
                 "description": "Delete a todo",
                 "parameters": {"type": "object", "properties": {}},
             },
@@ -174,14 +174,14 @@ class TestAgentOrchestrator:
         request_with_tools.turn_state = TurnState(
             iteration=1,
             completed_tool_results=[
-                {"tool_call_id": "prev-1", "tool_name": "todos.delete", "content": "Deleted"}
+                {"tool_call_id": "prev-1", "tool_name": "todos_delete", "content": "Deleted"}
             ],
         )
 
         mock_client = MockOpenAIClient([
             [
                 # Model tries to delete again
-                {"type": "tool_call", "id": "call-2", "name": "todos.delete", "arguments": {}},
+                {"type": "tool_call", "id": "call-2", "name": "todos_delete", "arguments": {}},
                 {"type": "done", "content": "", "finish_reason": "tool_calls"},
             ]
         ])

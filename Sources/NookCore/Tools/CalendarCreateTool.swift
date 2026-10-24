@@ -80,7 +80,7 @@ enum CalendarCreateError: LocalizedError {
 
 /// On-device EventKit event creation — registered as `calendar.create`.
 public final class CalendarCreateTool: @unchecked Sendable, AgentTool {
-    public static let toolName = "calendar.create"
+    public static let toolName = "calendar_create"
 
     public var name: String { Self.toolName }
     public let description = """

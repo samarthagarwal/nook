@@ -17,23 +17,23 @@ class AgentSafeguards:
 
     # Tool sequences that should be blocked
     BLOCKED_TOOL_SEQUENCES: set[tuple[str, str]] = {
-        ("todos.delete", "todos.delete"),  # No bulk deletes in sequence
+        ("todos_delete", "todos_delete"),  # No bulk deletes in sequence
     }
 
     # Tools that modify data (writes)
     WRITE_TOOLS: set[str] = {
-        "todos.create",
-        "todos.update",
-        "todos.delete",
-        "todos.complete",
-        "notes.save",
-        "calendar.create",
-        "reminders.create",
+        "todos_create",
+        "todos_update",
+        "todos_delete",
+        "todos_complete",
+        "notes_save",
+        "calendar_create",
+        "reminders_create",
     }
 
     # Tools that require user confirmation
     CONFIRMATION_REQUIRED: set[str] = {
-        "todos.delete",
+        "todos_delete",
     }
 
     def __init__(
@@ -49,7 +49,7 @@ class AgentSafeguards:
     def is_write_tool(self, tool_name: str) -> bool:
         """Check if a tool performs write operations."""
         return tool_name in self.WRITE_TOOLS or any(
-            tool_name.endswith(suffix) for suffix in (".create", ".delete", ".update", ".save")
+            tool_name.endswith(suffix) for suffix in ("_create", "_delete", "_update", "_save")
         )
 
     def requires_confirmation(self, tool_name: str) -> bool:

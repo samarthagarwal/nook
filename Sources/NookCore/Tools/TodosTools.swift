@@ -4,7 +4,7 @@ import Foundation
 
 /// Creates an internal Nook todo item.
 public final class TodosCreateTool: @unchecked Sendable, AgentTool {
-    public static let toolName = "todos.create"
+    public static let toolName = "todos_create"
     
     public var name: String { Self.toolName }
     public let description = """
@@ -140,7 +140,7 @@ public final class TodosCreateTool: @unchecked Sendable, AgentTool {
 
 /// Marks a Nook todo as complete.
 public final class TodosCompleteTool: @unchecked Sendable, AgentTool {
-    public static let toolName = "todos.complete"
+    public static let toolName = "todos_complete"
     
     public var name: String { Self.toolName }
     public let description = """
@@ -204,7 +204,7 @@ public final class TodosCompleteTool: @unchecked Sendable, AgentTool {
 
 /// Lists Nook todos.
 public final class TodosListTool: @unchecked Sendable, AgentTool {
-    public static let toolName = "todos.list"
+    public static let toolName = "todos_list"
     
     public var name: String { Self.toolName }
     public let description = """
@@ -292,7 +292,7 @@ public final class TodosListTool: @unchecked Sendable, AgentTool {
 
 /// Updates an existing Nook todo.
 public final class TodosUpdateTool: @unchecked Sendable, AgentTool {
-    public static let toolName = "todos.update"
+    public static let toolName = "todos_update"
     
     public var name: String { Self.toolName }
     public let description = """
@@ -468,7 +468,7 @@ public final class TodosUpdateTool: @unchecked Sendable, AgentTool {
 
 /// Deletes a Nook todo.
 public final class TodosDeleteTool: @unchecked Sendable, AgentTool {
-    public static let toolName = "todos.delete"
+    public static let toolName = "todos_delete"
     
     public var name: String { Self.toolName }
     public let description = """

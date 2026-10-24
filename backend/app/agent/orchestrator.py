@@ -99,6 +99,7 @@ class AgentOrchestrator:
                 ):
                     if event["type"] == "token":
                         content_buffer += event["content"]
+                        print(f"[DEBUG] Streaming token: {repr(event['content'][:50] if len(event['content']) > 50 else event['content'])}")
                         yield StreamEvent(
                             event_type="token", data={"content": event["content"]}
                         ).to_sse()
@@ -201,6 +202,7 @@ class AgentOrchestrator:
                 iterations=turn_state.iteration,
                 total_tool_calls=total_tool_calls,
             )
+            print(f"[DEBUG] Sending done event, content_buffer length: {len(content_buffer)}")
             yield StreamEvent(event_type="done", data={"iterations": turn_state.iteration}).to_sse()
 
         except asyncio.CancelledError:
