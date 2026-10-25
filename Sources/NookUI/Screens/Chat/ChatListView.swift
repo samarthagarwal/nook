@@ -47,80 +47,124 @@ public struct ChatListView: View {
             .padding(.top, 16)
             .padding(.bottom, 14)
             
-            // Conversation list
-            ScrollView {
-                LazyVStack(spacing: 7) {
-                    ForEach(conversations) { convo in
-                        Button(action: {
-                            onSelectConversation(convo)
-                        }) {
-                            VStack(alignment: .leading, spacing: 6) {
-                                HStack {
-                                    Text(ChatStore.plainText(from: convo.title))
-                                        .font(NookTypography.rowTitle)
-                                        .foregroundColor(NookColors.ink)
-                                    
-                                    Spacer()
-                                    
-                                    Text(convo.whenString)
-                                        .font(NookTypography.badge)
-                                        .foregroundColor(NookColors.ink45)
-                                }
-                                
-                                Text(ChatStore.plainText(from: convo.snippet))
-                                    .font(NookTypography.body)
-                                    .foregroundColor(NookColors.ink55)
-                                    .lineLimit(2)
-                                    .lineSpacing(3)
-                                    .multilineTextAlignment(.leading)
-                                
-                                if !convo.tags.isEmpty {
-                                    HStack(spacing: 6) {
-                                        ForEach(convo.tags, id: \.self) { tag in
-                                            Text(tag)
-                                                .font(NookTypography.badge)
-                                                .foregroundColor(NookColors.local)
-                                                .padding(.horizontal, 6)
-                                                .padding(.vertical, 2.5)
-                                                .background(
-                                                    RoundedRectangle(cornerRadius: NookRadius.tag)
-                                                        .fill(NookColors.localSoft)
-                                                )
-                                        }
+            // Conversation list or empty state
+            if conversations.isEmpty {
+                VStack(spacing: 16) {
+                    Spacer(minLength: 24)
+                    
+                    Image(systemName: "bubble.left.and.bubble.right")
+                        .font(.system(size: 28, weight: .regular))
+                        .foregroundColor(NookColors.ink40)
+                    
+                    VStack(spacing: 6) {
+                        Text("No chats yet")
+                            .font(NookTypography.cardTitleSerif)
+                            .foregroundColor(NookColors.ink)
+                        
+                        Text("Start a conversation to ask questions, save notes, or get things done.")
+                            .font(NookTypography.body)
+                            .foregroundColor(NookColors.ink55)
+                            .multilineTextAlignment(.center)
+                            .lineSpacing(4)
+                            .padding(.horizontal, 32)
+                    }
+                    
+                    Button(action: onNewChat) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "plus")
+                                .font(.system(size: 13, weight: .semibold))
+                            Text("New chat")
+                                .font(.system(size: 15, weight: .medium))
+                        }
+                        .foregroundColor(NookColors.inkOnDark)
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 11)
+                        .background(
+                            RoundedRectangle(cornerRadius: NookRadius.button)
+                                .fill(NookColors.ink)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.top, 8)
+                    
+                    Spacer()
+                }
+                .frame(maxWidth: .infinity)
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 7) {
+                        ForEach(conversations) { convo in
+                            Button(action: {
+                                onSelectConversation(convo)
+                            }) {
+                                VStack(alignment: .leading, spacing: 6) {
+                                    HStack {
+                                        Text(ChatStore.plainText(from: convo.title))
+                                            .font(NookTypography.rowTitle)
+                                            .foregroundColor(NookColors.ink)
+                                        
+                                        Spacer()
+                                        
+                                        Text(convo.whenString)
+                                            .font(NookTypography.badge)
+                                            .foregroundColor(NookColors.ink45)
                                     }
-                                    .padding(.top, 2)
+                                    
+                                    Text(ChatStore.plainText(from: convo.snippet))
+                                        .font(NookTypography.body)
+                                        .foregroundColor(NookColors.ink55)
+                                        .lineLimit(2)
+                                        .lineSpacing(3)
+                                        .multilineTextAlignment(.leading)
+                                    
+                                    if !convo.tags.isEmpty {
+                                        HStack(spacing: 6) {
+                                            ForEach(convo.tags, id: \.self) { tag in
+                                                Text(tag)
+                                                    .font(NookTypography.badge)
+                                                    .foregroundColor(NookColors.local)
+                                                    .padding(.horizontal, 6)
+                                                    .padding(.vertical, 2.5)
+                                                    .background(
+                                                        RoundedRectangle(cornerRadius: NookRadius.tag)
+                                                            .fill(NookColors.localSoft)
+                                                    )
+                                            }
+                                        }
+                                        .padding(.top, 2)
+                                    }
+                                }
+                                .padding(14)
+                                .background(
+                                    RoundedRectangle(cornerRadius: NookRadius.cardLg)
+                                        .fill(NookColors.surface)
+                                )
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: NookRadius.cardLg)
+                                        .strokeBorder(NookColors.hairline, lineWidth: 1)
+                                )
+                                .nookCardShadow()
+                            }
+                            .buttonStyle(.plain)
+                            .contextMenu {
+                                Button(role: .destructive) {
+                                    onDeleteConversation(convo)
+                                } label: {
+                                    Label("Delete chat", systemImage: "trash")
                                 }
                             }
-                            .padding(14)
-                            .background(
-                                RoundedRectangle(cornerRadius: NookRadius.cardLg)
-                                    .fill(NookColors.surface)
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: NookRadius.cardLg)
-                                    .strokeBorder(NookColors.hairline, lineWidth: 1)
-                            )
-                            .nookCardShadow()
-                        }
-                        .buttonStyle(.plain)
-                        .contextMenu {
-                            Button(role: .destructive) {
-                                onDeleteConversation(convo)
-                            } label: {
-                                Label("Delete chat", systemImage: "trash")
-                            }
-                        }
-                        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                            Button(role: .destructive) {
-                                onDeleteConversation(convo)
-                            } label: {
-                                Label("Delete", systemImage: "trash")
+                            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                Button(role: .destructive) {
+                                    onDeleteConversation(convo)
+                                } label: {
+                                    Label("Delete", systemImage: "trash")
+                                }
                             }
                         }
                     }
+                    .padding(.horizontal, 14)
+                    .padding(.bottom, 24)
                 }
-                .padding(.horizontal, 14)
-                .padding(.bottom, 24)
             }
         }
         .background(NookColors.paper.ignoresSafeArea())

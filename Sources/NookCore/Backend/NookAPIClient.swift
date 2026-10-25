@@ -30,7 +30,7 @@ public struct NookAPIConfig: Sendable {
 
     /// Current active configuration.
     #if DEBUG
-    public static let current: NookAPIConfig = .ngrok  // Change to .local for simulator
+    public static let current: NookAPIConfig = .production  // Use Render backend
     #else
     public static let current: NookAPIConfig = .production
     #endif
