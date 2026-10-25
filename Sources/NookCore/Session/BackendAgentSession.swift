@@ -185,6 +185,12 @@ public final class BackendAgentSession: ObservableObject, ChatSessionProtocol {
     private func runOnline(message: String) async {
         // Initialize turn state
         currentTurnState = ClientTurnState()
+        
+        // Set Knowledge scope for local tool execution
+        let knowledgeScope = conversation.activeKnowledgeScope
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        await toolRegistry.setDocumentsSearchScope(knowledgeScope)
 
         // Create assistant message placeholder
         let assistantMsg = Message(

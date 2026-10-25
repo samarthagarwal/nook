@@ -57,6 +57,9 @@ public final class DocumentsSearchTool: @unchecked Sendable, AgentTool {
         )
     }
 
+    /// Quick Notes collection name - always searchable even without explicit scope.
+    private static let quickNotesCollection = "Quick Notes"
+    
     public func execute(arguments: ToolArguments) async throws -> ToolExecutionResult {
         guard let rawQuery = arguments["query"]?.stringValue else {
             throw DocumentsSearchToolError.missingQuery
@@ -66,12 +69,14 @@ public final class DocumentsSearchTool: @unchecked Sendable, AgentTool {
             throw DocumentsSearchToolError.missingQuery
         }
 
-        let scope = boundScope
-        guard !scope.isEmpty else {
-            return ToolExecutionResult(
-                textForModel: "No Knowledge collections are scoped to this chat. Ask the user to enable a collection.",
-                displayText: "\(Self.toolName) · no scope"
-            )
+        // Always include Quick Notes, even when no explicit scope is set
+        var scope = boundScope
+        if scope.isEmpty {
+            // No explicit scope - search Quick Notes by default
+            scope = [Self.quickNotesCollection]
+        } else if !scope.contains(Self.quickNotesCollection) {
+            // Explicit scope set but doesn't include Quick Notes - add it
+            scope.append(Self.quickNotesCollection)
         }
 
         let result = await search(query: query, scopedToCollections: scope)

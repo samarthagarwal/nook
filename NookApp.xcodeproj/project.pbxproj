@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		74D3E4E2308D25B20000618E /* GoogleService-Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = 74D3E4E1308D25B20000618E /* GoogleService-Info.plist */; };
 		A10000012C84E00000000001 /* NookApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000022C84E00000000001 /* NookApp.swift */; };
 		A10000032C84E00000000001 /* NookUI in Frameworks */ = {isa = PBXBuildFile; productRef = A10000042C84E00000000001 /* NookUI */; };
 		A10000052C84E00000000001 /* NookRuntime in Frameworks */ = {isa = PBXBuildFile; productRef = A10000062C84E00000000001 /* NookRuntime */; };
@@ -17,6 +18,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		74D3E4E1308D25B20000618E /* GoogleService-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "GoogleService-Info.plist"; sourceTree = "<group>"; };
 		A10000022C84E00000000001 /* NookApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NookApp.swift; sourceTree = "<group>"; };
 		A100000B2C84E00000000001 /* NookApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = NookApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A100000C2C84E00000000001 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
@@ -55,6 +57,7 @@
 				A100001E2C84E00000000001 /* Assets.xcassets */,
 				A100001F2C84E00000000001 /* LaunchScreen.storyboard */,
 				A100000C2C84E00000000001 /* Info.plist */,
+				74D3E4E1308D25B20000618E /* GoogleService-Info.plist */,
 			);
 			path = NookApp;
 			sourceTree = "<group>";
@@ -143,6 +146,7 @@
 			files = (
 				A100001D2C84E00000000001 /* Assets.xcassets in Resources */,
 				A10000202C84E00000000001 /* LaunchScreen.storyboard in Resources */,
+				74D3E4E2308D25B20000618E /* GoogleService-Info.plist in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
