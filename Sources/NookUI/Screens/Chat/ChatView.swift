@@ -609,9 +609,9 @@ public struct ChatView<Session: ChatSessionProtocol>: View {
                 .foregroundColor(NookColors.ink)
             
             VStack(spacing: 8) {
-                starterPromptButton("What are the biggest risks in this project?")
-                starterPromptButton("Does this match the spec? (attach screenshot)", hasAttachment: "screenshot-v4.png")
-                starterPromptButton("Check GitHub for open issues about these.")
+                starterPromptButton("What do you know about me?")
+                starterPromptButton("Remember that the weekly sync moved to Thursdays")
+                starterPromptButton("What tasks do I have pending?")
             }
         }
     }
