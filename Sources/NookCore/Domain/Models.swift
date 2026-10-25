@@ -82,6 +82,35 @@ public struct Message: Identifiable, Codable, Equatable, Sendable {
         self.createdAt = createdAt
         self.wasDictated = wasDictated
     }
+    
+    // MARK: - Quick Reply Chips
+    
+    /// Pattern to match `<chip>Label</chip>` tags
+    private static let chipPattern = try! NSRegularExpression(
+        pattern: #"<chip>([^<]+)</chip>"#,
+        options: []
+    )
+    
+    /// Extract quick reply chip labels from the message content.
+    public var quickReplyChips: [String] {
+        guard role == .assistant else { return [] }
+        let range = NSRange(content.startIndex..., in: content)
+        let matches = Self.chipPattern.matches(in: content, options: [], range: range)
+        return matches.compactMap { match in
+            guard let labelRange = Range(match.range(at: 1), in: content) else { return nil }
+            return String(content[labelRange]).trimmingCharacters(in: .whitespaces)
+        }
+    }
+    
+    /// Content with chip tags stripped out (for display).
+    public var contentWithoutChips: String {
+        Self.chipPattern.stringByReplacingMatches(
+            in: content,
+            options: [],
+            range: NSRange(content.startIndex..., in: content),
+            withTemplate: ""
+        ).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 }
 
 public struct Conversation: Identifiable, Codable, Equatable, Sendable {

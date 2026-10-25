@@ -22,6 +22,8 @@ public struct ChatView<Session: ChatSessionProtocol>: View {
     @State private var attachedImage: String? = nil
     @State private var voiceMode: VoiceMode = .idle
     @State private var wasDictated: Bool = false
+    /// Tracks if quick reply chips have been used this turn (to hide them after tap)
+    @State private var chipsUsedForMessageId: String? = nil
     
     private enum VoiceMode {
         case idle
@@ -550,12 +552,13 @@ public struct ChatView<Session: ChatSessionProtocol>: View {
             }
             
         case .assistant:
-            let trimmed = message.content.trimmingCharacters(in: .whitespacesAndNewlines)
+            let displayContent = message.contentWithoutChips
+            let trimmed = displayContent.trimmingCharacters(in: .whitespacesAndNewlines)
             if trimmed.isEmpty {
                 EmptyView()
             } else {
                 VStack(alignment: .leading, spacing: 11) {
-                    AssistantMessageText(message.content)
+                    AssistantMessageText(displayContent)
 
                     if !message.citations.isEmpty {
                         VStack(alignment: .leading, spacing: 6) {
@@ -593,10 +596,54 @@ public struct ChatView<Session: ChatSessionProtocol>: View {
                         }
                         .padding(.top, 4)
                     }
+                    
+                    // Quick Reply Chips - only show on latest assistant message
+                    if isLatestAssistantMessage(message) {
+                        quickReplyChipsView(for: message)
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.trailing, 20)
             }
+        }
+    }
+    
+    /// Check if this is the latest assistant message
+    private func isLatestAssistantMessage(_ message: Message) -> Bool {
+        session.messages.last(where: { $0.role == .assistant })?.id == message.id
+    }
+    
+    /// Quick reply chips view
+    @ViewBuilder
+    private func quickReplyChipsView(for message: Message) -> some View {
+        let chips = message.quickReplyChips
+        // Don't show if: no chips, chips already used, or still streaming
+        if !chips.isEmpty && chipsUsedForMessageId != message.id && !session.isStreaming {
+            HStack(spacing: 8) {
+                ForEach(chips.prefix(3), id: \.self) { chip in
+                    Button(action: {
+                        chipsUsedForMessageId = message.id
+                        inputText = chip
+                        sendCurrentMessage()
+                    }) {
+                        Text(chip)
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundColor(NookColors.local)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 7)
+                            .background(
+                                RoundedRectangle(cornerRadius: NookRadius.chip)
+                                    .fill(NookColors.localSoft)
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: NookRadius.chip)
+                                    .strokeBorder(NookColors.local.opacity(0.3), lineWidth: 1)
+                            )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.top, 8)
         }
     }
     

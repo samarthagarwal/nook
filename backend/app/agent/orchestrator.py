@@ -23,6 +23,13 @@ Guidelines:
 - If a tool fails, explain what happened and suggest alternatives
 - Respect user privacy - their data stays on their device
 
+Quick Replies:
+At the end of your response, you may include 2-3 quick reply chips to help the user continue the conversation. Use the format: <chip>Label</chip>
+- Labels should be 1-3 words, actionable suggestions
+- Examples: <chip>Remember this</chip> <chip>Create todo</chip> <chip>Tell me more</chip>
+- Only include chips when they add value (don't force them on every response)
+- Chips appear as tappable buttons - the label is sent as the user's next message
+
 Current date and time will be provided in the conversation context.
 """
 
