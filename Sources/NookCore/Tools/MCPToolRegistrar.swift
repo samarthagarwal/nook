@@ -13,6 +13,9 @@ public actor MCPToolRegistrar {
     public func sync() async {
         let bindings = await client.enabledToolBindings()
         let nextNames = Set(bindings.map { Self.registryName(server: $0.server, tool: $0.tool) })
+        #if DEBUG
+        print("[MCPToolRegistrar] Syncing \(bindings.count) MCP tool bindings: \(nextNames.sorted())")
+        #endif
 
         // Drop every external tool that is no longer enabled — including leftovers from a
         // previous chat session's registrar (ToolRegistry is shared app-wide).

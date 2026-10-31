@@ -191,6 +191,9 @@ public final class BackendAgentSession: ObservableObject, ChatSessionProtocol {
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
         await toolRegistry.setDocumentsSearchScope(knowledgeScope)
+        
+        // Sync MCP tools so they're included in availableTools for the backend
+        await mcpToolRegistrar.sync()
 
         // Create assistant message placeholder
         let assistantMsg = Message(
@@ -401,6 +404,14 @@ public final class BackendAgentSession: ObservableObject, ChatSessionProtocol {
 
         // Get tool schemas from registry (OpenAI-compatible format)
         let toolSpecs = await toolRegistry.schemas()
+        #if DEBUG
+        let toolNames = toolSpecs.compactMap { spec -> String? in
+            guard let fn = spec["function"] as? [String: any Sendable],
+                  let name = fn["name"] as? String else { return nil }
+            return name
+        }
+        print("[BackendAgentSession] Sending \(toolSpecs.count) tools to backend: \(toolNames.sorted())")
+        #endif
         let tools: [[String: Any]] = toolSpecs.map { spec in
             // Convert [String: any Sendable] to [String: Any]
             var dict: [String: Any] = [:]

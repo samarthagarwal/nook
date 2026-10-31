@@ -19,6 +19,12 @@ class Settings(BaseSettings):
     # Redis
     redis_url: str = "redis://localhost:6379"
 
+    # Langfuse (optional - falls back to hardcoded prompt if not set)
+    langfuse_public_key: str = ""
+    langfuse_secret_key: str = ""
+    langfuse_base_url: str = "https://cloud.langfuse.com"
+    langfuse_prompt_name: str = "nook/system-prompt"
+
     # Rate limiting
     rate_limit_requests_per_minute: int = 20
     rate_limit_requests_per_day: int = 500
